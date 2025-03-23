@@ -5,18 +5,438 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Day Trader</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
-    <link rel="stylesheet" href="/day-trader-v1/app/static/style.css" />
   </head>
   <body>
     <div class="container">
       <header>
         <h1>Day Trader</h1>
+        <h2>Automated Stock Trading System</h2>
         <hr/>
       </header>
+
+      <main>
+        <section class="form-section">
+          <h3>Create New Trading Service</h3>
+          <form action="{{ url_for('create_service') }}" method="POST">
+            <div class="form-group">
+              <label for="stock_symbol">Stock Symbol:</label>
+              <select id="stock_symbol" name="stock_symbol" required>
+                {% for stock in test_stocks %}
+                <option value="{{ stock }}">{{ stock }} - Test Stock</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="starting_balance">Starting Balance ($):</label>
+              <input type="number" id="starting_balance" name="starting_balance" value="1000.00" min="100" step="0.01" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Start Trading Service</button>
+          </form>
+        </section>
+
+        <section class="active-services">
+          <h3>Active Trading Services</h3>
+          <div id="services-container">
+            {% if services %}
+            <table class="data-table" id="services-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Stock</th>
+                  <th>Starting Balance</th>
+                  <th>Current Balance</th>
+                  <th>Gain/Loss</th>
+                  <th>Shares</th>
+                  <th>State</th>
+                  <th>Mode</th>
+                  <th>Buy Trades</th>
+                  <th>Sell Trades</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for service in services %}
+                <tr class="{{ 'inactive' if service.service_state == 'INACTIVE' else '' }}" data-service-id="{{ service.service_id }}">
+                  <td>{{ service.service_id }}</td>
+                  <td>{{ service.stock_symbol }}</td>
+                  <td>${{ service.starting_balance }}</td>
+                  <td>${{ service.fund_balance }}</td>
+                  <td>${{ service.total_gain_loss }}</td>
+                  <td>{{ service.current_number_of_shares }}</td>
+                  <td>{{ service.service_state }}</td>
+                  <td>{{ service.service_mode }}</td>
+                  <td>{{ service.number_of_buy_transactions }}</td>
+                  <td>{{ service.number_of_sell_transactions }}</td>
+                  <td>
+                    {% if service.service_state == 'ACTIVE' %}
+                    <button type="button" class="btn btn-danger stop-service-btn" data-service-id="{{ service.service_id }}">Stop</button>
+                    {% else %}
+                    <button type="button" class="btn btn-success start-service-btn" data-service-id="{{ service.service_id }}">Start</button>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <p id="no-services-message">No services found. Create one to start trading!</p>
+            {% endif %}
+          </div>
+        </section>
+
+        <section class="recent-transactions">
+          <h3>Recent Transactions</h3>
+          <div id="transactions-container">
+            {% if transactions %}
+            <table class="data-table" id="transactions-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Service</th>
+                  <th>Stock</th>
+                  <th>Shares</th>
+                  <th>Purchase Price</th>
+                  <th>Sale Price</th>
+                  <th>Gain/Loss</th>
+                  <th>Purchase Date</th>
+                  <th>Sale Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for tx in transactions %}
+                <tr data-transaction-id="{{ tx.transaction_id }}">
+                  <td>{{ tx.transaction_id }}</td>
+                  <td>{{ tx.service_id }}</td>
+                  <td>{{ tx.stock_symbol }}</td>
+                  <td>{{ tx.number_of_shares }}</td>
+                  <td>${{ tx.purchase_price }}</td>
+                  <td>{{ '$' + tx.sale_price|string if tx.sale_price else 'Pending' }}</td>
+                  <td>{{ '$' + tx.gain_loss|string if tx.gain_loss else 'Pending' }}</td>
+                  <td>{{ tx.date_time_of_purchase.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                  <td>{{ tx.date_time_of_sale.strftime('%Y-%m-%d %H:%M:%S') if tx.date_time_of_sale else 'Pending' }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <p id="no-transactions-message">No transactions found.</p>
+            {% endif %}
+          </div>
+        </section>
+      </main>
+
       <footer>
         <hr />
-        <p>&copy; {{ now.year }} Alexander J. Slivka</p>
+        <div class="footer-content">
+          <p>Data updates automatically every 10 seconds</p>
+          <p class="copyright">&copy; {{ now.year }} Alexander J. Slivka</p>
+        </div>
       </footer>
     </div>
+
+    <script>
+      // Define refresh interval (in milliseconds)
+      const REFRESH_INTERVAL = 10000; // 10 seconds
+      
+      // Helper function to format dates
+      function formatDate(dateString) {
+        if (!dateString) return 'Pending';
+        const date = new Date(dateString);
+        return date.toLocaleString();
+      }
+      
+      // Update services table with fresh data
+      function updateServices() {
+        fetch('/services/active')
+          .then(response => response.json())
+          .then(services => {
+            const container = document.getElementById('services-container');
+            
+            // If no services, show message
+            if (services.length === 0) {
+              container.innerHTML = '<p id="no-services-message">No services found. Create one to start trading!</p>';
+              return;
+            }
+            
+            // If we have services but no table yet, create it
+            let table = document.getElementById('services-table');
+            if (!table) {
+              table = document.createElement('table');
+              table.id = 'services-table';
+              table.className = 'data-table';
+              table.innerHTML = `
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Stock</th>
+                    <th>Starting Balance</th>
+                    <th>Current Balance</th>
+                    <th>Gain/Loss</th>
+                    <th>Shares</th>
+                    <th>State</th>
+                    <th>Mode</th>
+                    <th>Buy Trades</th>
+                    <th>Sell Trades</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              `;
+              container.innerHTML = '';
+              container.appendChild(table);
+            }
+            
+            const tbody = table.querySelector('tbody');
+            
+            // Update existing rows or add new ones
+            services.forEach(service => {
+              let row = tbody.querySelector(`tr[data-service-id="${service.service_id}"]`);
+              const isNewRow = !row;
+              
+              if (isNewRow) {
+                row = document.createElement('tr');
+                row.setAttribute('data-service-id', service.service_id);
+                tbody.appendChild(row);
+              }
+              
+              // Set class for inactive services
+              if (service.service_state === 'INACTIVE') {
+                row.classList.add('inactive');
+              } else {
+                row.classList.remove('inactive');
+              }
+              
+              // Update row content
+              row.innerHTML = `
+                <td>${service.service_id}</td>
+                <td>${service.stock_symbol}</td>
+                <td>$${service.starting_balance}</td>
+                <td>$${service.fund_balance}</td>
+                <td>$${service.total_gain_loss}</td>
+                <td>${service.current_number_of_shares}</td>
+                <td>${service.service_state}</td>
+                <td>${service.service_mode}</td>
+                <td>${service.number_of_buy_transactions}</td>
+                <td>${service.number_of_sell_transactions}</td>
+                <td>
+                  ${service.service_state === 'ACTIVE' 
+                    ? `<button type="button" class="btn btn-danger stop-service-btn" data-service-id="${service.service_id}">Stop</button>` 
+                    : `<button type="button" class="btn btn-success start-service-btn" data-service-id="${service.service_id}">Start</button>`}
+                </td>
+              `;
+            });
+            
+            // Remove rows for services that no longer exist
+            const serviceIds = services.map(s => s.service_id);
+            Array.from(tbody.querySelectorAll('tr')).forEach(row => {
+              const rowId = parseInt(row.getAttribute('data-service-id'));
+              if (!serviceIds.includes(rowId)) {
+                row.remove();
+              }
+            });
+          })
+          .catch(error => console.error('Error updating services:', error));
+      }
+      
+      // Update transactions table with fresh data
+      function updateTransactions() {
+        fetch('/transactions/recent')
+          .then(response => response.json())
+          .then(transactions => {
+            const container = document.getElementById('transactions-container');
+            
+            // If no transactions, show message
+            if (transactions.length === 0) {
+              container.innerHTML = '<p id="no-transactions-message">No transactions found.</p>';
+              return;
+            }
+            
+            // If we have transactions but no table yet, create it
+            let table = document.getElementById('transactions-table');
+            if (!table) {
+              table = document.createElement('table');
+              table.id = 'transactions-table';
+              table.className = 'data-table';
+              table.innerHTML = `
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Service</th>
+                    <th>Stock</th>
+                    <th>Shares</th>
+                    <th>Purchase Price</th>
+                    <th>Sale Price</th>
+                    <th>Gain/Loss</th>
+                    <th>Purchase Date</th>
+                    <th>Sale Date</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              `;
+              container.innerHTML = '';
+              container.appendChild(table);
+            }
+            
+            const tbody = table.querySelector('tbody');
+            
+            // Update existing rows or add new ones
+            transactions.forEach(tx => {
+              let row = tbody.querySelector(`tr[data-transaction-id="${tx.transaction_id}"]`);
+              const isNewRow = !row;
+              
+              if (isNewRow) {
+                row = document.createElement('tr');
+                row.setAttribute('data-transaction-id', tx.transaction_id);
+                tbody.appendChild(row);
+              }
+              
+              // Update row content
+              row.innerHTML = `
+                <td>${tx.transaction_id}</td>
+                <td>${tx.service_id}</td>
+                <td>${tx.stock_symbol}</td>
+                <td>${tx.number_of_shares}</td>
+                <td>$${tx.purchase_price}</td>
+                <td>${tx.sale_price ? '$' + tx.sale_price : 'Pending'}</td>
+                <td>${tx.gain_loss ? '$' + tx.gain_loss : 'Pending'}</td>
+                <td>${formatDate(tx.date_time_of_purchase)}</td>
+                <td>${formatDate(tx.date_time_of_sale)}</td>
+              `;
+            });
+            
+            // Remove rows for transactions that are no longer in the recent list
+            const txIds = transactions.map(t => t.transaction_id);
+            Array.from(tbody.querySelectorAll('tr')).forEach(row => {
+              const rowId = parseInt(row.getAttribute('data-transaction-id'));
+              if (!txIds.includes(rowId)) {
+                row.remove();
+              }
+            });
+          })
+          .catch(error => console.error('Error updating transactions:', error));
+      }
+      
+      // Set up periodic refresh
+      function startAutoRefresh() {
+        // Initial update
+        updateServices();
+        updateTransactions();
+        
+        // Set up interval for ongoing updates
+        setInterval(() => {
+          updateServices();
+          updateTransactions();
+        }, REFRESH_INTERVAL);
+      }
+      
+      // Start auto-refresh when the page loads
+      document.addEventListener('DOMContentLoaded', startAutoRefresh);
+      
+      // Handle button clicks using event delegation
+      document.addEventListener('click', function(event) {
+        // Check if the clicked element is a stop button
+        if (event.target.classList.contains('stop-service-btn')) {
+          const serviceId = event.target.getAttribute('data-service-id');
+          console.log('Stop button clicked for service ID:', serviceId);
+          stopService(serviceId);
+        }
+        // Check if the clicked element is a start button
+        else if (event.target.classList.contains('start-service-btn')) {
+          const serviceId = event.target.getAttribute('data-service-id');
+          console.log('Start button clicked for service ID:', serviceId);
+          startService(serviceId);
+        }
+      });
+      
+      // Function to stop a service via AJAX
+      function stopService(serviceId) {
+        // Immediately update button to pending state
+        const button = document.querySelector(`.stop-service-btn[data-service-id="${serviceId}"]`);
+        if (button) {
+          button.textContent = "Stopping...";
+          button.disabled = true;
+          button.classList.add('pending');
+        }
+        
+        fetch(`/services/${serviceId}/stop`, {
+          method: 'POST',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            console.log(`Service ${serviceId} stopped successfully`);
+            // Button will be updated by the services refresh
+          } else {
+            console.error(`Error stopping service: ${data.error || 'Unknown error'}`);
+            // Restore button on error
+            if (button) {
+              button.textContent = "Stop";
+              button.disabled = false;
+              button.classList.remove('pending');
+            }
+          }
+          // Immediately update the services to reflect the change
+          updateServices();
+        })
+        .catch(error => {
+          console.error(`Error stopping service: ${error}`);
+          // Restore button on error
+          if (button) {
+            button.textContent = "Stop";
+            button.disabled = false;
+            button.classList.remove('pending');
+          }
+          updateServices();
+        });
+      }
+      
+      // Function to start a service via AJAX
+      function startService(serviceId) {
+        // Immediately update button to pending state
+        const button = document.querySelector(`.start-service-btn[data-service-id="${serviceId}"]`);
+        if (button) {
+          button.textContent = "Starting...";
+          button.disabled = true;
+          button.classList.add('pending');
+        }
+        
+        fetch(`/services/${serviceId}/start`, {
+          method: 'POST',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            console.log(`Service ${serviceId} started successfully`);
+            // Button will be updated by the services refresh
+          } else {
+            console.error(`Error starting service: ${data.error || 'Unknown error'}`);
+            // Restore button on error
+            if (button) {
+              button.textContent = "Start";
+              button.disabled = false;
+              button.classList.remove('pending');
+            }
+          }
+          // Immediately update the services to reflect the change
+          updateServices();
+        })
+        .catch(error => {
+          console.error(`Error starting service: ${error}`);
+          // Restore button on error
+          if (button) {
+            button.textContent = "Start";
+            button.disabled = false;
+            button.classList.remove('pending');
+          }
+          updateServices();
+        });
+      }
+    </script>
   </body>
 </html>

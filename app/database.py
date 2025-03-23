@@ -1,7 +1,9 @@
 import os
 import re
-from sqlalchemy import create_engine, inspect
-from sqlalchemy.orm import sessionmaker, scoped_session
+from pathlib import Path
+from typing import List, Optional, Tuple, Union, Dict, Any
+from sqlalchemy import create_engine, inspect, Engine
+from sqlalchemy.orm import sessionmaker, scoped_session, Session as SQLAlchemySession
 from sqlalchemy.schema import CreateTable
 
 # Import models to ensure they're registered with the Base metadata
@@ -9,19 +11,23 @@ from app.models.stock_service_model import Base, StockService
 from app.models.stock_transaction_model import StockTransaction
 
 # SQLite database path
-DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///daytrader.db')
-SQL_FILE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'database.sql')
+DATABASE_URL: str = os.environ.get('DATABASE_URL', 'sqlite:///daytrader.db')
+SQL_FILE_PATH: Path = Path(__file__).parent.parent / 'database.sql'
 
 # Create engine
-engine = create_engine(DATABASE_URL)
+engine: Engine = create_engine(DATABASE_URL)
 
 # Create session factory
 session_factory = sessionmaker(bind=engine)
 Session = scoped_session(session_factory)
 
-def generate_sql_schema():
-    """Generate SQL DDL statements from SQLAlchemy models"""
-    sql_statements = []
+def generate_sql_schema() -> str:
+    """Generate SQL DDL statements from SQLAlchemy models
+    
+    Returns:
+        str: The SQL schema DDL statements
+    """
+    sql_statements: List[str] = []
     
     # Generate CREATE TABLE statements for all models
     for table in Base.metadata.sorted_tables:
@@ -38,35 +44,37 @@ def generate_sql_schema():
     
     return '\n\n'.join(sql_statements)
 
-def save_sql_schema():
-    """Generate and save SQL schema to database.sql file"""
-    sql_schema = generate_sql_schema()
+def save_sql_schema() -> str:
+    """Generate and save SQL schema to database.sql file
     
-    with open(SQL_FILE_PATH, 'w') as f:
-        f.write(sql_schema)
+    Returns:
+        str: The SQL schema that was saved
+    """
+    sql_schema: str = generate_sql_schema()
+    
+    SQL_FILE_PATH.write_text(sql_schema)
     
     print(f"SQL schema saved to {SQL_FILE_PATH}")
     return sql_schema
 
-def compare_sql_schema():
+def compare_sql_schema() -> bool:
     """Compare existing SQL schema file with current models.
     
     Returns:
         bool: True if schemas match, False if they don't or file doesn't exist
     """
-    if not os.path.exists(SQL_FILE_PATH):
+    if not SQL_FILE_PATH.exists():
         print(f"SQL file {SQL_FILE_PATH} does not exist")
         return False
     
     # Read existing SQL schema
-    with open(SQL_FILE_PATH, 'r') as f:
-        existing_schema = f.read()
+    existing_schema: str = SQL_FILE_PATH.read_text()
     
     # Generate current schema from models
-    current_schema = generate_sql_schema()
+    current_schema: str = generate_sql_schema()
     
     # Normalize schemas for comparison (remove whitespace, case insensitive)
-    def normalize_schema(schema):
+    def normalize_schema(schema: str) -> str:
         # Remove comments
         schema = re.sub(r'--.*?\n', '\n', schema)
         # Remove extra whitespace
@@ -75,8 +83,8 @@ def compare_sql_schema():
         schema = schema.lower().strip()
         return schema
     
-    existing_norm = normalize_schema(existing_schema)
-    current_norm = normalize_schema(current_schema)
+    existing_norm: str = normalize_schema(existing_schema)
+    current_norm: str = normalize_schema(current_schema)
     
     # Compare normalized schemas
     if existing_norm == current_norm:
@@ -86,11 +94,14 @@ def compare_sql_schema():
         print("SQL schema does not match current models")
         return False
 
-def init_db(reset=True):
+def init_db(reset: bool = True) -> Engine:
     """Initialize the database, optionally resetting it first.
     
     Args:
-        reset (bool): If True, drops all tables before creating them.
+        reset: If True, drops all tables before creating them.
+        
+    Returns:
+        Engine: SQLAlchemy engine instance
     """
     if reset:
         Base.metadata.drop_all(engine)
@@ -107,12 +118,20 @@ def init_db(reset=True):
     
     return engine
 
-def get_session():
-    """Get a new database session."""
+def get_session() -> SQLAlchemySession:
+    """Get a new database session.
+    
+    Returns:
+        SQLAlchemySession: A new SQLAlchemy session
+    """
     return Session()
 
-def check_and_update_schema():
-    """Check if SQL schema matches models and update if needed"""
+def check_and_update_schema() -> bool:
+    """Check if SQL schema matches models and update if needed
+    
+    Returns:
+        bool: True if schema check/update succeeded
+    """
     if not compare_sql_schema():
         print("Updating SQL schema file")
         save_sql_schema()
@@ -122,8 +141,15 @@ def check_and_update_schema():
     return True
 
 # Function to be called in app startup
-def setup_database(reset_on_startup=True):
-    """Setup database during application startup"""
+def setup_database(reset_on_startup: bool = True) -> Engine:
+    """Setup database during application startup
+    
+    Args:
+        reset_on_startup: Whether to reset the database on startup
+        
+    Returns:
+        Engine: SQLAlchemy engine instance
+    """
     if reset_on_startup:
         init_db(reset=True)
     else:
