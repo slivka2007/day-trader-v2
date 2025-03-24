@@ -1,5 +1,6 @@
 import logging
 import time
+import threading
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
@@ -10,10 +11,10 @@ from app.apis.stock_buy_api import should_buy_stock
 from app.apis.stock_purchase_api import purchase_stock
 from app.apis.stock_sale_api import sell_stock
 from app.apis.stock_sell_api import should_sell_stock
-from app.database import get_session
-from app.exceptions import ServiceError, InvalidStateError
-from app.session_manager import SessionManager, with_session
-from app.constants import (
+from database.scripts.database import get_session
+from app.core.exceptions import ServiceError, InvalidStateError
+from app.core.session_manager import SessionManager, with_session
+from app.core.constants import (
     DECISION_YES, 
     STATE_ACTIVE, 
     STATE_INACTIVE,
@@ -22,8 +23,8 @@ from app.constants import (
     DEFAULT_POLLING_INTERVAL,
     DEMO_POLLING_INTERVAL
 )
-from app.models.stock_service_model import StockService
-from app.models.stock_transaction_model import StockTransaction
+from database.models.stock_service_model import StockService
+from database.models.stock_transaction_model import StockTransaction
 
 logger = logging.getLogger(__name__)
 
@@ -274,5 +275,13 @@ class StockTradingService:
                 starting_balance=service_model.starting_balance
             )
             
-            # Start the trading cycle using the existing service data
-            service.start_trading_cycle(polling_interval=polling_interval)
+            # Start the trading cycle in a separate thread so it doesn't block the HTTP response
+            thread = threading.Thread(
+                target=service.start_trading_cycle,
+                kwargs={"polling_interval": polling_interval},
+                daemon=True
+            )
+            thread.start()
+            
+            # Return immediately instead of waiting for the trading cycle to complete
+            return service

@@ -6,7 +6,9 @@ from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, Mapped
 
-from app.models.stock_service_model import Base, StockService
+# Import the shared Base and StockService
+from database.models import Base
+from database.models.stock_service_model import StockService
 
 class StockTransaction(Base):
     """

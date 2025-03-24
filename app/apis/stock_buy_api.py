@@ -6,11 +6,11 @@ a specific stock based on market conditions and analysis.
 """
 
 import logging
-import random
 from typing import Literal
 
-from app.constants import DECISION_YES, DECISION_NO, SUPPORTED_SYMBOLS
-from app.exceptions import InvalidSymbolError, APIError
+from app.core.constants import DECISION_YES, DECISION_NO
+from app.core.exceptions import InvalidSymbolError, APIError
+from app.algorithms.stock_buy_logic import should_buy
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +19,8 @@ def should_buy_stock(stock_symbol: str) -> Literal['YES', 'NO']:
     """
     Determine whether to buy a specific stock based on market analysis.
     
-    This function evaluates whether to buy a stock based on historical market data,
-    real-time market data, and news sentiment. For testing purposes, it uses
-    a simplified mock implementation that makes randomized decisions.
+    This function serves as an API layer that delegates the actual decision-making
+    logic to the algorithm layer. It handles API-specific error wrapping and logging.
     
     Args:
         stock_symbol: Symbol of the stock to evaluate
@@ -33,36 +32,20 @@ def should_buy_stock(stock_symbol: str) -> Literal['YES', 'NO']:
         InvalidSymbolError: If the stock symbol is not supported
         APIError: If the decision algorithm fails
     """
-    logger.info(f"Evaluating whether to buy {stock_symbol}")
-    
-    # Validate stock symbol
-    stock_symbol = stock_symbol.upper()
-    if stock_symbol not in SUPPORTED_SYMBOLS:
-        logger.error(f"Invalid stock symbol: {stock_symbol}")
-        raise InvalidSymbolError(f"Stock symbol {stock_symbol} is not supported")
+    logger.info(f"API: Evaluating whether to buy {stock_symbol}")
     
     try:
-        # MOCK IMPLEMENTATION FOR TESTING
-        # In a real implementation, this would analyze:
-        # - Historical price data
-        # - Current market conditions
-        # - Technical indicators
-        # - News sentiment
-        # - Company fundamentals
+        # Delegate to the algorithm layer
+        decision = should_buy(stock_symbol)
         
-        # Simplified mock logic - 70% chance to buy for test demo purposes
-        buy_probability = 0.7
-        if random.random() < buy_probability:
-            logger.info(f"Decision: BUY {stock_symbol}")
-            return DECISION_YES
-        else:
-            logger.info(f"Decision: DO NOT BUY {stock_symbol}")
-            return DECISION_NO
+        logger.info(f"API: Buy decision for {stock_symbol}: {decision}")
+        return decision
             
+    except InvalidSymbolError:
+        # Re-raise validation errors
+        logger.error(f"API: Invalid stock symbol: {stock_symbol}")
+        raise
     except Exception as e:
-        if isinstance(e, InvalidSymbolError):
-            # Re-raise validation errors
-            raise
-        # Wrap other exceptions
-        logger.error(f"Error in buy decision algorithm for {stock_symbol}: {str(e)}")
+        # Wrap other exceptions in APIError
+        logger.error(f"API: Error in buy decision algorithm for {stock_symbol}: {str(e)}")
         raise APIError(f"Buy decision algorithm failed for {stock_symbol}: {str(e)}")

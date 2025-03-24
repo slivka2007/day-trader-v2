@@ -4,8 +4,8 @@ from typing import Tuple, Dict
 import logging
 import random
 
-from app.constants import MOCK_PRICES
-from app.exceptions import InvalidSymbolError, StockSaleError
+from app.core.constants import MOCK_PRICES
+from app.core.exceptions import InvalidSymbolError, StockSaleError
 
 logger = logging.getLogger(__name__)
 

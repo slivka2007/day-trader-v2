@@ -17,6 +17,52 @@ CREATE TABLE IF NOT EXISTS stock_services (
 ;
 
 
+CREATE TABLE IF NOT EXISTS stocks (
+	id INTEGER NOT NULL, 
+	symbol VARCHAR NOT NULL, 
+	name VARCHAR, 
+	PRIMARY KEY (id), 
+	UNIQUE (symbol)
+)
+
+;
+
+
+CREATE TABLE IF NOT EXISTS daily_prices (
+	id INTEGER NOT NULL, 
+	stock_id INTEGER NOT NULL, 
+	date DATE NOT NULL, 
+	open FLOAT, 
+	high FLOAT, 
+	low FLOAT, 
+	close FLOAT, 
+	adj_close FLOAT, 
+	volume INTEGER, 
+	PRIMARY KEY (id), 
+	CONSTRAINT uix_stock_date UNIQUE (stock_id, date), 
+	FOREIGN KEY(stock_id) REFERENCES stocks (id)
+)
+
+;
+
+
+CREATE TABLE IF NOT EXISTS intraday_prices (
+	id INTEGER NOT NULL, 
+	stock_id INTEGER NOT NULL, 
+	timestamp DATETIME NOT NULL, 
+	open FLOAT, 
+	high FLOAT, 
+	low FLOAT, 
+	close FLOAT, 
+	volume INTEGER, 
+	PRIMARY KEY (id), 
+	CONSTRAINT uix_stock_timestamp UNIQUE (stock_id, timestamp), 
+	FOREIGN KEY(stock_id) REFERENCES stocks (id)
+)
+
+;
+
+
 CREATE TABLE IF NOT EXISTS stock_transactions (
 	transaction_id INTEGER NOT NULL, 
 	service_id INTEGER NOT NULL, 

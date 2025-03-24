@@ -9,8 +9,8 @@ import logging
 import random
 from decimal import Decimal
 
-from app.constants import DECISION_YES, DECISION_NO, MOCK_PRICES, SUPPORTED_SYMBOLS
-from app.exceptions import InvalidSymbolError
+from app.core.constants import DECISION_YES, DECISION_NO, MOCK_PRICES, SUPPORTED_SYMBOLS
+from app.core.exceptions import InvalidSymbolError
 
 logger = logging.getLogger(__name__)
 
@@ -55,35 +55,35 @@ def should_sell(stock_symbol: str, purchase_price: Decimal) -> str:
     # Profit scenario - higher probability to sell as profit increases
     if price_diff_percent > 0:
         # Scale up probability with profit (max 90% at 20% profit)
-        sell_probability = min(0.9, base_probability + (price_diff_percent / 100))
+        sell_probability = min(0.9, base_probability + (float(price_diff_percent) / 100))
     # Loss scenario - higher probability to hold as loss increases (except for deep losses)
     else:
         # For small losses (<5%), hold with higher probability
         if price_diff_percent > -5:
-            sell_probability = max(0.1, base_probability + (price_diff_percent / 100))
+            sell_probability = max(0.1, base_probability + (float(price_diff_percent) / 100))
         # For moderate losses (5-15%), still mostly hold but increasing sell probability
         elif price_diff_percent > -15:
-            sell_probability = max(0.2, base_probability + (price_diff_percent / 200))
+            sell_probability = max(0.2, base_probability + (float(price_diff_percent) / 200))
         # For severe losses (>15%), higher probability to sell (cut losses)
         else:
-            sell_probability = min(0.8, base_probability - (price_diff_percent / 50))
+            sell_probability = min(0.8, base_probability - (float(price_diff_percent) / 50))
     
     # Stock-specific adjustments to make testing more interesting
     stock_adjustments = {
-        "AAPL": -0.1,  # More likely to hold Apple longer
-        "MSFT": -0.1,  # More likely to hold Microsoft longer
-        "GOOGL": -0.05, # Slightly more likely to hold Google
-        "AMZN": 0,     # No adjustment for Amazon
-        "META": 0.05,  # Slightly more likely to sell Meta
-        "TSLA": 0.1,   # More likely to sell Tesla (volatile)
-        "NVDA": -0.15, # Much more likely to hold Nvidia longer
-        "NFLX": 0,     # No adjustment for Netflix
-        "PYPL": 0.1,   # More likely to sell PayPal
-        "INTC": 0.05,  # Slightly more likely to sell Intel
+        "AAPL": Decimal('-0.1'),  # More likely to hold Apple longer
+        "MSFT": Decimal('-0.1'),  # More likely to hold Microsoft longer
+        "GOOGL": Decimal('-0.05'), # Slightly more likely to hold Google
+        "AMZN": Decimal('0'),     # No adjustment for Amazon
+        "META": Decimal('0.05'),  # Slightly more likely to sell Meta
+        "TSLA": Decimal('0.1'),   # More likely to sell Tesla (volatile)
+        "NVDA": Decimal('-0.15'), # Much more likely to hold Nvidia longer
+        "NFLX": Decimal('0'),     # No adjustment for Netflix
+        "PYPL": Decimal('0.1'),   # More likely to sell PayPal
+        "INTC": Decimal('0.05'),  # Slightly more likely to sell Intel
     }
     
     # Apply stock-specific adjustment
-    sell_probability += stock_adjustments.get(stock_symbol, 0)
+    sell_probability = float(sell_probability) + float(stock_adjustments.get(stock_symbol, Decimal('0')))
     
     # Ensure probability is within bounds
     sell_probability = max(0.1, min(0.9, sell_probability))

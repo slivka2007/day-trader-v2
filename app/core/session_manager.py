@@ -6,11 +6,16 @@ for automatic session handling and a decorator for wrapping functions that
 require database access.
 """
 
-import functools
 import logging
-from typing import Any, Callable, TypeVar
+import functools
+from contextlib import contextmanager
+from typing import Callable, TypeVar, Any, Iterator, Dict, Optional, cast
 
-from app.database import get_session
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.core.exceptions import DatabaseError
+from database.scripts.database import get_session
 
 logger = logging.getLogger(__name__)
 

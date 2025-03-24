@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stock Trading - Day Trader</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Day Trader</h1>
+        <h2>Automated Stock Trading System</h2>
+        <nav>
+          <ul>
+            <li><a href="{{ url_for('index') }}" data-ajax="true">Home</a></li>
+            <li><a href="{{ url_for('stock.index') }}" class="active" data-ajax="true">Stock Services</a></li>
+            <li><a href="{{ url_for('data.index') }}" data-ajax="true">Market Data</a></li>
+          </ul>
+        </nav>
+        <hr/>
+      </header>
+
+      <main>
+        <section class="form-section">
+          <h3>Create New Trading Service</h3>
+          <div id="status-message"></div>
+          <form id="create-service-form">
+            <div class="form-group">
+              <label for="stock_symbol">Stock Symbol:</label>
+              <select id="stock_symbol" name="stock_symbol" required>
+                {% for stock in test_stocks %}
+                <option value="{{ stock }}">{{ stock }} - Test Stock</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="starting_balance">Starting Balance ($):</label>
+              <input type="number" id="starting_balance" name="starting_balance" value="1000.00" min="100" step="0.01" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Start Trading Service</button>
+          </form>
+        </section>
+
+        <section class="active-services">
+          <h3>Active Trading Services</h3>
+          <div id="services-container">
+            {% if services %}
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Stock</th>
+                  <th>Balance ($)</th>
+                  <th>Shares</th>
+                  <th>Gain/Loss ($)</th>
+                  <th>Mode</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for service in services %}
+                <tr class="{{ 'inactive' if service.service_state == 'INACTIVE' else '' }}">
+                  <td>{{ service.service_id }}</td>
+                  <td>{{ service.stock_symbol }}</td>
+                  <td>${{ service.fund_balance }}</td>
+                  <td>{{ service.current_number_of_shares }}</td>
+                  <td class="{{ 'profit' if service.total_gain_loss > 0 else 'loss' if service.total_gain_loss < 0 else '' }}">
+                    ${{ service.total_gain_loss }}
+                  </td>
+                  <td>{{ service.service_mode }}</td>
+                  <td>{{ service.service_state }}</td>
+                  <td>
+                    {% if service.service_state == 'ACTIVE' %}
+                    <button type="button" data-action="stop" data-service-id="{{ service.service_id }}" class="btn btn-danger service-action-btn">Stop</button>
+                    {% else %}
+                    <button type="button" data-action="start" data-service-id="{{ service.service_id }}" class="btn btn-success service-action-btn">Start</button>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <p>No active trading services. Create a new service to get started.</p>
+            {% endif %}
+          </div>
+        </section>
+
+        <section class="recent-transactions">
+          <h3>Recent Transactions</h3>
+          <div id="transactions-container">
+            {% if transactions %}
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Service</th>
+                  <th>Stock</th>
+                  <th>Type</th>
+                  <th>Shares</th>
+                  <th>Price</th>
+                  <th>Date</th>
+                  <th>Gain/Loss</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for tx in transactions %}
+                <tr>
+                  <td>{{ tx.transaction_id }}</td>
+                  <td>{{ tx.service_id }}</td>
+                  <td>{{ tx.stock_symbol }}</td>
+                  <td>{{ "SELL" if tx.date_time_of_sale else "BUY" }}</td>
+                  <td>{{ tx.number_of_shares }}</td>
+                  <td>${{ tx.sale_price if tx.date_time_of_sale else tx.purchase_price }}</td>
+                  <td>{{ tx.date_time_of_sale.strftime('%Y-%m-%d %H:%M:%S') if tx.date_time_of_sale else tx.date_time_of_purchase.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                  <td class="{{ 'profit' if tx.gain_loss and tx.gain_loss > 0 else 'loss' if tx.gain_loss and tx.gain_loss < 0 else '' }}">
+                    {{ "$" + tx.gain_loss|string if tx.gain_loss else "N/A" }}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <p>No transactions yet.</p>
+            {% endif %}
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <hr />
+        <div class="footer-content">
+          <p>Auto-trading project for demonstration purposes only</p>
+          <p class="copyright">&copy; {{ now.year }} Alexander J. Slivka</p>
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      // Store API endpoints (simplified)
+      const baseUrl = window.location.origin;
+      const createServiceUrl = baseUrl + "/stock/services/create";
+      const stopServiceUrl = baseUrl + "/stock/services/:id/stop";
+      const startServiceUrl = baseUrl + "/stock/services/:id/start";
+      const getServicesUrl = baseUrl + "/stock/services/active";
+      const getTransactionsUrl = baseUrl + "/stock/transactions/recent";
+      
+      // Make sure we have access to showStatusMessage function
+      if (typeof showStatusMessage !== 'function') {
+        // Fallback if the app.js function isn't available
+        window.showStatusMessage = function(message, type) {
+          const statusEl = document.getElementById('status-message');
+          if (statusEl) {
+            statusEl.textContent = message;
+            statusEl.className = `status-${type}`;
+            setTimeout(() => {
+              statusEl.textContent = '';
+              statusEl.className = '';
+            }, 3000);
+          }
+        }
+      }
+      
+      // Add event listener for service action buttons (start/stop)
+      document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('service-action-btn')) {
+          const action = e.target.dataset.action;
+          const serviceId = e.target.dataset.serviceId;
+          
+          if (action === 'stop') {
+            stopService(serviceId);
+          } else if (action === 'start') {
+            startService(serviceId);
+          }
+        }
+      });
+      
+      // Handle create service form submission
+      document.getElementById('create-service-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        
+        fetch(createServiceUrl, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json'
+          }
+        })
+        .then(response => {
+          if (!response.ok) {
+            return response.text().then(text => {
+              try {
+                // Try to parse as JSON first
+                const data = JSON.parse(text);
+                throw new Error(data.error || 'Unknown error occurred');
+              } catch (e) {
+                // If not valid JSON, return the text instead
+                throw new Error(`Server returned ${response.status}: ${text.substring(0, 100)}...`);
+              }
+            });
+          }
+          return response.text().then(text => {
+            try {
+              return JSON.parse(text);
+            } catch (e) {
+              // If the service started but returned HTML instead of JSON
+              // (typically a redirect), we'll treat this as success
+              if (response.ok) {
+                return { success: true, message: "Service started successfully" };
+              }
+              throw new Error("Invalid JSON response");
+            }
+          });
+        })
+        .then(data => {
+          showStatusMessage(data.message || 'Service created successfully', 'success');
+          refreshData();
+        })
+        .catch(error => {
+          showStatusMessage('Error: ' + error.message, 'error');
+        });
+      });
+      
+      // Function to stop a service
+      function stopService(serviceId) {
+        const url = stopServiceUrl.replace(':id', serviceId);
+        
+        fetch(url, {
+          method: 'POST',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        })
+        .then(response => {
+          if (!response.ok) {
+            return response.text().then(text => {
+              try {
+                // Try to parse as JSON first
+                const data = JSON.parse(text);
+                throw new Error(data.error || 'Unknown error occurred');
+              } catch (e) {
+                // If not valid JSON, return the text instead
+                throw new Error(`Server returned ${response.status}: ${text.substring(0, 100)}...`);
+              }
+            });
+          }
+          return response.json();
+        })
+        .then(data => {
+          showStatusMessage(data.message || 'Service stopped successfully', 'success');
+          refreshData();
+        })
+        .catch(error => {
+          showStatusMessage('Error: ' + error.message, 'error');
+        });
+      }
+      
+      // Function to start a service
+      function startService(serviceId) {
+        const url = startServiceUrl.replace(':id', serviceId);
+        
+        fetch(url, {
+          method: 'POST',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        })
+        .then(response => {
+          if (!response.ok) {
+            return response.text().then(text => {
+              try {
+                // Try to parse as JSON first
+                const data = JSON.parse(text);
+                throw new Error(data.error || 'Unknown error occurred');
+              } catch (e) {
+                // If not valid JSON, return the text instead
+                throw new Error(`Server returned ${response.status}: ${text.substring(0, 100)}...`);
+              }
+            });
+          }
+          return response.json();
+        })
+        .then(data => {
+          showStatusMessage(data.message || 'Service started successfully', 'success');
+          refreshData();
+        })
+        .catch(error => {
+          showStatusMessage('Error: ' + error.message, 'error');
+        });
+      }
+      
+      // Function to refresh all data
+      function refreshData() {
+        // Refresh service data
+        fetch(getServicesUrl)
+          .then(response => response.json())
+          .then(data => updateServicesTable(data))
+          .catch(error => console.error('Error fetching services:', error));
+        
+        // Refresh transaction data
+        fetch(getTransactionsUrl)
+          .then(response => response.json())
+          .then(data => updateTransactionsTable(data))
+          .catch(error => console.error('Error fetching transactions:', error));
+      }
+      
+      // Auto-refresh data every 10 seconds
+      setInterval(refreshData, 10000);
+      
+      // Helper function to update services table
+      function updateServicesTable(services) {
+        const container = document.getElementById('services-container');
+        if (!services || services.length === 0) {
+          container.innerHTML = '<p>No active trading services. Create a new service to get started.</p>';
+          return;
+        }
+        
+        let html = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Stock</th>
+              <th>Balance ($)</th>
+              <th>Shares</th>
+              <th>Gain/Loss ($)</th>
+              <th>Mode</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+        `;
+        
+        services.forEach(service => {
+          html += `
+          <tr class="${service.service_state === 'INACTIVE' ? 'inactive' : ''}">
+            <td>${service.service_id}</td>
+            <td>${service.stock_symbol}</td>
+            <td>$${parseFloat(service.fund_balance).toFixed(2)}</td>
+            <td>${service.current_number_of_shares}</td>
+            <td class="${parseFloat(service.total_gain_loss) > 0 ? 'profit' : (parseFloat(service.total_gain_loss) < 0 ? 'loss' : '')}">
+              $${parseFloat(service.total_gain_loss).toFixed(2)}
+            </td>
+            <td>${service.service_mode}</td>
+            <td>${service.service_state}</td>
+            <td>
+              ${service.service_state === 'ACTIVE' 
+                ? `<button type="button" data-action="stop" data-service-id="${service.service_id}" class="btn btn-danger service-action-btn">Stop</button>`
+                : `<button type="button" data-action="start" data-service-id="${service.service_id}" class="btn btn-success service-action-btn">Start</button>`
+              }
+            </td>
+          </tr>
+          `;
+        });
+        
+        html += `
+          </tbody>
+        </table>
+        `;
+        
+        container.innerHTML = html;
+      }
+      
+      // Helper function to update transactions table
+      function updateTransactionsTable(transactions) {
+        const container = document.getElementById('transactions-container');
+        if (!transactions || transactions.length === 0) {
+          container.innerHTML = '<p>No transactions yet.</p>';
+          return;
+        }
+        
+        let html = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Service</th>
+              <th>Stock</th>
+              <th>Type</th>
+              <th>Shares</th>
+              <th>Price</th>
+              <th>Date</th>
+              <th>Gain/Loss</th>
+            </tr>
+          </thead>
+          <tbody>
+        `;
+        
+        transactions.forEach(tx => {
+          const isSell = tx.date_time_of_sale !== null;
+          const date = isSell 
+            ? new Date(tx.date_time_of_sale).toLocaleString() 
+            : new Date(tx.date_time_of_purchase).toLocaleString();
+          const price = isSell ? tx.sale_price : tx.purchase_price;
+          
+          html += `
+          <tr>
+            <td>${tx.transaction_id}</td>
+            <td>${tx.service_id}</td>
+            <td>${tx.stock_symbol}</td>
+            <td>${isSell ? 'SELL' : 'BUY'}</td>
+            <td>${tx.number_of_shares}</td>
+            <td>$${parseFloat(price).toFixed(2)}</td>
+            <td>${date}</td>
+            <td class="${tx.gain_loss && parseFloat(tx.gain_loss) > 0 ? 'profit' : (tx.gain_loss && parseFloat(tx.gain_loss) < 0 ? 'loss' : '')}">
+              ${tx.gain_loss ? '$' + parseFloat(tx.gain_loss).toFixed(2) : 'N/A'}
+            </td>
+          </tr>
+          `;
+        });
+        
+        html += `
+          </tbody>
+        </table>
+        `;
+        
+        container.innerHTML = html;
+      }
+    </script>
+  </body>
+</html>

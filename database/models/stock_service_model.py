@@ -2,12 +2,12 @@ from datetime import datetime
 from typing import Optional, List
 
 from sqlalchemy import Column, Integer, String, Numeric, DateTime, create_engine
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Mapped, relationship
 
-from app.constants import STATE_ACTIVE, STATE_INACTIVE, MODE_BUY, MODE_SELL
+# Import the shared Base
+from database.models import Base
 
-Base = declarative_base()
+from app.core.constants import STATE_ACTIVE, STATE_INACTIVE, MODE_BUY, MODE_SELL
 
 class StockService(Base):
     """

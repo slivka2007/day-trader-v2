@@ -53,4 +53,9 @@ class StockPurchaseError(APIError):
 
 class StockSaleError(APIError):
     """Exception raised when stock sale fails."""
+    pass
+
+
+class DataFetchError(APIError):
+    """Exception raised when fetching data from external sources fails."""
     pass 
