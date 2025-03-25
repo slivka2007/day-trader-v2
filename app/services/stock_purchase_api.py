@@ -9,10 +9,10 @@ import logging
 import random
 from datetime import datetime
 from decimal import Decimal
-from typing import Tuple, Dict
+from typing import Tuple
 
-from app.core.constants import MOCK_PRICES, PRICE_MOVEMENT, SUPPORTED_SYMBOLS
-from app.core.exceptions import InvalidSymbolError, StockPurchaseError
+from app.config.constants import MOCK_PRICES, PRICE_MOVEMENT, SUPPORTED_SYMBOLS
+from app.exceptions.exceptions import InvalidSymbolError, StockPurchaseError
 
 logger = logging.getLogger(__name__)
 

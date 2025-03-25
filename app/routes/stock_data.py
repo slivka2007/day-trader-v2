@@ -4,25 +4,21 @@ Stock market data module for day-trader-v1 application.
 """
 import logging
 from datetime import datetime
-from typing import List, Optional, Dict, Any, Union
 
-from flask import Blueprint, render_template, request, jsonify, abort
+from flask import Blueprint, render_template, request, jsonify
 
-from app.core.constants import SUPPORTED_SYMBOLS
-from app.core.exceptions import InvalidSymbolError, DataFetchError
-from app.apis.stock_market_data_api import (
-    get_stock_info,
+from app.config.constants import SUPPORTED_SYMBOLS
+from app.exceptions.exceptions import InvalidSymbolError, DataFetchError
+from app.services.stock_market_data_api import (
     get_intraday_data,
     save_intraday_data,
-    get_latest_price,
     get_daily_data,
-    save_daily_data,
-    get_latest_daily_price
+    save_daily_data
 )
-from database.scripts.database import get_session
-from database.models.stock_model import Stock
-from database.models.daily_price_model import DailyPrice
-from database.models.intraday_price_model import IntradayPrice
+from app.services.database import get_session
+from app.models.stock_model import Stock
+from app.models.daily_price_model import DailyPrice
+from app.models.intraday_price_model import IntradayPrice
 
 # Configure logging
 logger = logging.getLogger(__name__)

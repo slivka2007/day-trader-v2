@@ -1,24 +1,17 @@
 import os
 import re
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, Dict, Any
-from sqlalchemy import create_engine, inspect, Engine
+from typing import List
+from sqlalchemy import create_engine, Engine
 from sqlalchemy.orm import sessionmaker, scoped_session, Session as SQLAlchemySession
 from sqlalchemy.schema import CreateTable
 
 # Import Base from the shared location
-from database.models import Base
-
-# Import models to ensure they're registered with the Base metadata
-from database.models.stock_model import Stock
-from database.models.daily_price_model import DailyPrice
-from database.models.intraday_price_model import IntradayPrice
-from database.models.stock_service_model import StockService
-from database.models.stock_transaction_model import StockTransaction
+from app.models import Base
 
 # SQLite database path
-DATABASE_URL: str = os.environ.get('DATABASE_URL', 'sqlite:///database/daytrader.db')
-SQL_FILE_PATH: Path = Path(__file__).parent.parent / 'database.sql'
+DATABASE_URL: str = os.environ.get('DATABASE_URL', 'sqlite:///app/instance/daytrader.db')
+SQL_FILE_PATH: Path = Path(__file__).parent.parent / 'instance' / 'database.sql'
 
 # Create engine
 engine: Engine = create_engine(DATABASE_URL)

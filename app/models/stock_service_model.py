@@ -1,13 +1,15 @@
-from datetime import datetime
-from typing import Optional, List
-
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, create_engine
-from sqlalchemy.orm import Mapped, relationship
+from datetime import datetime, UTC
+from typing import List, TYPE_CHECKING
+from sqlalchemy import Column, Integer, String, Numeric, DateTime
+from sqlalchemy.orm import relationship, Mapped
 
 # Import the shared Base
-from database.models import Base
+from app.models import Base
 
-from app.core.constants import STATE_ACTIVE, STATE_INACTIVE, MODE_BUY, MODE_SELL
+from app.config.constants import STATE_ACTIVE, MODE_BUY
+
+if TYPE_CHECKING:
+    from app.models.stock_transaction_model import StockTransaction
 
 class StockService(Base):
     """
@@ -30,6 +32,7 @@ class StockService(Base):
         start_date: When the service was created
         number_of_buy_transactions: Count of completed buy transactions
         number_of_sell_transactions: Count of completed sell transactions
+        transactions: List of transactions associated with this service
     """
     __tablename__ = 'stock_services'
     
@@ -48,13 +51,18 @@ class StockService(Base):
     # Service state tracking
     service_state: str = Column(String, default=STATE_ACTIVE)  # 'active' or 'inactive'
     service_mode: str = Column(String, default=MODE_BUY)  # 'buy' or 'sell'
-    start_date: datetime = Column(DateTime, default=datetime.utcnow)
+    start_date: datetime = Column(DateTime, default=datetime.now(UTC))
     
     # Transaction counts
     number_of_buy_transactions: int = Column(Integer, default=0)
     number_of_sell_transactions: int = Column(Integer, default=0)
     
-    # transactions relationship will be added by StockTransaction model
+    # Relationship with transactions
+    transactions: Mapped[List["StockTransaction"]] = relationship(
+        "StockTransaction", 
+        order_by="StockTransaction.transaction_id", 
+        back_populates="service"
+    )
     
     def __repr__(self) -> str:
         """String representation of the StockService object."""

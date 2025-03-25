@@ -6,18 +6,17 @@ from the Yahoo Finance API and map it to the application's database models.
 """
 
 import logging
-from datetime import datetime
-from typing import Optional, Dict, Any, Tuple, List, Union
+from typing import Dict, Any, Tuple, List
 import yfinance as yf
 import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
 
-from database.scripts.database import get_session
-from database.models.stock_model import Stock
-from database.models.intraday_price_model import IntradayPrice
-from database.models.daily_price_model import DailyPrice
-from app.core.constants import SUPPORTED_SYMBOLS
-from app.core.exceptions import InvalidSymbolError, DataFetchError
+from app.services.database import get_session
+from app.models.stock_model import Stock
+from app.models.intraday_price_model import IntradayPrice
+from app.models.daily_price_model import DailyPrice
+from app.config.constants import SUPPORTED_SYMBOLS
+from app.exceptions.exceptions import InvalidSymbolError, DataFetchError
 
 logger = logging.getLogger(__name__)
 

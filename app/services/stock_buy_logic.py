@@ -8,8 +8,8 @@ whether to buy a specific stock based on market analysis.
 import logging
 import random
 
-from app.core.constants import DECISION_YES, DECISION_NO, SUPPORTED_SYMBOLS
-from app.core.exceptions import InvalidSymbolError
+from app.config.constants import DECISION_YES, DECISION_NO, SUPPORTED_SYMBOLS
+from app.exceptions.exceptions import InvalidSymbolError
 
 logger = logging.getLogger(__name__)
 

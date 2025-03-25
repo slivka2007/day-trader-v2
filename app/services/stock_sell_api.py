@@ -9,9 +9,8 @@ import logging
 from decimal import Decimal
 from typing import Literal
 
-from app.core.constants import DECISION_YES, DECISION_NO
-from app.core.exceptions import InvalidSymbolError, APIError
-from app.algorithms.stock_sell_logic import should_sell
+from app.exceptions.exceptions import InvalidSymbolError, APIError
+from app.services.stock_sell_logic import should_sell
 
 logger = logging.getLogger(__name__)
 

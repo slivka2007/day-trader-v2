@@ -8,9 +8,8 @@ a specific stock based on market conditions and analysis.
 import logging
 from typing import Literal
 
-from app.core.constants import DECISION_YES, DECISION_NO
-from app.core.exceptions import InvalidSymbolError, APIError
-from app.algorithms.stock_buy_logic import should_buy
+from app.exceptions.exceptions import InvalidSymbolError, APIError
+from app.services.stock_buy_logic import should_buy
 
 logger = logging.getLogger(__name__)
 

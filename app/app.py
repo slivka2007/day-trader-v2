@@ -5,13 +5,12 @@ Main application file for the day-trader-v1 application.
 import os
 import logging
 from datetime import datetime
-from pathlib import Path
 
 from flask import Flask, render_template
 
-from database.scripts.database import setup_database
-from app.stock_trading import stock_bp
-from app.stock_data import data_bp
+from app.services.database import setup_database
+from app.routes.stock_trading import stock_bp
+from app.routes.stock_data import data_bp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 

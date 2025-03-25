@@ -1,11 +1,11 @@
-from datetime import datetime
+from datetime import datetime, UTC
 from decimal import Decimal
-from typing import Tuple, Dict
+from typing import Tuple
 import logging
 import random
 
-from app.core.constants import MOCK_PRICES
-from app.core.exceptions import InvalidSymbolError, StockSaleError
+from app.config.constants import MOCK_PRICES
+from app.exceptions.exceptions import StockSaleError
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def sell_stock(stock_symbol: str, number_of_shares: int) -> Tuple[Decimal, datet
     if number_of_shares <= 0:
         raise ValueError(f"Cannot sell {number_of_shares} shares, must be a positive number")
     
-    current_time = datetime.utcnow()
+    current_time = datetime.now(UTC)
     
     try:
         # MOCK IMPLEMENTATION for testing

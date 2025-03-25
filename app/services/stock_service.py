@@ -7,14 +7,14 @@ from typing import Optional
 
 from sqlalchemy import desc
 
-from app.apis.stock_buy_api import should_buy_stock
-from app.apis.stock_purchase_api import purchase_stock
-from app.apis.stock_sale_api import sell_stock
-from app.apis.stock_sell_api import should_sell_stock
-from database.scripts.database import get_session
-from app.core.exceptions import ServiceError, InvalidStateError
-from app.core.session_manager import SessionManager, with_session
-from app.core.constants import (
+from app.services.stock_buy_api import should_buy_stock
+from app.services.stock_purchase_api import purchase_stock
+from app.services.stock_sale_api import sell_stock
+from app.services.stock_sell_api import should_sell_stock
+from app.services.database import get_session
+from app.exceptions.exceptions import ServiceError, InvalidStateError
+from app.services.session_manager import SessionManager
+from app.config.constants import (
     DECISION_YES, 
     STATE_ACTIVE, 
     STATE_INACTIVE,
@@ -23,8 +23,8 @@ from app.core.constants import (
     DEFAULT_POLLING_INTERVAL,
     DEMO_POLLING_INTERVAL
 )
-from database.models.stock_service_model import StockService
-from database.models.stock_transaction_model import StockTransaction
+from app.models.stock_service_model import StockService
+from app.models.stock_transaction_model import StockTransaction
 
 logger = logging.getLogger(__name__)
 

@@ -9,8 +9,8 @@ import logging
 import random
 from decimal import Decimal
 
-from app.core.constants import DECISION_YES, DECISION_NO, MOCK_PRICES, SUPPORTED_SYMBOLS
-from app.core.exceptions import InvalidSymbolError
+from app.config.constants import DECISION_YES, DECISION_NO, MOCK_PRICES, SUPPORTED_SYMBOLS
+from app.exceptions.exceptions import InvalidSymbolError
 
 logger = logging.getLogger(__name__)
 

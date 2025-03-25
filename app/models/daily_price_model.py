@@ -1,11 +1,10 @@
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, UniqueConstraint
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, Integer, Float, Date, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship, Mapped
 from typing import Optional
 
 # Import the shared Base and Stock
-from database.models import Base
-from database.models.stock_model import Stock
+from app.models import Base
+from app.models.stock_model import Stock
 
 class DailyPrice(Base):
     """

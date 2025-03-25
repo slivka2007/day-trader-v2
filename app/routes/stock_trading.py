@@ -6,15 +6,14 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 import threading
-from typing import Optional, Dict, Any, List, Union
 from sqlalchemy import desc
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
 
-from database.scripts.database import get_session
-from database.models.stock_service_model import StockService, STATE_ACTIVE, STATE_INACTIVE, MODE_BUY, MODE_SELL
-from database.models.stock_transaction_model import StockTransaction
+from app.services.database import get_session
 from app.services.stock_service import StockTradingService
-from app.apis.stock_purchase_api import MOCK_PRICES
+from app.config.constants import STATE_ACTIVE, STATE_INACTIVE, MODE_BUY, MODE_SELL, MOCK_PRICES
+from app.models.stock_service_model import StockService
+from app.models.stock_transaction_model import StockTransaction
 
 # Configure logging
 logger = logging.getLogger(__name__)

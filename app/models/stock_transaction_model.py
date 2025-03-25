@@ -1,14 +1,16 @@
-from datetime import datetime
-from typing import Optional, List
+from datetime import datetime, UTC
+from typing import Optional
 from decimal import Decimal
 
 from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, Mapped
+from typing import TYPE_CHECKING
 
 # Import the shared Base and StockService
-from database.models import Base
-from database.models.stock_service_model import StockService
+from app.models import Base
+
+if TYPE_CHECKING:
+    from app.models.stock_service_model import StockService
 
 class StockTransaction(Base):
     """
@@ -47,7 +49,7 @@ class StockTransaction(Base):
     gain_loss: Optional[Decimal] = Column(Numeric(precision=10, scale=2), nullable=True)
     
     # Timestamps
-    date_time_of_purchase: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+    date_time_of_purchase: datetime = Column(DateTime, default=datetime.now(UTC), nullable=False)
     date_time_of_sale: Optional[datetime] = Column(DateTime, nullable=True)
     
     # Relationship with StockService
@@ -56,10 +58,3 @@ class StockTransaction(Base):
     def __repr__(self) -> str:
         """String representation of the StockTransaction object."""
         return f"<StockTransaction(transaction_id={self.transaction_id}, stock_symbol='{self.stock_symbol}', number_of_shares={self.number_of_shares})>"
-
-# Add relationship to StockService model
-StockService.transactions: Mapped[List["StockTransaction"]] = relationship(
-    "StockTransaction", 
-    order_by=StockTransaction.transaction_id, 
-    back_populates="service"
-)

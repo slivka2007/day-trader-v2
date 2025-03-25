@@ -1,14 +1,14 @@
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String
 from sqlalchemy.orm import relationship, Mapped
 from typing import List, Optional, TYPE_CHECKING
 
 # Import the shared Base
-from database.models import Base
+from app.models import Base
 
 # Forward references for type annotations to avoid circular imports
 if TYPE_CHECKING:
-    from database.models.daily_price_model import DailyPrice
-    from database.models.intraday_price_model import IntradayPrice
+    from app.models.daily_price_model import DailyPrice
+    from app.models.intraday_price_model import IntradayPrice
 
 class Stock(Base):
     """
