@@ -1,25 +1,35 @@
 """
-Database models for the Day Trader application.
+Models package for the Day Trader application.
 
-This package contains SQLAlchemy ORM models for all database entities.
+This package contains all SQLAlchemy models used by the application.
 """
-from sqlalchemy.ext.declarative import declarative_base
+from app.models.base import Base
+from app.models.enums import (
+    ServiceState, 
+    TradingMode, 
+    TransactionState,
+    PriceSource
+)
 
-# Create a single Base instance to be used by all models
-Base = declarative_base()
+# Import all model classes for SQLAlchemy's metadata
+from app.models.stock import Stock
+from app.models.stock_daily_price import StockDailyPrice
+from app.models.stock_intraday_price import StockIntradayPrice
+from app.models.trading_service import TradingService
+from app.models.trading_transaction import TradingTransaction
+from app.models.user import User
 
-# Import models AFTER Base is defined
-from app.models.stock_model import Stock
-from app.models.daily_price_model import DailyPrice
-from app.models.intraday_price_model import IntradayPrice
-from app.models.stock_service_model import StockService
-from app.models.stock_transaction_model import StockTransaction
-
+# Exposed for easier imports
 __all__ = [
     'Base',
     'Stock',
-    'DailyPrice',
-    'IntradayPrice',
-    'StockService',
-    'StockTransaction',
+    'StockDailyPrice',
+    'StockIntradayPrice',
+    'TradingService',
+    'TradingTransaction',
+    'User',
+    'ServiceState',
+    'TradingMode',
+    'TransactionState',
+    'PriceSource',
 ] 
