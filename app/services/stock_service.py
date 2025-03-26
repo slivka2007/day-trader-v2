@@ -1,7 +1,7 @@
 import logging
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, UTC
 from decimal import Decimal
 from typing import Optional
 
@@ -18,6 +18,8 @@ from app.config.constants import (
     DECISION_YES, 
     STATE_ACTIVE, 
     STATE_INACTIVE,
+    STATE_OPEN,
+    STATE_CLOSED,
     MODE_BUY,
     MODE_SELL,
     DEFAULT_POLLING_INTERVAL,
@@ -65,7 +67,8 @@ class StockTradingService:
                     current_number_of_shares=0,
                     service_state=STATE_ACTIVE,
                     service_mode=MODE_BUY,
-                    start_date=datetime.utcnow(),
+                    creation_date=datetime.now(UTC),
+                    last_start_date=datetime.now(UTC),
                     number_of_buy_transactions=0,
                     number_of_sell_transactions=0
                 )
@@ -136,6 +139,7 @@ class StockTradingService:
                 transaction = StockTransaction(
                     service_id=self.service.service_id,
                     stock_symbol=self.stock_symbol,
+                    transaction_state=STATE_OPEN,
                     number_of_shares=number_of_shares,
                     purchase_price=purchase_price,
                     date_time_of_purchase=date_time_of_purchase
@@ -203,6 +207,7 @@ class StockTradingService:
                 )
                 
                 # Update the transaction record
+                last_transaction.transaction_state = STATE_CLOSED
                 last_transaction.sale_price = sale_price
                 last_transaction.date_time_of_sale = date_time_of_sale
                 
@@ -235,6 +240,7 @@ class StockTradingService:
         further trading cycles from executing.
         """
         self.service.service_state = STATE_INACTIVE
+        self.service.last_stop_date = datetime.now(UTC)
         self.session.commit()
         logger.info(f"Stopped trading service for {self.stock_symbol}")
         
@@ -274,6 +280,7 @@ class StockTradingService:
                 stock_symbol=service_model.stock_symbol,
                 starting_balance=service_model.starting_balance
             )
+            service.service.last_start_date = datetime.now(UTC)
             
             # Start the trading cycle in a separate thread so it doesn't block the HTTP response
             thread = threading.Thread(

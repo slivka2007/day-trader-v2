@@ -37,25 +37,29 @@ class StockService(Base):
     __tablename__ = 'stock_services'
     
     # Primary key and identification fields
-    service_id: int = Column(Integer, primary_key=True)
+    service_id: int = Column(Integer, primary_key=True, nullable=False)
     stock_symbol: str = Column(String, nullable=False)
     
     # Balance fields
     starting_balance: Numeric = Column(Numeric(precision=10, scale=2), nullable=False)
     fund_balance: Numeric = Column(Numeric(precision=10, scale=2), nullable=False)
-    total_gain_loss: Numeric = Column(Numeric(precision=10, scale=2), default=0)
+    total_gain_loss: Numeric = Column(Numeric(precision=10, scale=2), default=0, nullable=False)
     
     # Current position
     current_number_of_shares: int = Column(Integer, default=0)
     
-    # Service state tracking
-    service_state: str = Column(String, default=STATE_ACTIVE)  # 'active' or 'inactive'
-    service_mode: str = Column(String, default=MODE_BUY)  # 'buy' or 'sell'
-    start_date: datetime = Column(DateTime, default=datetime.now(UTC))
-    
     # Transaction counts
-    number_of_buy_transactions: int = Column(Integer, default=0)
-    number_of_sell_transactions: int = Column(Integer, default=0)
+    number_of_buy_transactions: int = Column(Integer, default=0, nullable=False)
+    number_of_sell_transactions: int = Column(Integer, default=0, nullable=False)
+
+    # Timestamps
+    creation_date: datetime = Column(DateTime, default=datetime.now(UTC), nullable=False)
+    last_start_date: datetime = Column(DateTime, default=datetime.now(UTC), nullable=False)
+    last_stop_date: datetime = Column(DateTime, nullable=True)
+    
+    # Service state tracking
+    service_mode: str = Column(String, default=MODE_BUY, nullable=False)  # 'Buy' or 'Sell'
+    service_state: str = Column(String, default=STATE_ACTIVE, nullable=False)  # 'Active' or 'Inactive'   
     
     # Relationship with transactions
     transactions: Mapped[List["StockTransaction"]] = relationship(

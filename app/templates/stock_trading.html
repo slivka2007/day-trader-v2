@@ -52,9 +52,15 @@
                 <tr>
                   <th>ID</th>
                   <th>Stock</th>
-                  <th>Balance ($)</th>
-                  <th>Shares</th>
+                  <th>Starting Balance ($)</th>
+                  <th>Current Balance ($)</th>
                   <th>Gain/Loss ($)</th>
+                  <th>Shares</th>
+                  <th>Number of Buy Transactions</th>
+                  <th>Number of Sell Transactions</th>
+                  <th>Creation Date</th>
+                  <th>Last Start Date</th>
+                  <th>Last Stop Date</th>
                   <th>Mode</th>
                   <th>Status</th>
                   <th>Actions</th>
@@ -65,11 +71,17 @@
                 <tr class="{{ 'inactive' if service.service_state == 'INACTIVE' else '' }}">
                   <td>{{ service.service_id }}</td>
                   <td>{{ service.stock_symbol }}</td>
+                  <td>${{ service.starting_balance }}</td>
                   <td>${{ service.fund_balance }}</td>
-                  <td>{{ service.current_number_of_shares }}</td>
                   <td class="{{ 'profit' if service.total_gain_loss > 0 else 'loss' if service.total_gain_loss < 0 else '' }}">
                     ${{ service.total_gain_loss }}
                   </td>
+                  <td>{{ service.current_number_of_shares }}</td>
+                  <td>{{ service.number_of_buy_transactions }}</td>
+                  <td>{{ service.number_of_sell_transactions }}</td>
+                  <td>{{ service.creation_date.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                  <td>{{ service.last_start_date.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                  <td>{{ service.last_stop_date.strftime('%Y-%m-%d %H:%M:%S') if service.last_stop_date else '' }}</td>
                   <td>{{ service.service_mode }}</td>
                   <td>{{ service.service_state }}</td>
                   <td>
@@ -99,11 +111,13 @@
                   <th>ID</th>
                   <th>Service</th>
                   <th>Stock</th>
-                  <th>Type</th>
+                  <th>State</th>
                   <th>Shares</th>
-                  <th>Price</th>
-                  <th>Date</th>
+                  <th>Purchase Price</th>
+                  <th>Sale Price</th>
                   <th>Gain/Loss</th>
+                  <th>Purchase Date</th>
+                  <th>Sale Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -112,13 +126,13 @@
                   <td>{{ tx.transaction_id }}</td>
                   <td>{{ tx.service_id }}</td>
                   <td>{{ tx.stock_symbol }}</td>
-                  <td>{{ "SELL" if tx.date_time_of_sale else "BUY" }}</td>
+                  <td>{{ tx.transaction_state }}</td>
                   <td>{{ tx.number_of_shares }}</td>
-                  <td>${{ tx.sale_price if tx.date_time_of_sale else tx.purchase_price }}</td>
-                  <td>{{ tx.date_time_of_sale.strftime('%Y-%m-%d %H:%M:%S') if tx.date_time_of_sale else tx.date_time_of_purchase.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                  <td class="{{ 'profit' if tx.gain_loss and tx.gain_loss > 0 else 'loss' if tx.gain_loss and tx.gain_loss < 0 else '' }}">
-                    {{ "$" + tx.gain_loss|string if tx.gain_loss else "N/A" }}
-                  </td>
+                  <td>${{ tx.purchase_price }}</td>
+                  <td>{{ "$" + tx.sale_price|string if tx.gain_loss else "N/A" }}</td>
+                  <td>{{ "$" + tx.gain_loss|string if tx.gain_loss else "N/A" }}</td>
+                  <td>{{ tx.date_time_of_purchase.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                  <td>{{ tx.date_time_of_sale.strftime('%Y-%m-%d %H:%M:%S') if tx.date_time_of_sale else "N/A" }}</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -331,9 +345,15 @@
             <tr>
               <th>ID</th>
               <th>Stock</th>
-              <th>Balance ($)</th>
-              <th>Shares</th>
+              <th>Starting Balance ($)</th>
+              <th>Current Balance ($)</th>
               <th>Gain/Loss ($)</th>
+              <th>Shares</th>
+              <th>Number of Buy Transactions</th>
+              <th>Number of Sell Transactions</th>
+              <th>Creation Date</th>
+              <th>Last Start Date</th>
+              <th>Last Stop Date</th>
               <th>Mode</th>
               <th>Status</th>
               <th>Actions</th>
@@ -347,11 +367,15 @@
           <tr class="${service.service_state === 'INACTIVE' ? 'inactive' : ''}">
             <td>${service.service_id}</td>
             <td>${service.stock_symbol}</td>
+            <td>$${parseFloat(service.starting_balance).toFixed(2)}</td>
             <td>$${parseFloat(service.fund_balance).toFixed(2)}</td>
+            <td>$${parseFloat(service.total_gain_loss).toFixed(2)}</td>
             <td>${service.current_number_of_shares}</td>
-            <td class="${parseFloat(service.total_gain_loss) > 0 ? 'profit' : (parseFloat(service.total_gain_loss) < 0 ? 'loss' : '')}">
-              $${parseFloat(service.total_gain_loss).toFixed(2)}
-            </td>
+            <td>${service.number_of_buy_transactions}</td>
+            <td>${service.number_of_sell_transactions}</td>
+            <td>${service.creation_date.strftime('%Y-%m-%d %H:%M:%S')}</td>
+            <td>${service.last_start_date.strftime('%Y-%m-%d %H:%M:%S')}</td>
+            <td>${service.last_stop_date ? service.last_stop_date.strftime('%Y-%m-%d %H:%M:%S') : "N/A"}</td>
             <td>${service.service_mode}</td>
             <td>${service.service_state}</td>
             <td>
@@ -387,35 +411,31 @@
               <th>ID</th>
               <th>Service</th>
               <th>Stock</th>
-              <th>Type</th>
               <th>Shares</th>
-              <th>Price</th>
-              <th>Date</th>
+              <th>State</th>
+              <th>Purchase Price</th>
+              <th>Sale Price</th>
               <th>Gain/Loss</th>
+              <th>Purchase Date</th>
+              <th>Sale Date</th>
             </tr>
           </thead>
           <tbody>
         `;
         
         transactions.forEach(tx => {
-          const isSell = tx.date_time_of_sale !== null;
-          const date = isSell 
-            ? new Date(tx.date_time_of_sale).toLocaleString() 
-            : new Date(tx.date_time_of_purchase).toLocaleString();
-          const price = isSell ? tx.sale_price : tx.purchase_price;
-          
           html += `
           <tr>
             <td>${tx.transaction_id}</td>
             <td>${tx.service_id}</td>
             <td>${tx.stock_symbol}</td>
-            <td>${isSell ? 'SELL' : 'BUY'}</td>
-            <td>${tx.number_of_shares}</td>
-            <td>$${parseFloat(price).toFixed(2)}</td>
-            <td>${date}</td>
-            <td class="${tx.gain_loss && parseFloat(tx.gain_loss) > 0 ? 'profit' : (tx.gain_loss && parseFloat(tx.gain_loss) < 0 ? 'loss' : '')}">
-              ${tx.gain_loss ? '$' + parseFloat(tx.gain_loss).toFixed(2) : 'N/A'}
-            </td>
+            <td>${tx.number_of_shares ? tx.number_of_shares : "N/A"}</td>
+            <td>${tx.transaction_state}</td>
+            <td>${tx.purchase_price ? '$' + parseFloat(tx.purchase_price).toFixed(2) : "N/A"}</td>
+            <td>${tx.sale_price ? '$' + parseFloat(tx.sale_price).toFixed(2) : "N/A"}</td>
+            <td>${tx.gain_loss ? '$' + parseFloat(tx.gain_loss).toFixed(2) : "N/A"}</td>
+            <td>${tx.date_time_of_purchase ? tx.date_time_of_purchase.strftime('%Y-%m-%d %H:%M:%S') : "N/A"}</td>
+            <td>${tx.date_time_of_sale ? tx.date_time_of_sale.strftime('%Y-%m-%d %H:%M:%S') : "N/A"}</td>
           </tr>
           `;
         });

@@ -3,7 +3,7 @@
 Stock trading service module for day-trader-v1 application.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 from decimal import Decimal
 import threading
 from sqlalchemy import desc
@@ -45,7 +45,7 @@ def index():
                           services=services,
                           transactions=recent_transactions,
                           test_stocks=TEST_STOCKS,
-                          now=datetime.now())
+                          now=datetime.now(UTC))
 
 @stock_bp.route('/services/create', methods=['POST'])
 def create_service():
@@ -245,6 +245,7 @@ def recent_transactions():
                 "service_id": t.service_id,
                 "stock_symbol": t.stock_symbol,
                 "number_of_shares": t.number_of_shares,
+                "transaction_state": t.transaction_state,
                 "purchase_price": str(t.purchase_price),
                 "sale_price": str(t.sale_price) if t.sale_price else None,
                 "gain_loss": str(t.gain_loss) if t.gain_loss else None,
@@ -278,7 +279,9 @@ def active_services():
                 "current_number_of_shares": s.current_number_of_shares,
                 "service_state": s.service_state,
                 "service_mode": s.service_mode,
-                "start_date": s.start_date.isoformat() if s.start_date else None,
+                "creation_date": s.creation_date.isoformat() if s.creation_date else None,
+                "last_start_date": s.last_start_date.isoformat() if s.last_start_date else None,
+                "last_stop_date": s.last_stop_date.isoformat() if s.last_stop_date else None,
                 "number_of_buy_transactions": s.number_of_buy_transactions,
                 "number_of_sell_transactions": s.number_of_sell_transactions
             })

@@ -12,6 +12,10 @@ from typing import Dict, List, Final
 STATE_ACTIVE: Final[str] = "ACTIVE"
 STATE_INACTIVE: Final[str] = "INACTIVE"
 
+# Transaction states
+STATE_OPEN: Final[str] = "OPEN"
+STATE_CLOSED: Final[str] = "CLOSED"
+
 # Trading modes
 MODE_BUY: Final[str] = "BUY"
 MODE_SELL: Final[str] = "SELL"

@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 # Import the shared Base and StockService
 from app.models import Base
 
+from app.config.constants import STATE_OPEN
+
 if TYPE_CHECKING:
     from app.models.stock_service_model import StockService
 
@@ -36,12 +38,13 @@ class StockTransaction(Base):
     __tablename__ = 'stock_transactions'
     
     # Primary key and relationship fields
-    transaction_id: int = Column(Integer, primary_key=True)
+    transaction_id: int = Column(Integer, primary_key=True, nullable=False)
     service_id: int = Column(Integer, ForeignKey('stock_services.service_id'), nullable=False)
     
     # Transaction details
     stock_symbol: str = Column(String, nullable=False)
     number_of_shares: int = Column(Integer, nullable=False)
+    transaction_state: str = Column(String, default=STATE_OPEN, nullable=False)  # 'Open' or 'Closed'
     
     # Price information
     purchase_price: Decimal = Column(Numeric(precision=10, scale=2), nullable=False)
