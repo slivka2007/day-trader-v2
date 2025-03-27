@@ -49,6 +49,34 @@ class TradingServiceUpdateSchema(Schema):
     state = fields.String(validate=validate.OneOf([state.value for state in ServiceState]))
     mode = fields.String(validate=validate.OneOf([mode.value for mode in TradingMode]))
 
+# Schema for trading action (buy/sell decision)
+class TradingServiceActionSchema(Schema):
+    """Schema for service actions like buy/sell decisions."""
+    action = fields.String(required=True, validate=validate.OneOf(['check_buy', 'check_sell']))
+    stock_symbol = fields.String(required=True, validate=validate.Length(min=1, max=10))
+    service_id = fields.Integer(required=True)
+    purchase_price = fields.Decimal(required=False)  # Only needed for sell checks
+
+    @validates('stock_symbol')
+    def validate_symbol(self, symbol):
+        """Validate stock symbol."""
+        if not symbol or len(symbol) > 10:
+            raise ValidationError('Stock symbol must be 1-10 characters')
+        
+        if not symbol.isalnum():
+            raise ValidationError('Stock symbol must contain only letters and numbers')
+
+# Schema for trading decision response
+class TradingDecisionResponseSchema(Schema):
+    """Schema for trading decision responses."""
+    should_proceed = fields.Boolean(required=True)
+    reason = fields.String(required=True)
+    timestamp = fields.DateTime(required=True)
+    details = fields.Dict(required=False)
+    next_action = fields.String(required=False)
+
 # Create instances for easy importing
 service_create_schema = TradingServiceCreateSchema()
-service_update_schema = TradingServiceUpdateSchema() 
+service_update_schema = TradingServiceUpdateSchema()
+service_action_schema = TradingServiceActionSchema()
+decision_response_schema = TradingDecisionResponseSchema() 

@@ -12,7 +12,6 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 
 from app.services.database import setup_database, get_db_session
-from app.socket_events import register_socketio_handlers
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -60,12 +59,16 @@ def create_app(config=None):
     socketio.init_app(app, cors_allowed_origins="*")
     jwt = JWTManager(app)  # Initialize JWT
     
-    # Register SocketIO event handlers
-    register_socketio_handlers(socketio)
+    # Register error handlers
+    from app.utils.errors import register_error_handlers
+    register_error_handlers(app)
     
     # Register REST API (Flask-RESTX)
-    from app.api import api_bp
+    from app.api import api_bp, init_websockets
     app.register_blueprint(api_bp)
+    
+    # Initialize WebSockets through the API module (this replaces register_socketio_handlers)
+    init_websockets(app)
     
     # Register traditional routes for backward compatibility
     from app.routes.stock_trading import stock_bp
@@ -79,8 +82,7 @@ def create_app(config=None):
         """Main landing page."""
         return render_template('index.html', now=datetime.now())
     
-    # Make socketio available to routes
-    app.socketio = socketio
+    # Don't need to set app.socketio here since init_websockets does this
     
     return app
 

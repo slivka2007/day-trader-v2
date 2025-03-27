@@ -1,11 +1,13 @@
 """
 Trading Transaction model schemas.
 """
-from marshmallow import fields, post_load, validates, ValidationError
+from marshmallow import fields, post_load, validates, validates_schema, ValidationError, validate
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
+from datetime import datetime
 
 from app.models import TradingTransaction, TransactionState
 from app.api.schemas import Schema
+from app.services.database import get_db_session
 
 class TradingTransactionSchema(SQLAlchemyAutoSchema):
     """Schema for serializing/deserializing TradingTransaction models."""
@@ -35,5 +37,36 @@ class TransactionCompleteSchema(Schema):
         if value <= 0:
             raise ValidationError('Sale price must be greater than 0')
 
-# Create an instance for easy importing
-transaction_complete_schema = TransactionCompleteSchema() 
+# Schema for creating a new buy transaction
+class TransactionCreateSchema(Schema):
+    """Schema for creating a new buy transaction."""
+    service_id = fields.Integer(required=True)
+    stock_symbol = fields.String(required=False)  # Optional as it can come from service
+    shares = fields.Integer(required=True, validate=validate.Range(min=1))
+    purchase_price = fields.Decimal(required=True, validate=validate.Range(min=0.01))
+    
+    @validates_schema
+    def validate_service_state(self, data, **kwargs):
+        """Validate the service is in a state where it can buy."""
+        from app.models import TradingService
+        
+        with get_db_session() as session:
+            service = session.query(TradingService).filter_by(id=data['service_id']).first()
+            if not service:
+                raise ValidationError("Service not found")
+            if not service.can_buy:
+                raise ValidationError("Service cannot make purchases in its current state")
+            
+            # If stock symbol not provided, use the one from service
+            if 'stock_symbol' not in data or not data['stock_symbol']:
+                data['stock_symbol'] = service.stock_symbol
+
+# Schema for cancelling a transaction
+class TransactionCancelSchema(Schema):
+    """Schema for cancelling a transaction."""
+    reason = fields.String(required=False)
+
+# Create instances for easy importing
+transaction_complete_schema = TransactionCompleteSchema()
+transaction_create_schema = TransactionCreateSchema()
+transaction_cancel_schema = TransactionCancelSchema() 

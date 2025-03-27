@@ -90,11 +90,16 @@ class WebSocketTest(Resource):
         message = request.json.get('message', 'Test WebSocket message')
         timestamp = datetime.now()
         
-        # Emit the test event to all connected clients
-        current_app.socketio.emit('test', {
-            'message': message, 
-            'timestamp': timestamp.isoformat()
-        })
+        # Use EventService to emit the test event
+        from app.services.events import EventService
+        EventService.emit(
+            event_type='test',
+            data={
+                'message': message, 
+                'timestamp': timestamp.isoformat()
+            },
+            room='errors'  # Use errors room as a general broadcast
+        )
         
         return {
             'status': 'ok',

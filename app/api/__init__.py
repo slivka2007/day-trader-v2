@@ -6,27 +6,29 @@ This package contains all the API resources, models, and schemas for the applica
 from flask import Blueprint, request
 from flask_restx import Api
 from sqlalchemy.orm import Query
+from flask_socketio import SocketIO
+from flask_restx.errors import ValidationError
 
 # Create API blueprint
-api_bp = Blueprint('api', __name__, url_prefix='/api')
+api_bp = Blueprint('api', __name__, url_prefix='/api/v1')
 
 # Initialize Flask-RESTX API
 api = Api(
     api_bp, 
     version='1.0',
     title='Day Trader API',
-    description='REST API for the Day Trader stock trading application',
+    description='RESTful API for the Day Trader application',
     doc='/docs',
     validate=True,
     authorizations={
-        'jwt': {
+        'Bearer Auth': {
             'type': 'apiKey',
             'in': 'header',
             'name': 'Authorization',
-            'description': 'Standard JWT authorization header using Bearer scheme. Example: "Bearer {token}"'
-        }
+            'description': 'Add a JWT with ** Bearer &lt;JWT&gt; ** to authorize'
+        },
     },
-    security='jwt'
+    security='Bearer Auth'
 )
 
 # Pagination and filtering utilities
@@ -141,19 +143,44 @@ def apply_filters(query: Query, model, filter_args=None):
     return query
 
 # Import and register namespaces
+from app.api.resources.auth import api as auth_ns
+from app.api.resources.users import api as users_ns
 from app.api.resources.stocks import api as stocks_ns
-from app.api.resources.stock_prices import api as prices_ns
-from app.api.resources.trading_services import api as services_ns
-from app.api.resources.trading_transactions import api as transactions_ns
-from app.api.resources.system import api as system_ns
-from app.api.auth import api as auth_ns
+from app.api.resources.trading_services import api as trading_services_ns
+from app.api.resources.trading_transactions import api as trading_transactions_ns
 
 # Add namespaces to the API
-api.add_namespace(stocks_ns)
-api.add_namespace(prices_ns)
-api.add_namespace(services_ns)
-api.add_namespace(transactions_ns)
-api.add_namespace(system_ns)
 api.add_namespace(auth_ns)
+api.add_namespace(users_ns)
+api.add_namespace(stocks_ns)
+api.add_namespace(trading_services_ns)
+api.add_namespace(trading_transactions_ns)
+
+# Register error handlers
+@api_bp.errorhandler(ValidationError)
+def handle_validation_error(error):
+    """Handle Schema validation errors."""
+    return {'message': str(error)}, 400
+
+@api_bp.errorhandler(404)
+def handle_not_found(error):
+    """Handle 404 errors."""
+    return {'message': error.description}, 404
+
+@api_bp.errorhandler(401)
+def handle_unauthorized(error):
+    """Handle 401 errors."""
+    return {'message': error.description}, 401
+
+# Initialize WebSockets for real-time updates
+socketio = SocketIO(cors_allowed_origins="*")
+
+def init_websockets(app):
+    """Initialize WebSocket handlers"""
+    from app.api.sockets import register_handlers
+    socketio.init_app(app)
+    register_handlers(socketio)
+    app.socketio = socketio  # Store reference in app for easy access
+    return socketio
 
 __all__ = ['api_bp', 'api', 'apply_pagination', 'apply_filters'] 

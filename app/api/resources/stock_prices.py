@@ -213,14 +213,29 @@ class StockDailyPriceList(Resource):
                 session.commit()
                 session.refresh(price_record)
                 
-                # Emit WebSocket event for daily price update
-                current_app.socketio.emit('price_update', {
-                    'type': 'daily',
-                    'stock_symbol': stock.symbol,
-                    'stock_id': stock_id,
+                # Prepare price data for event emission
+                price_data = {
+                    'id': price_record.id,
+                    'stock_id': price_record.stock_id,
                     'price_date': price_record.price_date.isoformat(),
-                    'close_price': float(price_record.close_price)
-                }, room='price_updates')
+                    'open_price': float(price_record.open_price),
+                    'high_price': float(price_record.high_price),
+                    'low_price': float(price_record.low_price),
+                    'close_price': float(price_record.close_price),
+                    'adj_close': float(price_record.adj_close),
+                    'volume': price_record.volume,
+                    'source': price_record.source,
+                    'created_at': price_record.created_at.isoformat(),
+                    'updated_at': price_record.updated_at.isoformat()
+                }
+                
+                # Use EventService to emit WebSocket events
+                from app.services.events import EventService
+                EventService.emit_price_update(
+                    action='created',
+                    price_data=price_data,
+                    stock_symbol=stock.symbol
+                )
                 
                 return price_record, 201
         except Exception as e:
@@ -365,15 +380,29 @@ class StockIntradayPriceList(Resource):
                 session.commit()
                 session.refresh(price_record)
                 
-                # Emit WebSocket event for intraday price update
-                current_app.socketio.emit('price_update', {
-                    'type': 'intraday',
-                    'stock_symbol': stock.symbol,
-                    'stock_id': stock_id,
+                # Prepare price data for event emission
+                price_data = {
+                    'id': price_record.id,
+                    'stock_id': price_record.stock_id,
                     'timestamp': price_record.timestamp.isoformat(),
+                    'interval': price_record.interval,
+                    'open_price': float(price_record.open_price),
+                    'high_price': float(price_record.high_price),
+                    'low_price': float(price_record.low_price),
                     'close_price': float(price_record.close_price),
-                    'interval': price_record.interval
-                }, room='price_updates')
+                    'volume': price_record.volume,
+                    'source': price_record.source,
+                    'created_at': price_record.created_at.isoformat(),
+                    'updated_at': price_record.updated_at.isoformat()
+                }
+                
+                # Use EventService to emit WebSocket events
+                from app.services.events import EventService
+                EventService.emit_price_update(
+                    action='created',
+                    price_data=price_data,
+                    stock_symbol=stock.symbol
+                )
                 
                 return price_record, 201
         except Exception as e:
