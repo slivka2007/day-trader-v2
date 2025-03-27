@@ -3,7 +3,6 @@ Trading Transaction model schemas.
 """
 from marshmallow import fields, post_load, validates, validates_schema, ValidationError, validate
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
-from datetime import datetime
 
 from app.models import TradingTransaction, TransactionState
 from app.api.schemas import Schema

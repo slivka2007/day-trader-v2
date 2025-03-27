@@ -4,13 +4,12 @@ User model.
 This model represents user accounts for authentication and authorization.
 """
 from typing import Optional, List, TYPE_CHECKING
-from datetime import datetime
 from sqlalchemy import Column, String, Boolean, DateTime, func
 from sqlalchemy.orm import relationship, Mapped
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from app.models.base import Base
-
+from app.utils.current_datetime import get_current_datetime
 if TYPE_CHECKING:
     from app.models.trading_service import TradingService
 
@@ -60,7 +59,7 @@ class User(Base):
     
     def update_last_login(self):
         """Update the last login timestamp to now."""
-        self.last_login = datetime.now(datetime.UTC)
+        self.last_login = get_current_datetime()
     
     def __repr__(self) -> str:
         """String representation of the User object."""

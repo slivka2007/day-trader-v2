@@ -3,7 +3,6 @@ Intraday price model.
 
 This model represents intraday (e.g., hourly or minute-by-minute) stock price data.
 """
-from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import Column, Integer, Float, DateTime, ForeignKey, UniqueConstraint, String
@@ -11,7 +10,6 @@ from sqlalchemy.orm import relationship, Mapped
 
 from app.models.base import Base
 from app.models.enums import PriceSource
-
 if TYPE_CHECKING:
     from app.models.stock import Stock
 

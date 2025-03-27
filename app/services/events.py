@@ -6,8 +6,9 @@ formatting and behavior across the application.
 """
 import logging
 from typing import Dict, Any, Optional
-from datetime import datetime
 from flask import current_app
+
+from app.utils.current_datetime import get_current_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class EventService:
                 
             # Add timestamp if requested
             if include_timestamp and 'timestamp' not in data:
-                data['timestamp'] = datetime.utcnow().isoformat()
+                data['timestamp'] = get_current_datetime().isoformat()
                 
             # Emit the event
             current_app.socketio.emit(event_type, data, room=room)

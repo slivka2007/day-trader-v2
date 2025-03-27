@@ -1,9 +1,10 @@
 """
 User model schemas.
 """
+import re
+
 from marshmallow import fields, post_load, validates, validates_schema, ValidationError, validate
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
-import re
 
 from app.models import User
 from app.api.schemas import Schema

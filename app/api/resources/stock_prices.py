@@ -3,13 +3,14 @@ Stock Prices API resources.
 """
 from flask import request, current_app
 from flask_restx import Namespace, Resource, fields, abort
-from datetime import datetime, date
+from datetime import datetime
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.services.database import get_db_session
 from app.models import Stock, StockDailyPrice, StockIntradayPrice, PriceSource
 from app.api import apply_pagination, apply_filters
 from app.api.auth import admin_required
+from app.utils.errors import ResourceNotFoundError
 from app.api.schemas.stock_price import (
     daily_price_schema,
     daily_prices_schema,
@@ -26,14 +27,14 @@ api = Namespace('prices', description='Stock price operations')
 daily_price_model = api.model('StockDailyPrice', {
     'id': fields.Integer(readonly=True, description='Price record identifier'),
     'stock_id': fields.Integer(description='Stock identifier'),
-    'price_date': fields.Date(description='Trading date'),
-    'open_price': fields.Float(description='Opening price'),
-    'high_price': fields.Float(description='Highest price'),
-    'low_price': fields.Float(description='Lowest price'),
-    'close_price': fields.Float(description='Closing price'),
-    'adj_close': fields.Float(description='Adjusted closing price'),
+    'stock_symbol': fields.String(description='Stock symbol'),
+    'price_date': fields.Date(description='Price date'),
+    'open': fields.Float(description='Opening price'),
+    'high': fields.Float(description='High price'),
+    'low': fields.Float(description='Low price'),
+    'close': fields.Float(description='Closing price'),
     'volume': fields.Integer(description='Trading volume'),
-    'source': fields.String(description='Price data source'),
+    'adjusted_close': fields.Float(description='Adjusted closing price'),
     'created_at': fields.DateTime(description='Creation timestamp'),
     'updated_at': fields.DateTime(description='Last update timestamp')
 })
@@ -53,14 +54,14 @@ daily_price_input_model = api.model('StockDailyPriceInput', {
 intraday_price_model = api.model('StockIntradayPrice', {
     'id': fields.Integer(readonly=True, description='Price record identifier'),
     'stock_id': fields.Integer(description='Stock identifier'),
-    'timestamp': fields.DateTime(description='Trading timestamp'),
+    'stock_symbol': fields.String(description='Stock symbol'),
+    'timestamp': fields.DateTime(description='Price timestamp'),
     'interval': fields.Integer(description='Time interval in minutes'),
-    'open_price': fields.Float(description='Opening price'),
-    'high_price': fields.Float(description='Highest price'),
-    'low_price': fields.Float(description='Lowest price'),
-    'close_price': fields.Float(description='Closing price'),
+    'open': fields.Float(description='Opening price'),
+    'high': fields.Float(description='High price'),
+    'low': fields.Float(description='Low price'),
+    'close': fields.Float(description='Closing price'),
     'volume': fields.Integer(description='Trading volume'),
-    'source': fields.String(description='Price data source'),
     'created_at': fields.DateTime(description='Creation timestamp'),
     'updated_at': fields.DateTime(description='Last update timestamp')
 })
@@ -99,66 +100,60 @@ intraday_price_list_model = api.model('IntradayPriceList', {
 @api.route('/daily/stocks/<int:stock_id>')
 @api.param('stock_id', 'The stock identifier')
 @api.response(404, 'Stock not found')
-class StockDailyPriceList(Resource):
-    """Resource for managing daily prices for a specific stock."""
+class StockDailyPrices(Resource):
+    """Resource for daily price data for a specific stock."""
     
-    @api.doc('list_daily_prices',
+    @api.doc('get_daily_prices',
              params={
                  'page': 'Page number (default: 1)',
                  'page_size': 'Number of items per page (default: 20, max: 100)',
-                 'start_date': 'Filter prices on or after this date (YYYY-MM-DD)',
-                 'end_date': 'Filter prices on or before this date (YYYY-MM-DD)',
-                 'sort': 'Sort field (e.g., price_date, close_price)',
-                 'order': 'Sort order (asc or desc, default: asc)'
+                 'start_date': 'Filter by start date (format: YYYY-MM-DD)',
+                 'end_date': 'Filter by end date (format: YYYY-MM-DD)',
+                 'sort': 'Sort field (e.g., price_date)',
+                 'order': 'Sort order (asc or desc, default: desc for dates)'
              })
     @api.marshal_with(daily_price_list_model)
     @api.response(200, 'Success')
-    @api.response(400, 'Invalid query parameters')
     @api.response(404, 'Stock not found')
     def get(self, stock_id):
-        """Get daily prices for a stock with filtering and pagination."""
+        """Get daily price data for a specific stock with filtering and pagination."""
         with get_db_session() as session:
-            # Check if the stock exists
+            # Verify stock exists
             stock = session.query(Stock).filter_by(id=stock_id).first()
-            if stock is None:
-                abort(404, 'Stock not found')
+            if not stock:
+                raise ResourceNotFoundError('Stock', stock_id)
             
-            # Start with base query
+            # Get base query for this stock's daily prices
             query = session.query(StockDailyPrice).filter_by(stock_id=stock_id)
             
-            # Handle special date filtering
-            start_date = request.args.get('start_date')
-            end_date = request.args.get('end_date')
-            
-            if start_date:
+            # Apply date filters if provided
+            if 'start_date' in request.args:
                 try:
-                    start = datetime.strptime(start_date, '%Y-%m-%d').date()
-                    query = query.filter(StockDailyPrice.price_date >= start)
+                    start_date = datetime.strptime(request.args['start_date'], '%Y-%m-%d').date()
+                    query = query.filter(StockDailyPrice.price_date >= start_date)
                 except ValueError:
                     abort(400, 'Invalid start_date format. Use YYYY-MM-DD')
-            
-            if end_date:
+                    
+            if 'end_date' in request.args:
                 try:
-                    end = datetime.strptime(end_date, '%Y-%m-%d').date()
-                    query = query.filter(StockDailyPrice.price_date <= end)
+                    end_date = datetime.strptime(request.args['end_date'], '%Y-%m-%d').date()
+                    query = query.filter(StockDailyPrice.price_date <= end_date)
                 except ValueError:
                     abort(400, 'Invalid end_date format. Use YYYY-MM-DD')
             
-            # Apply additional filters
+            # Apply other filters
             query = apply_filters(query, StockDailyPrice)
             
-            # Apply default sort if not specified
-            sort_field = request.args.get('sort', 'price_date')
-            sort_order = request.args.get('order', 'asc')
-            
-            if sort_field == 'price_date':
-                sort_col = StockDailyPrice.price_date
-                if sort_order.lower() == 'desc':
-                    sort_col = sort_col.desc()
-                query = query.order_by(sort_col)
+            # Default sort by date descending if not specified
+            if 'sort' not in request.args:
+                query = query.order_by(StockDailyPrice.price_date.desc())
             
             # Apply pagination
             result = apply_pagination(query)
+            
+            # Add stock information to response
+            result['stock_symbol'] = stock.symbol
+            result['stock_id'] = stock_id
             
             # Serialize the results
             result['items'] = daily_prices_schema.dump(result['items'])
@@ -223,75 +218,71 @@ class StockDailyPriceList(Resource):
 @api.route('/intraday/stocks/<int:stock_id>')
 @api.param('stock_id', 'The stock identifier')
 @api.response(404, 'Stock not found')
-class StockIntradayPriceList(Resource):
-    """Resource for managing intraday prices for a specific stock."""
+class StockIntradayPrices(Resource):
+    """Resource for intraday price data for a specific stock."""
     
-    @api.doc('list_intraday_prices',
+    @api.doc('get_intraday_prices',
              params={
                  'page': 'Page number (default: 1)',
                  'page_size': 'Number of items per page (default: 20, max: 100)',
-                 'start_time': 'Filter prices on or after this time (ISO format)',
-                 'end_time': 'Filter prices on or before this time (ISO format)',
-                 'interval': 'Filter by time interval in minutes',
-                 'sort': 'Sort field (e.g., timestamp, close_price)',
-                 'order': 'Sort order (asc or desc, default: asc)'
+                 'start_time': 'Filter by start timestamp (format: YYYY-MM-DD HH:MM:SS)',
+                 'end_time': 'Filter by end timestamp (format: YYYY-MM-DD HH:MM:SS)',
+                 'interval': 'Filter by interval in minutes (1, 5, 15, 30, 60)',
+                 'sort': 'Sort field (e.g., timestamp)',
+                 'order': 'Sort order (asc or desc, default: desc for timestamps)'
              })
     @api.marshal_with(intraday_price_list_model)
     @api.response(200, 'Success')
-    @api.response(400, 'Invalid query parameters')
     @api.response(404, 'Stock not found')
     def get(self, stock_id):
-        """Get intraday prices for a stock with filtering and pagination."""
+        """Get intraday price data for a specific stock with filtering and pagination."""
         with get_db_session() as session:
-            # Check if the stock exists
+            # Verify stock exists
             stock = session.query(Stock).filter_by(id=stock_id).first()
-            if stock is None:
-                abort(404, 'Stock not found')
+            if not stock:
+                raise ResourceNotFoundError('Stock', stock_id)
             
-            # Start with base query
+            # Get base query for this stock's intraday prices
             query = session.query(StockIntradayPrice).filter_by(stock_id=stock_id)
             
-            # Handle special time filtering
-            start_time = request.args.get('start_time')
-            end_time = request.args.get('end_time')
-            interval = request.args.get('interval')
-            
-            if start_time:
+            # Apply timestamp filters if provided
+            if 'start_time' in request.args:
                 try:
-                    start = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-                    query = query.filter(StockIntradayPrice.timestamp >= start)
+                    start_time = datetime.strptime(request.args['start_time'], '%Y-%m-%d %H:%M:%S')
+                    query = query.filter(StockIntradayPrice.timestamp >= start_time)
                 except ValueError:
-                    abort(400, 'Invalid start_time format. Use ISO format')
-            
-            if end_time:
+                    abort(400, 'Invalid start_time format. Use YYYY-MM-DD HH:MM:SS')
+                    
+            if 'end_time' in request.args:
                 try:
-                    end = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
-                    query = query.filter(StockIntradayPrice.timestamp <= end)
+                    end_time = datetime.strptime(request.args['end_time'], '%Y-%m-%d %H:%M:%S')
+                    query = query.filter(StockIntradayPrice.timestamp <= end_time)
                 except ValueError:
-                    abort(400, 'Invalid end_time format. Use ISO format')
+                    abort(400, 'Invalid end_time format. Use YYYY-MM-DD HH:MM:SS')
             
-            if interval:
+            # Apply interval filter if provided
+            if 'interval' in request.args:
                 try:
-                    interval_value = int(interval)
-                    query = query.filter(StockIntradayPrice.interval == interval_value)
+                    interval = int(request.args['interval'])
+                    if interval not in [1, 5, 15, 30, 60]:
+                        abort(400, 'Invalid interval. Use 1, 5, 15, 30, or 60')
+                    query = query.filter(StockIntradayPrice.interval == interval)
                 except ValueError:
-                    abort(400, 'Invalid interval format. Use an integer value')
+                    abort(400, 'Invalid interval. Must be an integer')
             
-            # Apply additional filters
+            # Apply other filters
             query = apply_filters(query, StockIntradayPrice)
             
-            # Apply default sort if not specified
-            sort_field = request.args.get('sort', 'timestamp')
-            sort_order = request.args.get('order', 'asc')
-            
-            if sort_field == 'timestamp':
-                sort_col = StockIntradayPrice.timestamp
-                if sort_order.lower() == 'desc':
-                    sort_col = sort_col.desc()
-                query = query.order_by(sort_col)
+            # Default sort by timestamp descending if not specified
+            if 'sort' not in request.args:
+                query = query.order_by(StockIntradayPrice.timestamp.desc())
             
             # Apply pagination
             result = apply_pagination(query)
+            
+            # Add stock information to response
+            result['stock_symbol'] = stock.symbol
+            result['stock_id'] = stock_id
             
             # Serialize the results
             result['items'] = intraday_prices_schema.dump(result['items'])

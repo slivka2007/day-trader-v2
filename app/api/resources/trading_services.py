@@ -3,7 +3,6 @@ Trading Services API resources.
 """
 from flask import request, current_app
 from flask_restx import Namespace, Resource, fields, abort
-from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
@@ -18,7 +17,7 @@ from app.api.schemas.trading_service import (
 from app.api import apply_pagination, apply_filters
 from app.utils.errors import ValidationError, ResourceNotFoundError, AuthorizationError, BusinessLogicError
 from app.utils.auth import require_ownership, verify_resource_ownership, get_current_user
-
+from app.utils.current_datetime import get_current_datetime
 # Create namespace
 api = Namespace('services', description='Trading service operations')
 
@@ -64,6 +63,16 @@ pagination_model = api.model('Pagination', {
 service_list_model = api.model('ServiceList', {
     'items': fields.List(fields.Nested(service_model), description='List of services'),
     'pagination': fields.Nested(pagination_model, description='Pagination information')
+})
+
+# Define decision model for buy/sell decision endpoints
+decision_model = api.model('TradingDecision', {
+    'should_proceed': fields.Boolean(required=True, description='Whether the trading operation should proceed'),
+    'reason': fields.String(required=True, description='Reason for the decision'),
+    'timestamp': fields.DateTime(required=True, description='Decision timestamp'),
+    'details': fields.Raw(description='Additional details about the decision'),
+    'service_id': fields.Integer(description='The trading service identifier'),
+    'next_action': fields.String(description='Suggested next action')
 })
 
 @api.route('/')
@@ -301,63 +310,80 @@ class ServiceToggle(Resource):
 @api.route('/<int:id>/check-buy')
 @api.param('id', 'The trading service identifier')
 @api.response(404, 'Service not found')
-class ServiceBuyCheck(Resource):
-    """Resource for checking if a service should buy its configured stock"""
+class ServiceCheckBuy(Resource):
+    """Check if a trading service should make a buy decision"""
     
-    @api.doc('check_buy_condition')
-    @api.response(200, 'Buy check completed')
+    @api.doc('check_buy_decision')
+    @api.marshal_with(decision_model)
+    @api.response(200, 'Success')
+    @api.response(400, 'Invalid request')
     @api.response(401, 'Unauthorized')
     @api.response(404, 'Service not found')
     @jwt_required()
     @require_ownership('service')
     def get(self, id):
-        """Check if the service should buy its configured stock."""
+        """Check if a buy decision should be made"""
         with get_db_session() as session:
             service = session.query(TradingService).filter_by(id=id).first()
             if not service:
                 raise ResourceNotFoundError('TradingService', id)
                 
-            # Get current price (placeholder - would use actual price in production)
-            current_price = 100.0  # Placeholder value
+            # Implement your buy decision logic here
+            # This is just a simple example response
+            result = {
+                'should_proceed': service.can_buy,
+                'reason': 'Service ready to buy' if service.can_buy else 'Service not in buy mode or insufficient funds',
+                'timestamp': get_current_datetime().isoformat(),
+                'details': {
+                    'fund_balance': float(service.fund_balance),
+                    'minimum_balance': float(service.minimum_balance),
+                    'is_active': service.is_active,
+                    'state': service.service_state.name,
+                    'mode': service.mode.name
+                }
+            }
             
-            # Check buy condition
-            result = service.check_buy_condition(current_price)
-            
-            # Add service data to response
-            result['service_id'] = service.id
-            result['stock_symbol'] = service.stock_symbol
-            result['timestamp'] = datetime.now().isoformat()
+            # Add service_id to the response
+            result['service_id'] = id
             
             return result
 
 @api.route('/<int:id>/check-sell')
 @api.param('id', 'The trading service identifier')
 @api.response(404, 'Service not found')
-class ServiceSellCheck(Resource):
-    """Resource for checking if a service should sell its current holdings"""
+class ServiceCheckSell(Resource):
+    """Check if a trading service should make a sell decision"""
     
-    @api.doc('check_sell_condition')
-    @api.response(200, 'Sell check completed')
+    @api.doc('check_sell_decision')
+    @api.marshal_with(decision_model)
+    @api.response(200, 'Success')
+    @api.response(400, 'Invalid request')
     @api.response(401, 'Unauthorized')
     @api.response(404, 'Service not found')
     @jwt_required()
     @require_ownership('service')
     def get(self, id):
-        """Check if the service should sell its current holdings."""
+        """Check if a sell decision should be made"""
         with get_db_session() as session:
             service = session.query(TradingService).filter_by(id=id).first()
             if not service:
                 raise ResourceNotFoundError('TradingService', id)
                 
-            # Get current price (placeholder - would use actual price in production)
-            current_price = 100.0  # Placeholder value
+            # Implement your sell decision logic here
+            # This is just a simple example response
+            result = {
+                'should_proceed': service.can_sell,
+                'reason': 'Service ready to sell' if service.can_sell else 'Service not in sell mode or no shares to sell',
+                'timestamp': get_current_datetime().isoformat(),
+                'details': {
+                    'current_shares': service.current_shares,
+                    'is_active': service.is_active,
+                    'state': service.service_state.name,
+                    'mode': service.mode.name
+                }
+            }
             
-            # Check sell condition
-            result = service.check_sell_condition(current_price)
-            
-            # Add service data to response
-            result['service_id'] = service.id
-            result['stock_symbol'] = service.stock_symbol
-            result['timestamp'] = datetime.now().isoformat()
+            # Add service_id to the response
+            result['service_id'] = id
             
             return result 

@@ -8,7 +8,7 @@ from flask import current_app
 from flask_socketio import emit, join_room, leave_room
 import functools
 import logging
-from datetime import datetime
+from app.utils.current_datetime import get_current_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def create_error_response(message, code=400, details=None):
         'error': True,
         'code': code,
         'message': message,
-        'timestamp': datetime.now().isoformat()
+        'timestamp': get_current_datetime().isoformat()
     }
     
     if details:

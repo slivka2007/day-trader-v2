@@ -5,7 +5,6 @@ This model represents a trading service that can buy and sell stocks.
 """
 from typing import List, Optional, TYPE_CHECKING, Dict, Any, Union
 from decimal import Decimal
-from datetime import datetime
 
 from sqlalchemy import Column, ForeignKey, String, Integer, Numeric, DateTime, Boolean, Text, Enum
 from sqlalchemy.orm import relationship, Mapped, Session
@@ -14,7 +13,7 @@ from flask import current_app
 
 from app.models.base import Base
 from app.models.enums import ServiceState, TradingMode
-
+from app.utils.current_datetime import get_current_datetime
 if TYPE_CHECKING:
     from app.models.stock import Stock
     from app.models.trading_transaction import TradingTransaction
@@ -33,10 +32,10 @@ class TradingService(Base):
         stock_symbol: Symbol of the stock being traded
         name: Optional name for the service
         initial_balance: Initial funds allocated to the service
-        fund_balance: Current available funds
+        current_balance: Current available funds
         total_gain_loss: Cumulative profit/loss
         current_shares: Number of shares currently held
-        service_state: Current state (ACTIVE, INACTIVE, etc.)
+        state: Current state (ACTIVE, INACTIVE, etc.)
         mode: Current trading mode (BUY, SELL, HOLD)
         buy_count: Number of completed buy transactions
         sell_count: Number of completed sell transactions
@@ -52,13 +51,13 @@ class TradingService(Base):
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     stock_symbol = Column(String(10), nullable=False)
-    service_state = Column(Enum(ServiceState), default=ServiceState.INACTIVE, nullable=False)
+    state = Column(Enum(ServiceState), default=ServiceState.INACTIVE, nullable=False)
     mode = Column(Enum(TradingMode), default=TradingMode.BUY, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     
     # Financial configuration
     initial_balance = Column(Numeric(precision=18, scale=2), nullable=False)
-    fund_balance = Column(Numeric(precision=18, scale=2), nullable=False)
+    current_balance = Column(Numeric(precision=18, scale=2), nullable=False)
     minimum_balance = Column(Numeric(precision=18, scale=2), default=0, nullable=False)
     allocation_percent = Column(Numeric(precision=18, scale=2), default=0.5, nullable=False)
     
@@ -81,16 +80,16 @@ class TradingService(Base):
     
     def __repr__(self) -> str:
         """String representation of the TradingService object."""
-        return f"<TradingService(id={self.id}, symbol='{self.stock_symbol}', balance={self.fund_balance})>"
+        return f"<TradingService(id={self.id}, symbol='{self.stock_symbol}', balance={self.current_balance})>"
     
     @property
     def can_buy(self) -> bool:
         """Check if the service can buy stocks."""
         return (
             self.is_active and 
-            self.service_state == ServiceState.ACTIVE and
+            self.state == ServiceState.ACTIVE and
             self.mode == TradingMode.BUY and
-            self.fund_balance > self.minimum_balance
+            self.current_balance > self.minimum_balance
         )
     
     @property
@@ -98,7 +97,7 @@ class TradingService(Base):
         """Check if the service can sell stocks."""
         return (
             self.is_active and 
-            self.service_state == ServiceState.ACTIVE and
+            self.state == ServiceState.ACTIVE and
             self.mode == TradingMode.SELL and
             self.current_shares > 0
         )
@@ -113,7 +112,7 @@ class TradingService(Base):
         """Calculate performance as a percentage of initial balance."""
         if not self.initial_balance:
             return 0.0
-        total_value = self.fund_balance + (self.current_shares * self.get_current_price())
+        total_value = self.current_balance + (self.current_shares * self.get_current_price())
         return ((total_value - self.initial_balance) / self.initial_balance) * 100
     
     def get_current_price(self) -> float:
@@ -151,7 +150,7 @@ class TradingService(Base):
             if key in allowed_fields and value is not None:
                 setattr(self, key, value)
                 
-        self.updated_at = datetime.now(datetime.UTC)
+        self.updated_at = get_current_datetime()
         
         try:
             # Emit WebSocket event
@@ -185,11 +184,11 @@ class TradingService(Base):
         from app.api.schemas.trading_service import service_schema
         from app.services.events import EventService
         
-        previous_state = self.service_state
+        previous_state = self.state
         
         # Update state
-        self.service_state = new_state
-        self.updated_at = datetime.now(datetime.UTC)
+        self.state = new_state
+        self.updated_at = get_current_datetime()
         
         try:
             # Emit WebSocket event
@@ -232,7 +231,7 @@ class TradingService(Base):
         
         # Toggle active status
         self.is_active = not self.is_active
-        self.updated_at = datetime.now(datetime.UTC)
+        self.updated_at = get_current_datetime()
         
         try:
             # Emit WebSocket event
@@ -264,13 +263,13 @@ class TradingService(Base):
         if not self.can_buy:
             return {
                 'can_buy': False,
-                'reason': f"Service cannot buy in current state (state: {self.service_state}, mode: {self.mode})",
-                'fund_balance': self.fund_balance,
+                'reason': f"Service cannot buy in current state (state: {self.state}, mode: {self.mode})",
+                'current_balance': self.current_balance,
                 'minimum_balance': self.minimum_balance
             }
             
         # Calculate maximum shares that can be purchased
-        max_amount = self.fund_balance * self.allocation_percent
+        max_amount = self.current_balance * self.allocation_percent
         max_shares = max_amount / current_price if current_price > 0 else 0
         
         # TODO: Add actual strategy logic here
@@ -281,8 +280,8 @@ class TradingService(Base):
             'current_price': current_price,
             'max_shares': max_shares,
             'max_amount': max_amount,
-            'fund_balance': self.fund_balance,
-            'remaining_balance': self.fund_balance - (max_shares * current_price)
+            'current_balance': self.current_balance,
+            'remaining_balance': self.current_balance - (max_shares * current_price)
         }
     
     def check_sell_condition(self, current_price: float, historical_prices: List[float] = None) -> Dict[str, Any]:
@@ -299,7 +298,7 @@ class TradingService(Base):
         if not self.can_sell:
             return {
                 'can_sell': False,
-                'reason': f"Service cannot sell in current state (state: {self.service_state}, mode: {self.mode})",
+                'reason': f"Service cannot sell in current state (state: {self.state}, mode: {self.mode})",
                 'current_shares': self.current_shares
             }
             
@@ -384,7 +383,7 @@ class TradingService(Base):
             name=data['name'],
             stock_symbol=data['stock_symbol'].upper(),
             initial_balance=data['initial_balance'],
-            fund_balance=data['initial_balance'],
+            current_balance=data['initial_balance'],
             minimum_balance=data.get('minimum_balance', 0),
             allocation_percent=data.get('allocation_percent', 0.5),
             description=data.get('description', ''),

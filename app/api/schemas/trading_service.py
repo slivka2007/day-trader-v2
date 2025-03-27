@@ -3,7 +3,6 @@ Trading Service model schemas.
 """
 from marshmallow import fields, post_load, validates, validates_schema, ValidationError, validate
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
-from decimal import Decimal
 
 from app.models import TradingService, ServiceState, TradingMode
 from app.api.schemas import Schema

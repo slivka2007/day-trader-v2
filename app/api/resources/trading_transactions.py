@@ -3,7 +3,6 @@ Trading Transactions API resources.
 """
 from flask import request, current_app
 from flask_restx import Namespace, Resource, fields, abort
-from datetime import datetime
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.services.database import get_db_session
@@ -24,20 +23,23 @@ from app.utils.auth import require_ownership, verify_resource_ownership, get_cur
 api = Namespace('transactions', description='Trading transaction operations')
 
 # Define API models
-transaction_model = api.model('Transaction', {
+transaction_model = api.model('TradingTransaction', {
     'id': fields.Integer(readonly=True, description='The transaction identifier'),
     'service_id': fields.Integer(required=True, description='The trading service identifier'),
     'stock_id': fields.Integer(description='The stock identifier'),
-    'stock_symbol': fields.String(required=True, description='The stock symbol'),
-    'shares': fields.Float(required=True, description='Number of shares'),
+    'stock_symbol': fields.String(description='Stock ticker symbol'),
     'state': fields.String(description='Transaction state'),
+    'shares': fields.Integer(description='Number of shares'),
     'purchase_price': fields.Float(description='Purchase price per share'),
-    'sale_price': fields.Float(description='Sale price per share (if sold)'),
-    'gain_loss': fields.Float(description='Gain or loss amount (if sold)'),
-    'purchase_date': fields.DateTime(description='Date of purchase'),
-    'sale_date': fields.DateTime(description='Date of sale (if sold)'),
-    'is_complete': fields.Boolean(description='Whether the transaction is completed'),
-    'is_profitable': fields.Boolean(description='Whether the transaction is profitable (if sold)')
+    'sale_price': fields.Float(description='Sale price per share'),
+    'total_cost': fields.Float(description='Total cost of purchase'),
+    'total_revenue': fields.Float(description='Total revenue from sale'),
+    'profit_loss': fields.Float(description='Profit or loss amount'),
+    'profit_loss_pct': fields.Float(description='Profit or loss percentage'),
+    'created_at': fields.DateTime(description='Creation timestamp'),
+    'updated_at': fields.DateTime(description='Last update timestamp'),
+    'is_complete': fields.Boolean(description='Whether the transaction is complete'),
+    'is_profitable': fields.Boolean(description='Whether the transaction is profitable')
 })
 
 transaction_complete_model = api.model('TransactionComplete', {
@@ -257,31 +259,42 @@ class TransactionCancel(Resource):
 
 @api.route('/services/<int:service_id>')
 @api.param('service_id', 'The trading service identifier')
+@api.response(404, 'Service not found')
 class ServiceTransactions(Resource):
-    """Resource for getting transactions for a specific service."""
+    """Resource for managing transactions of a specific trading service."""
     
-    @api.doc('get_service_transactions',
+    @api.doc('list_service_transactions',
              params={
                  'page': 'Page number (default: 1)',
                  'page_size': 'Number of items per page (default: 20, max: 100)',
-                 'state': 'Filter by transaction state (e.g., OPEN, CLOSED)',
-                 'sort': 'Sort field (e.g., purchase_date, purchase_price)',
-                 'order': 'Sort order (asc or desc, default: asc)'
+                 'state': 'Filter by transaction state',
+                 'is_complete': 'Filter by completion status (true/false)',
+                 'sort': 'Sort field (e.g., created_at, shares)',
+                 'order': 'Sort order (asc or desc, default: desc)'
              })
     @api.marshal_with(transaction_list_model)
     @api.response(200, 'Success')
     @api.response(401, 'Unauthorized')
     @api.response(404, 'Service not found')
     @jwt_required()
-    @require_ownership('service', id_parameter='service_id')
+    @require_ownership('service')
     def get(self, service_id):
-        """Get all transactions for a service with filtering and pagination."""
+        """Get all transactions for a specific trading service."""
         with get_db_session() as session:
-            # Get base query
+            # Check if service exists
+            service = session.query(TradingService).filter_by(id=service_id).first()
+            if not service:
+                raise ResourceNotFoundError('TradingService', service_id)
+            
+            # Get transactions for this service
             query = session.query(TradingTransaction).filter_by(service_id=service_id)
             
             # Apply filters
             query = apply_filters(query, TradingTransaction)
+            
+            # Apply default sort by creation date descending if not specified
+            if 'sort' not in request.args:
+                query = query.order_by(TradingTransaction.created_at.desc())
             
             # Apply pagination
             result = apply_pagination(query)

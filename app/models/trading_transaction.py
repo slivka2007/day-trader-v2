@@ -4,7 +4,6 @@ Trading Transaction model.
 This model represents a stock trading transaction (buy and sell).
 """
 from typing import Optional, TYPE_CHECKING, Dict, Any
-from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import Column, ForeignKey, String, Integer, Numeric, DateTime, Boolean, Text, Enum
@@ -13,7 +12,7 @@ from flask import current_app
 
 from app.models.base import Base
 from app.models.enums import TransactionState, TradingMode
-
+from app.utils.current_datetime import get_current_datetime
 if TYPE_CHECKING:
     from app.models.stock import Stock
     from app.models.trading_service import TradingService
@@ -51,7 +50,7 @@ class TradingTransaction(Base):
     purchase_price = Column(Numeric(precision=18, scale=2), nullable=False)
     sale_price = Column(Numeric(precision=18, scale=2), nullable=True)
     gain_loss = Column(Numeric(precision=18, scale=2), nullable=True)
-    purchase_date = Column(DateTime, default=datetime.now(datetime.UTC), nullable=False)
+    purchase_date = Column(DateTime, default=get_current_datetime(), nullable=False)
     sale_date = Column(DateTime, nullable=True)
     notes = Column(Text, nullable=True)
     
@@ -98,7 +97,7 @@ class TradingTransaction(Base):
             raise ValueError("Transaction is already completed")
         
         self.sale_price = sale_price
-        self.sale_date = datetime.now(datetime.UTC)
+        self.sale_date = get_current_datetime()
         self.state = TransactionState.CLOSED
         self.gain_loss = (self.sale_price - self.purchase_price) * self.shares
         

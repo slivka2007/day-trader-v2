@@ -3,6 +3,7 @@ Base model classes and helpers for SQLAlchemy models.
 
 This module defines the base classes and common functionality used by all models.
 """
+
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -11,6 +12,8 @@ import json
 
 from sqlalchemy import Column, Integer, DateTime
 from sqlalchemy.ext.declarative import declarative_base
+
+from app.utils.current_datetime import get_current_datetime
 
 # Create the base declarative class
 DeclarativeBase = declarative_base()
@@ -32,8 +35,8 @@ class Base(DeclarativeBase):
     id = Column(Integer, primary_key=True, autoincrement=True)
     
     # Timestamps for record tracking
-    created_at = Column(DateTime, default=datetime.now(datetime.UTC), nullable=False)
-    updated_at = Column(DateTime, default=datetime.now(datetime.UTC), onupdate=datetime.now(datetime.UTC), nullable=False)
+    created_at = Column(DateTime, default=get_current_datetime, nullable=False)
+    updated_at = Column(DateTime, default=get_current_datetime, onupdate=get_current_datetime, nullable=False)
     
     def __repr__(self) -> str:
         """

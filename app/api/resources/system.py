@@ -6,7 +6,8 @@ from flask_restx import Namespace, Resource, fields
 import platform
 import sys
 import os
-from datetime import datetime
+
+from app.utils.current_datetime import get_current_datetime
 
 # Create namespace
 api = Namespace('system', description='System information and operations')
@@ -61,7 +62,7 @@ class Health(Resource):
         """Get the current system health status."""
         return {
             'status': 'ok',
-            'timestamp': datetime.now()
+            'timestamp': get_current_datetime()
         }
 
 @api.route('/info')
@@ -88,7 +89,7 @@ class WebSocketTest(Resource):
     def post(self):
         """Test WebSocket functionality by emitting an event."""
         message = request.json.get('message', 'Test WebSocket message')
-        timestamp = datetime.now()
+        timestamp = get_current_datetime()
         
         # Use EventService to emit the test event
         from app.services.events import EventService

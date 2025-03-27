@@ -48,7 +48,7 @@ class StockInputSchema(Schema):
 class StockDeleteSchema(Schema):
     """Schema for confirming stock deletion."""
     confirm = fields.Boolean(required=True)
-    symbol = fields.String(required=True)
+    stock_id = fields.Integer(required=True)
     
     @validates_schema
     def validate_confirmation(self, data, **kwargs):
@@ -61,18 +61,18 @@ class StockDeleteSchema(Schema):
         from app.models import Stock, TradingService, TradingTransaction
         
         with get_db_session() as session:
-            # Find the stock by symbol
-            stock = session.query(Stock).filter_by(symbol=data['symbol']).first()
+            # Find the stock by ID
+            stock = session.query(Stock).filter_by(id=data['stock_id']).first()
             if not stock:
                 return  # Stock doesn't exist, let the resource handle this error
                 
             # Check if any trading services use this stock
-            services_count = session.query(TradingService).filter_by(stock_symbol=stock.symbol).count()
+            services_count = session.query(TradingService).filter_by(stock_id=stock.id).count()
             if services_count > 0:
                 raise ValidationError(f"Cannot delete stock '{stock.symbol}' because it is used by {services_count} trading service(s)")
                 
             # Check if any transactions are associated with this stock
-            transactions_count = session.query(TradingTransaction).filter_by(stock_symbol=stock.symbol).count()
+            transactions_count = session.query(TradingTransaction).filter_by(stock_id=stock.id).count()
             if transactions_count > 0:
                 raise ValidationError(f"Cannot delete stock '{stock.symbol}' because it has {transactions_count} associated transaction(s)")
 

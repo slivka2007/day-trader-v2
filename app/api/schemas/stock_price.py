@@ -3,11 +3,11 @@ Stock Price model schemas.
 """
 from marshmallow import fields, post_load, validates, validates_schema, ValidationError, validate
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
-from datetime import datetime, date, timedelta
 
 from app.models import StockDailyPrice, StockIntradayPrice, PriceSource
 from app.api.schemas import Schema
 from app.services.database import get_db_session
+from app.utils.current_datetime import get_current_datetime, get_current_date
 
 # Daily price schemas
 class StockDailyPriceSchema(SQLAlchemyAutoSchema):
@@ -42,7 +42,7 @@ class StockDailyPriceInputSchema(Schema):
     @validates('price_date')
     def validate_price_date(self, price_date):
         """Validate price date."""
-        if price_date > date.today():
+        if price_date > get_current_date():
             raise ValidationError('Price date cannot be in the future')
     
     @post_load
@@ -70,7 +70,7 @@ class StockDailyPriceDeleteSchema(Schema):
                 
             # Check if this is recent data (within last 30 days)
             # Recent data is often used for analysis and should be protected
-            thirty_days_ago = datetime.now().date() - timedelta(days=30)
+            thirty_days_ago = get_current_date() - 30
             if price.price_date >= thirty_days_ago:
                 raise ValidationError("Cannot delete recent price data (less than 30 days old). This data may be in use for active analyses.")
                 
@@ -112,7 +112,7 @@ class StockIntradayPriceInputSchema(Schema):
     @validates('timestamp')
     def validate_timestamp(self, timestamp):
         """Validate timestamp."""
-        if timestamp > datetime.now():
+        if timestamp > get_current_datetime():
             raise ValidationError('Timestamp cannot be in the future')
     
     @post_load
@@ -140,7 +140,7 @@ class StockIntradayPriceDeleteSchema(Schema):
                 
             # Check if this is recent data (within last 7 days)
             # Recent data is often used for analysis and should be protected
-            seven_days_ago = datetime.now() - timedelta(days=7)
+            seven_days_ago = get_current_date() - 7
             if price.timestamp >= seven_days_ago:
                 raise ValidationError("Cannot delete recent price data (less than 7 days old). This data may be in use for active analyses.")
                 

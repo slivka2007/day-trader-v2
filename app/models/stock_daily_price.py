@@ -3,7 +3,6 @@ Daily price model.
 
 This model represents end-of-day stock price data.
 """
-from datetime import date
 from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import Column, Integer, Float, Date, ForeignKey, UniqueConstraint, String
@@ -11,7 +10,6 @@ from sqlalchemy.orm import relationship, Mapped
 
 from app.models.base import Base
 from app.models.enums import PriceSource
-
 if TYPE_CHECKING:
     from app.models.stock import Stock
 

@@ -4,7 +4,7 @@ Main application file for the day-trader-v1 application.
 """
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from flask import Flask, render_template
 from flask_socketio import SocketIO
@@ -12,6 +12,7 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 
 from app.services.database import setup_database, get_db_session
+from app.utils.current_datetime import get_current_datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -80,7 +81,7 @@ def create_app(config=None):
     @app.route('/')
     def index():
         """Main landing page."""
-        return render_template('index.html', now=datetime.now())
+        return render_template('index.html', now=get_current_datetime())
     
     # Don't need to set app.socketio here since init_websockets does this
     

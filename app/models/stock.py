@@ -9,7 +9,6 @@ from sqlalchemy import Column, String, Boolean
 from sqlalchemy.orm import relationship, Mapped
 
 from app.models.base import Base
-
 if TYPE_CHECKING:
     from app.models.stock_daily_price import StockDailyPrice
     from app.models.stock_intraday_price import StockIntradayPrice

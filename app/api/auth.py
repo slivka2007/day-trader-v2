@@ -12,12 +12,11 @@ from flask_jwt_extended import (
     jwt_required,
     get_jwt
 )
-from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
 
 from app.services.database import get_db_session
 from app.models import User
-
+from app.utils.current_datetime import get_current_datetime
 # Create namespace
 api = Namespace('auth', description='Authentication operations')
 
@@ -96,7 +95,7 @@ class Register(Resource):
                 email=data['email'],
                 is_active=True,
                 is_admin=False,
-                last_login=datetime.utcnow()
+                last_login=get_current_datetime()
             )
             user.password = data['password']
             
