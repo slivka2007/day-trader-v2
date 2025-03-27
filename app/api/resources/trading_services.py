@@ -224,7 +224,7 @@ class ServiceItem(Resource):
 @api.route('/<int:id>/state')
 @api.param('id', 'The trading service identifier')
 @api.response(404, 'Service not found')
-class ServiceState(Resource):
+class ServiceStateResource(Resource):
     """Resource for changing a service's state"""
     
     @api.doc('change_service_state')
@@ -326,7 +326,7 @@ class ServiceBuyCheck(Resource):
             # Add service data to response
             result['service_id'] = service.id
             result['stock_symbol'] = service.stock_symbol
-            result['timestamp'] = datetime.utcnow().isoformat()
+            result['timestamp'] = datetime.now().isoformat()
             
             return result
 
@@ -358,6 +358,6 @@ class ServiceSellCheck(Resource):
             # Add service data to response
             result['service_id'] = service.id
             result['stock_symbol'] = service.stock_symbol
-            result['timestamp'] = datetime.utcnow().isoformat()
+            result['timestamp'] = datetime.now().isoformat()
             
             return result 

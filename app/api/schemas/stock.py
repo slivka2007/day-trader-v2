@@ -1,7 +1,7 @@
 """
 Stock model schemas.
 """
-from marshmallow import fields, post_load, validates, ValidationError, validate
+from marshmallow import fields, post_load, validates, ValidationError, validate, validates_schema
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
 
 from app.models import Stock
@@ -44,5 +44,38 @@ class StockInputSchema(Schema):
         """Create a Stock instance from validated data."""
         return Stock(**data)
 
-# Create an instance for easy importing
-stock_input_schema = StockInputSchema() 
+# Schema for deleting a stock
+class StockDeleteSchema(Schema):
+    """Schema for confirming stock deletion."""
+    confirm = fields.Boolean(required=True)
+    symbol = fields.String(required=True)
+    
+    @validates_schema
+    def validate_confirmation(self, data, **kwargs):
+        """Validate that deletion is properly confirmed and stock has no dependencies."""
+        if not data.get('confirm'):
+            raise ValidationError("Must confirm deletion by setting 'confirm' to true")
+            
+        # Check if stock has associated services or transactions
+        from app.services.database import get_db_session
+        from app.models import Stock, TradingService, TradingTransaction
+        
+        with get_db_session() as session:
+            # Find the stock by symbol
+            stock = session.query(Stock).filter_by(symbol=data['symbol']).first()
+            if not stock:
+                return  # Stock doesn't exist, let the resource handle this error
+                
+            # Check if any trading services use this stock
+            services_count = session.query(TradingService).filter_by(stock_symbol=stock.symbol).count()
+            if services_count > 0:
+                raise ValidationError(f"Cannot delete stock '{stock.symbol}' because it is used by {services_count} trading service(s)")
+                
+            # Check if any transactions are associated with this stock
+            transactions_count = session.query(TradingTransaction).filter_by(stock_symbol=stock.symbol).count()
+            if transactions_count > 0:
+                raise ValidationError(f"Cannot delete stock '{stock.symbol}' because it has {transactions_count} associated transaction(s)")
+
+# Create instances for easy importing
+stock_input_schema = StockInputSchema()
+stock_delete_schema = StockDeleteSchema() 

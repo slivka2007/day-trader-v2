@@ -66,7 +66,29 @@ class TransactionCancelSchema(Schema):
     """Schema for cancelling a transaction."""
     reason = fields.String(required=False)
 
+# Schema for deleting a transaction
+class TransactionDeleteSchema(Schema):
+    """Schema for confirming transaction deletion."""
+    confirm = fields.Boolean(required=True)
+    transaction_id = fields.Integer(required=True)
+    
+    @validates_schema
+    def validate_deletion(self, data, **kwargs):
+        """Validate deletion confirmation."""
+        if not data.get('confirm'):
+            raise ValidationError("Must confirm deletion by setting 'confirm' to true")
+        
+        # Check if the transaction is in a state that allows deletion
+        with get_db_session() as session:
+            transaction = session.query(TradingTransaction).filter_by(id=data['transaction_id']).first()
+            if not transaction:
+                raise ValidationError("Transaction not found")
+            
+            if transaction.state != TransactionState.CANCELLED:
+                raise ValidationError("Cannot delete an open or closed transaction")
+
 # Create instances for easy importing
 transaction_complete_schema = TransactionCompleteSchema()
 transaction_create_schema = TransactionCreateSchema()
-transaction_cancel_schema = TransactionCancelSchema() 
+transaction_cancel_schema = TransactionCancelSchema()
+transaction_delete_schema = TransactionDeleteSchema() 

@@ -12,14 +12,15 @@ from sqlalchemy.orm import relationship, Mapped, Session
 from sqlalchemy.sql import func
 from flask import current_app
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base
 from app.models.enums import ServiceState, TradingMode
 
 if TYPE_CHECKING:
     from app.models.stock import Stock
     from app.models.trading_transaction import TradingTransaction
+    from app.models.user import User
 
-class TradingService(Base, TimestampMixin):
+class TradingService(Base):
     """
     Model representing a stock trading service.
     
@@ -27,26 +28,27 @@ class TradingService(Base, TimestampMixin):
     
     Attributes:
         id: Unique identifier for the service
+        user_id: Foreign key to the user who owns this service
         stock_id: Foreign key to the stock being traded
         stock_symbol: Symbol of the stock being traded
         name: Optional name for the service
         initial_balance: Initial funds allocated to the service
-        current_balance: Current available funds
+        fund_balance: Current available funds
         total_gain_loss: Cumulative profit/loss
         current_shares: Number of shares currently held
-        state: Current state (ACTIVE, INACTIVE, etc.)
+        service_state: Current state (ACTIVE, INACTIVE, etc.)
         mode: Current trading mode (BUY, SELL, HOLD)
-        started_at: When the service was started
-        stopped_at: When the service was stopped
         buy_count: Number of completed buy transactions
         sell_count: Number of completed sell transactions
-        stock: Relationship to the stock
-        transactions: Relationship to transactions
+        user: Relationship to the user who owns this service
+        stock: Relationship to the stock being traded
+        transactions: Relationship to trading transactions
     """
     __tablename__ = 'trading_services'
     
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    stock_id = Column(Integer, ForeignKey('stocks.id'), nullable=True)
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     stock_symbol = Column(String(10), nullable=False)
@@ -73,8 +75,9 @@ class TradingService(Base, TimestampMixin):
     total_gain_loss = Column(Numeric(precision=18, scale=2), nullable=False, default=0)
     
     # Relationships
-    user = relationship("User", back_populates="services")
-    transactions = relationship("TradingTransaction", back_populates="service", cascade="all, delete-orphan")
+    user: Mapped["User"] = relationship("User", back_populates="services")
+    stock: Mapped[Optional["Stock"]] = relationship("Stock", back_populates="services")
+    transactions: Mapped[List["TradingTransaction"]] = relationship("TradingTransaction", back_populates="service", cascade="all, delete-orphan")
     
     def __repr__(self) -> str:
         """String representation of the TradingService object."""
@@ -148,7 +151,7 @@ class TradingService(Base, TimestampMixin):
             if key in allowed_fields and value is not None:
                 setattr(self, key, value)
                 
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(datetime.UTC)
         
         try:
             # Emit WebSocket event
@@ -186,7 +189,7 @@ class TradingService(Base, TimestampMixin):
         
         # Update state
         self.service_state = new_state
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(datetime.UTC)
         
         try:
             # Emit WebSocket event
@@ -229,7 +232,7 @@ class TradingService(Base, TimestampMixin):
         
         # Toggle active status
         self.is_active = not self.is_active
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(datetime.UTC)
         
         try:
             # Emit WebSocket event

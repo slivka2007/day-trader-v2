@@ -1,7 +1,7 @@
 """
 Trading Service model schemas.
 """
-from marshmallow import fields, post_load, validates, ValidationError, validate
+from marshmallow import fields, post_load, validates, validates_schema, ValidationError, validate
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
 from decimal import Decimal
 
@@ -49,6 +49,33 @@ class TradingServiceUpdateSchema(Schema):
     state = fields.String(validate=validate.OneOf([state.value for state in ServiceState]))
     mode = fields.String(validate=validate.OneOf([mode.value for mode in TradingMode]))
 
+# Schema for deleting a trading service
+class TradingServiceDeleteSchema(Schema):
+    """Schema for confirming trading service deletion."""
+    confirm = fields.Boolean(required=True)
+    service_id = fields.Integer(required=True)
+    
+    @validates_schema
+    def validate_deletion(self, data, **kwargs):
+        """Validate deletion confirmation and check for dependencies."""
+        if not data.get('confirm'):
+            raise ValidationError("Must confirm deletion by setting 'confirm' to true")
+            
+        # Check if service has associated transactions
+        from app.services.database import get_db_session
+        from app.models import TradingService, TradingTransaction
+        
+        with get_db_session() as session:
+            # Find the service
+            service = session.query(TradingService).filter_by(id=data['service_id']).first()
+            if not service:
+                return  # Service doesn't exist, let the resource handle this error
+                
+            # Check if any transactions are associated with this service
+            transactions_count = session.query(TradingTransaction).filter_by(service_id=service.id).count()
+            if transactions_count > 0:
+                raise ValidationError(f"Cannot delete service because it has {transactions_count} associated transaction(s). Cancel or complete all transactions first.")
+
 # Schema for trading action (buy/sell decision)
 class TradingServiceActionSchema(Schema):
     """Schema for service actions like buy/sell decisions."""
@@ -78,5 +105,6 @@ class TradingDecisionResponseSchema(Schema):
 # Create instances for easy importing
 service_create_schema = TradingServiceCreateSchema()
 service_update_schema = TradingServiceUpdateSchema()
+service_delete_schema = TradingServiceDeleteSchema()
 service_action_schema = TradingServiceActionSchema()
 decision_response_schema = TradingDecisionResponseSchema() 

@@ -3,13 +3,16 @@ User model.
 
 This model represents user accounts for authentication and authorization.
 """
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime
 from sqlalchemy import Column, String, Boolean, DateTime, func
 from sqlalchemy.orm import relationship, Mapped
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from app.models.base import Base
+
+if TYPE_CHECKING:
+    from app.models.trading_service import TradingService
 
 class User(Base):
     """
@@ -25,6 +28,7 @@ class User(Base):
         is_active: Whether the user account is active
         is_admin: Whether the user has admin privileges
         last_login: Timestamp of last login
+        services: Trading services owned by this user
     """
     __tablename__ = 'users'
     
@@ -35,6 +39,9 @@ class User(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     is_admin = Column(Boolean, default=False, nullable=False)
     last_login = Column(DateTime, nullable=True)
+    
+    # Relationships
+    services: Mapped[List["TradingService"]] = relationship("TradingService", back_populates="user", cascade="all, delete-orphan")
     
     # We're not exposing the password directly
     @property
@@ -53,7 +60,7 @@ class User(Base):
     
     def update_last_login(self):
         """Update the last login timestamp to now."""
-        self.last_login = datetime.utcnow()
+        self.last_login = datetime.now(datetime.UTC)
     
     def __repr__(self) -> str:
         """String representation of the User object."""

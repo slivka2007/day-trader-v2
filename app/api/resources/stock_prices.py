@@ -10,6 +10,14 @@ from app.services.database import get_db_session
 from app.models import Stock, StockDailyPrice, StockIntradayPrice, PriceSource
 from app.api import apply_pagination, apply_filters
 from app.api.auth import admin_required
+from app.api.schemas.stock_price import (
+    daily_price_schema,
+    daily_prices_schema,
+    daily_price_input_schema,
+    intraday_price_schema,
+    intraday_prices_schema,
+    intraday_price_input_schema
+)
 
 # Create namespace
 api = Namespace('prices', description='Stock price operations')
@@ -153,7 +161,7 @@ class StockDailyPriceList(Resource):
             result = apply_pagination(query)
             
             # Serialize the results
-            result['items'] = result['items']  # Already ORM objects
+            result['items'] = daily_prices_schema.dump(result['items'])
             
             return result
     
@@ -196,49 +204,20 @@ class StockDailyPriceList(Resource):
                 if existing:
                     abort(409, f'Price record for date {price_date} already exists')
                 
-                # Create the new price record
-                price_record = StockDailyPrice(
-                    stock_id=stock_id,
-                    price_date=price_date,
-                    open_price=data.get('open_price'),
-                    high_price=data.get('high_price'),
-                    low_price=data.get('low_price'),
-                    close_price=data.get('close_price'),
-                    adj_close=data.get('adj_close'),
-                    volume=data.get('volume'),
-                    source=data.get('source', PriceSource.HISTORICAL)
-                )
+                # Validate and deserialize input
+                data['stock_id'] = stock_id
+                price_record = daily_price_input_schema.load(data)
                 
                 session.add(price_record)
                 session.commit()
                 session.refresh(price_record)
                 
-                # Prepare price data for event emission
-                price_data = {
-                    'id': price_record.id,
-                    'stock_id': price_record.stock_id,
-                    'price_date': price_record.price_date.isoformat(),
-                    'open_price': float(price_record.open_price),
-                    'high_price': float(price_record.high_price),
-                    'low_price': float(price_record.low_price),
-                    'close_price': float(price_record.close_price),
-                    'adj_close': float(price_record.adj_close),
-                    'volume': price_record.volume,
-                    'source': price_record.source,
-                    'created_at': price_record.created_at.isoformat(),
-                    'updated_at': price_record.updated_at.isoformat()
-                }
+                return daily_price_schema.dump(price_record), 201
                 
-                # Use EventService to emit WebSocket events
-                from app.services.events import EventService
-                EventService.emit_price_update(
-                    action='created',
-                    price_data=price_data,
-                    stock_symbol=stock.symbol
-                )
-                
-                return price_record, 201
+        except ValueError as e:
+            abort(400, str(e))
         except Exception as e:
+            current_app.logger.error(f"Error creating price record: {str(e)}")
             abort(400, str(e))
 
 @api.route('/intraday/stocks/<int:stock_id>')
@@ -315,7 +294,7 @@ class StockIntradayPriceList(Resource):
             result = apply_pagination(query)
             
             # Serialize the results
-            result['items'] = result['items']  # Already ORM objects
+            result['items'] = intraday_prices_schema.dump(result['items'])
             
             return result
     
@@ -404,6 +383,6 @@ class StockIntradayPriceList(Resource):
                     stock_symbol=stock.symbol
                 )
                 
-                return price_record, 201
+                return intraday_price_schema.dump(price_record), 201
         except Exception as e:
             abort(400, str(e)) 

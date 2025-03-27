@@ -32,8 +32,8 @@ class Base(DeclarativeBase):
     id = Column(Integer, primary_key=True, autoincrement=True)
     
     # Timestamps for record tracking
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.now(datetime.UTC), nullable=False)
+    updated_at = Column(DateTime, default=datetime.now(datetime.UTC), onupdate=datetime.now(datetime.UTC), nullable=False)
     
     def __repr__(self) -> str:
         """

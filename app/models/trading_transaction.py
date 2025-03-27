@@ -11,14 +11,14 @@ from sqlalchemy import Column, ForeignKey, String, Integer, Numeric, DateTime, B
 from sqlalchemy.orm import relationship, Mapped, Session
 from flask import current_app
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base
 from app.models.enums import TransactionState, TradingMode
 
 if TYPE_CHECKING:
     from app.models.stock import Stock
     from app.models.trading_service import TradingService
 
-class TradingTransaction(Base, TimestampMixin):
+class TradingTransaction(Base):
     """
     Model representing a stock trading transaction.
     
@@ -51,7 +51,7 @@ class TradingTransaction(Base, TimestampMixin):
     purchase_price = Column(Numeric(precision=18, scale=2), nullable=False)
     sale_price = Column(Numeric(precision=18, scale=2), nullable=True)
     gain_loss = Column(Numeric(precision=18, scale=2), nullable=True)
-    purchase_date = Column(DateTime, default=datetime.utcnow, nullable=False)
+    purchase_date = Column(DateTime, default=datetime.now(datetime.UTC), nullable=False)
     sale_date = Column(DateTime, nullable=True)
     notes = Column(Text, nullable=True)
     
@@ -98,7 +98,7 @@ class TradingTransaction(Base, TimestampMixin):
             raise ValueError("Transaction is already completed")
         
         self.sale_price = sale_price
-        self.sale_date = datetime.utcnow()
+        self.sale_date = datetime.now(datetime.UTC)
         self.state = TransactionState.CLOSED
         self.gain_loss = (self.sale_price - self.purchase_price) * self.shares
         
@@ -164,7 +164,7 @@ class TradingTransaction(Base, TimestampMixin):
             raise ValueError(f"Insufficient funds. Required: ${total_cost:.2f}, Available: ${service.fund_balance:.2f}")
         
         if not service.can_buy:
-            raise ValueError(f"Service is not in a state that allows buying (current state: {service.state})")
+            raise ValueError(f"Service is not in a state that allows buying (current state: {service.service_state})")
         
         stock = session.query(Stock).filter_by(symbol=stock_symbol).first()
         stock_id = stock.id if stock else None
