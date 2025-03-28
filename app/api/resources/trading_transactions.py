@@ -29,13 +29,13 @@ transaction_model = api.model('TradingTransaction', {
     'stock_id': fields.Integer(description='The stock identifier'),
     'stock_symbol': fields.String(description='Stock ticker symbol'),
     'state': fields.String(description='Transaction state'),
-    'shares': fields.Integer(description='Number of shares'),
+    'shares': fields.Float(description='Number of shares'),
     'purchase_price': fields.Float(description='Purchase price per share'),
     'sale_price': fields.Float(description='Sale price per share'),
-    'total_cost': fields.Float(description='Total cost of purchase'),
-    'total_revenue': fields.Float(description='Total revenue from sale'),
-    'profit_loss': fields.Float(description='Profit or loss amount'),
-    'profit_loss_pct': fields.Float(description='Profit or loss percentage'),
+    'gain_loss': fields.Float(description='Profit or loss amount'),
+    'purchase_date': fields.DateTime(description='Date of purchase'),
+    'sale_date': fields.DateTime(description='Date of sale (if sold)'),
+    'notes': fields.String(description='Transaction notes'),
     'created_at': fields.DateTime(description='Creation timestamp'),
     'updated_at': fields.DateTime(description='Last update timestamp'),
     'is_complete': fields.Boolean(description='Whether the transaction is complete'),
@@ -66,13 +66,20 @@ transaction_list_model = api.model('TransactionList', {
 class TransactionList(Resource):
     """Shows a list of all transactions, and lets you create a new transaction"""
     
-    @api.doc('list_transactions')
-    @api.marshal_list_with(transaction_model)
+    @api.doc('list_transactions',
+             params={
+                 'page': 'Page number (default: 1)',
+                 'page_size': 'Number of items per page (default: 20, max: 100)',
+                 'state': 'Filter by transaction state (OPEN, CLOSED, CANCELLED)',
+                 'sort': 'Sort field (e.g., created_at, shares)',
+                 'order': 'Sort order (asc or desc, default: desc)'
+             })
+    @api.marshal_with(transaction_list_model)
     @api.response(200, 'Success')
     @api.response(401, 'Unauthorized')
     @jwt_required()
     def get(self):
-        """List all trading transactions"""
+        """List all trading transactions for the authenticated user"""
         with get_db_session() as session:
             # Get current user
             user = get_current_user(session)
@@ -85,11 +92,24 @@ class TransactionList(Resource):
             service_ids = [service.id for service in user_services]
             
             # Get transactions for these services
-            transactions = session.query(TradingTransaction).filter(
+            query = session.query(TradingTransaction).filter(
                 TradingTransaction.service_id.in_(service_ids)
-            ).all()
+            )
             
-            return transactions_schema.dump(transactions)
+            # Apply filters
+            query = apply_filters(query, TradingTransaction)
+            
+            # Apply default sort by creation date descending if not specified
+            if 'sort' not in request.args:
+                query = query.order_by(TradingTransaction.created_at.desc())
+            
+            # Apply pagination
+            result = apply_pagination(query)
+            
+            # Serialize the results
+            result['items'] = transactions_schema.dump(result['items'])
+            
+            return result
     
     @api.doc('create_transaction')
     @api.expect(api.model('TransactionCreate', {
@@ -109,11 +129,12 @@ class TransactionList(Resource):
         data = request.json
         
         # Validate input data
-        errors = transaction_create_schema.validate(data)
-        if errors:
-            raise ValidationError("Invalid transaction data", errors=errors)
+        try:
+            validated_data = transaction_create_schema.load(data)
+        except ValidationError as err:
+            raise ValidationError("Invalid transaction data", errors=err.messages)
             
-        service_id = data['service_id']
+        service_id = validated_data['service_id']
         
         with get_db_session() as session:
             # Get current user and verify service ownership
@@ -130,17 +151,14 @@ class TransactionList(Resource):
             )
                 
             try:
-                # Create the transaction
+                # Create the transaction using the model's method
                 transaction = TradingTransaction.create_buy_transaction(
-                    session,
+                    session=session,
                     service_id=service_id,
-                    stock_symbol=data['stock_symbol'],
-                    shares=data['shares'],
-                    purchase_price=data['purchase_price']
+                    stock_symbol=validated_data['stock_symbol'],
+                    shares=validated_data['shares'],
+                    purchase_price=validated_data['purchase_price']
                 )
-                
-                session.add(transaction)
-                session.commit()
                 
                 return transaction_schema.dump(transaction), 201
                 
@@ -192,11 +210,12 @@ class TransactionComplete(Resource):
         data = request.json
         
         # Validate input data
-        errors = transaction_complete_schema.validate(data)
-        if errors:
-            raise ValidationError("Invalid sale data", errors=errors)
+        try:
+            validated_data = transaction_complete_schema.load(data)
+        except ValidationError as err:
+            raise ValidationError("Invalid sale data", errors=err.messages)
             
-        sale_price = data['sale_price']
+        sale_price = validated_data['sale_price']
         
         with get_db_session() as session:
             # Get the transaction
@@ -207,8 +226,7 @@ class TransactionComplete(Resource):
             try:
                 # Complete the transaction
                 result = transaction.complete_transaction(session, sale_price)
-                session.commit()
-                return result
+                return transaction_schema.dump(result)
                 
             except ValueError as e:
                 current_app.logger.error(f"Error completing transaction: {str(e)}")
@@ -236,9 +254,10 @@ class TransactionCancel(Resource):
         data = request.json or {}
         
         # Validate input data
-        errors = transaction_cancel_schema.validate(data)
-        if errors:
-            raise ValidationError("Invalid cancellation data", errors=errors)
+        try:
+            validated_data = transaction_cancel_schema.load(data)
+        except ValidationError as err:
+            raise ValidationError("Invalid cancellation data", errors=err.messages)
         
         with get_db_session() as session:
             # Get the transaction
@@ -248,10 +267,9 @@ class TransactionCancel(Resource):
                 
             try:
                 # Cancel the transaction
-                reason = data.get('reason', 'User cancelled')
+                reason = validated_data.get('reason', 'User cancelled')
                 result = transaction.cancel_transaction(session, reason)
-                session.commit()
-                return result
+                return transaction_schema.dump(result)
                 
             except ValueError as e:
                 current_app.logger.error(f"Error cancelling transaction: {str(e)}")
@@ -267,7 +285,7 @@ class ServiceTransactions(Resource):
              params={
                  'page': 'Page number (default: 1)',
                  'page_size': 'Number of items per page (default: 20, max: 100)',
-                 'state': 'Filter by transaction state',
+                 'state': 'Filter by transaction state (OPEN, CLOSED, CANCELLED)',
                  'is_complete': 'Filter by completion status (true/false)',
                  'sort': 'Sort field (e.g., created_at, shares)',
                  'order': 'Sort order (asc or desc, default: desc)'

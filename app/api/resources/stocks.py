@@ -1,7 +1,7 @@
 """
 Stock API resources.
 """
-from flask import request
+from flask import request, current_app
 from flask_restx import Namespace, Resource, fields, abort
 from sqlalchemy.exc import IntegrityError
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -11,6 +11,7 @@ from app.models import Stock
 from app.api.schemas.stock import stock_schema, stocks_schema, stock_input_schema
 from app.api import apply_pagination, apply_filters
 from app.api.auth import admin_required
+from app.utils.errors import ValidationError, ResourceNotFoundError, AuthorizationError, BusinessLogicError
 
 # Create namespace
 api = Namespace('stocks', description='Stock operations')
@@ -22,7 +23,9 @@ stock_model = api.model('Stock', {
     'name': fields.String(description='Company name'),
     'is_active': fields.Boolean(description='Whether the stock is active'),
     'sector': fields.String(description='Industry sector'),
-    'description': fields.String(description='Stock description')
+    'description': fields.String(description='Stock description'),
+    'created_at': fields.DateTime(description='Creation timestamp'),
+    'updated_at': fields.DateTime(description='Last update timestamp')
 })
 
 stock_input_model = api.model('StockInput', {
@@ -95,21 +98,30 @@ class StockList(Resource):
     @admin_required
     def post(self):
         """Create a new stock. Requires admin privileges."""
+        data = request.json
+        
+        # Validate input data
         try:
-            data = request.json
-            # Validate and deserialize input
-            stock = stock_input_schema.load(data)
-            
-            with get_db_session() as session:
-                session.add(stock)
-                session.commit()
-                # Refresh to get the ID and other database-generated values
-                session.refresh(stock)
+            validated_data = stock_input_schema.load(data)
+        except ValidationError as err:
+            raise ValidationError("Invalid stock data", errors=err.messages)
+        
+        with get_db_session() as session:
+            try:
+                # Create the stock using the model's method
+                stock = Stock.create_stock(
+                    session=session,
+                    data=validated_data
+                )
+                
                 return stock_schema.dump(stock), 201
-        except IntegrityError:
-            abort(409, 'Stock with this symbol already exists')
-        except Exception as e:
-            abort(400, str(e))
+                
+            except IntegrityError:
+                current_app.logger.error(f"Stock with symbol {data.get('symbol')} already exists")
+                raise BusinessLogicError("Stock with this symbol already exists")
+            except Exception as e:
+                current_app.logger.error(f"Error creating stock: {str(e)}")
+                raise ValidationError(str(e))
 
 @api.route('/<int:id>')
 @api.param('id', 'The stock identifier')
@@ -126,7 +138,7 @@ class StockResource(Resource):
         with get_db_session() as session:
             stock = session.query(Stock).filter_by(id=id).first()
             if stock is None:
-                abort(404, 'Stock not found')
+                raise ResourceNotFoundError('Stock', id)
             return stock_schema.dump(stock)
     
     @api.doc('update_stock')
@@ -141,41 +153,66 @@ class StockResource(Resource):
     @admin_required
     def put(self, id):
         """Update a stock. Requires admin privileges."""
-        try:
-            data = request.json
+        data = request.json
+        
+        # Don't allow symbol to be updated
+        if 'symbol' in data:
+            del data['symbol']
             
-            with get_db_session() as session:
-                stock = session.query(Stock).filter_by(id=id).first()
-                if stock is None:
-                    abort(404, 'Stock not found')
+        # Validate input data
+        try:
+            validated_data = stock_input_schema.load(data, partial=True)
+        except ValidationError as err:
+            raise ValidationError("Invalid stock data", errors=err.messages)
+        
+        with get_db_session() as session:
+            # Get the stock
+            stock = session.query(Stock).filter_by(id=id).first()
+            if stock is None:
+                raise ResourceNotFoundError('Stock', id)
+            
+            try:
+                # Update the stock using the model's method
+                result = stock.update(session, validated_data)
+                return stock_schema.dump(result)
                 
-                # Update fields that are provided
-                for key, value in data.items():
-                    if hasattr(stock, key):
-                        setattr(stock, key, value)
-                
-                session.commit()
-                return stock_schema.dump(stock)
-        except Exception as e:
-            abort(400, str(e))
+            except Exception as e:
+                current_app.logger.error(f"Error updating stock: {str(e)}")
+                raise ValidationError(str(e))
     
     @api.doc('delete_stock')
     @api.response(204, 'Stock deleted')
     @api.response(401, 'Unauthorized')
     @api.response(403, 'Admin privileges required')
     @api.response(404, 'Stock not found')
+    @api.response(409, 'Cannot delete stock with dependencies')
     @jwt_required()
     @admin_required
     def delete(self, id):
         """Delete a stock. Requires admin privileges."""
         with get_db_session() as session:
+            # Get the stock
             stock = session.query(Stock).filter_by(id=id).first()
             if stock is None:
-                abort(404, 'Stock not found')
+                raise ResourceNotFoundError('Stock', id)
             
-            session.delete(stock)
-            session.commit()
-            return '', 204
+            # Check dependencies
+            if stock.services and len(stock.services) > 0:
+                raise BusinessLogicError(f"Cannot delete stock '{stock.symbol}' because it is used by trading services")
+                
+            if stock.transactions and len(stock.transactions) > 0:
+                raise BusinessLogicError(f"Cannot delete stock '{stock.symbol}' because it has associated transactions")
+            
+            try:
+                # Delete the stock
+                session.delete(stock)
+                session.commit()
+                
+                return '', 204
+                
+            except Exception as e:
+                current_app.logger.error(f"Error deleting stock: {str(e)}")
+                raise BusinessLogicError(str(e))
 
 @api.route('/symbol/<string:symbol>')
 @api.param('symbol', 'The stock symbol')
@@ -190,7 +227,37 @@ class StockBySymbol(Resource):
     def get(self, symbol):
         """Get a stock by symbol."""
         with get_db_session() as session:
-            stock = session.query(Stock).filter_by(symbol=symbol.upper()).first()
+            stock = Stock.get_by_symbol_or_404(session, symbol)
+            return stock_schema.dump(stock)
+
+@api.route('/<int:id>/toggle-active')
+@api.param('id', 'The stock identifier')
+@api.response(404, 'Stock not found')
+class StockToggleActive(Resource):
+    """Resource for toggling a stock's active status."""
+    
+    @api.doc('toggle_stock_active')
+    @api.marshal_with(stock_model)
+    @api.response(200, 'Stock status toggled')
+    @api.response(401, 'Unauthorized')
+    @api.response(403, 'Admin privileges required')
+    @api.response(404, 'Stock not found')
+    @jwt_required()
+    @admin_required
+    def post(self, id):
+        """Toggle the active status of a stock. Requires admin privileges."""
+        with get_db_session() as session:
+            # Get the stock
+            stock = session.query(Stock).filter_by(id=id).first()
             if stock is None:
-                abort(404, f'Stock with symbol {symbol} not found')
-            return stock_schema.dump(stock) 
+                raise ResourceNotFoundError('Stock', id)
+            
+            try:
+                # Toggle active status
+                new_status = not stock.is_active
+                result = stock.change_active_status(session, new_status)
+                return stock_schema.dump(result)
+                
+            except Exception as e:
+                current_app.logger.error(f"Error toggling stock active status: {str(e)}")
+                raise BusinessLogicError(str(e)) 

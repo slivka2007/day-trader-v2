@@ -28,11 +28,11 @@ service_model = api.model('TradingService', {
     'name': fields.String(required=True, description='Service name'),
     'description': fields.String(description='Service description'),
     'stock_symbol': fields.String(required=True, description='Stock ticker symbol'),
-    'service_state': fields.String(description='Service state (ACTIVE, INACTIVE, etc.)'),
+    'state': fields.String(description='Service state (ACTIVE, INACTIVE, etc.)'),
     'mode': fields.String(description='Trading mode (BUY or SELL)'),
     'is_active': fields.Boolean(description='Whether the service is active'),
     'initial_balance': fields.Float(required=True, description='Initial fund balance'),
-    'fund_balance': fields.Float(description='Current fund balance'),
+    'current_balance': fields.Float(description='Current fund balance'),
     'minimum_balance': fields.Float(description='Minimum fund balance to maintain'),
     'allocation_percent': fields.Float(description='Percentage of funds to allocate per trade'),
     'buy_threshold': fields.Float(description='Buy threshold percentage'),
@@ -118,10 +118,14 @@ class ServiceList(Resource):
     @api.expect(api.model('ServiceCreate', {
         'name': fields.String(required=True, description='Service name'),
         'stock_symbol': fields.String(required=True, description='Stock ticker symbol'),
+        'description': fields.String(description='Service description'),
         'initial_balance': fields.Float(required=True, description='Initial fund balance'),
         'minimum_balance': fields.Float(description='Minimum fund balance to maintain'),
         'allocation_percent': fields.Float(description='Percentage of funds to allocate per trade'),
-        'description': fields.String(description='Service description'),
+        'buy_threshold': fields.Float(description='Buy threshold percentage'),
+        'sell_threshold': fields.Float(description='Sell threshold percentage'),
+        'stop_loss_percent': fields.Float(description='Stop loss percentage'),
+        'take_profit_percent': fields.Float(description='Take profit percentage'),
         'is_active': fields.Boolean(description='Whether the service is active')
     }))
     @api.marshal_with(service_model, code=201)
@@ -134,9 +138,10 @@ class ServiceList(Resource):
         data = request.json
         
         # Validate input data
-        errors = service_create_schema.validate(data)
-        if errors:
-            raise ValidationError("Invalid service data", errors=errors)
+        try:
+            validated_data = service_create_schema.load(data)
+        except ValidationError as err:
+            raise ValidationError("Invalid service data", errors=err.messages)
             
         with get_db_session() as session:
             # Get current user
@@ -149,7 +154,7 @@ class ServiceList(Resource):
                 service = TradingService.create_service(
                     session=session,
                     user_id=user.id,
-                    data=data
+                    data=validated_data
                 )
                 
                 return service_schema.dump(service), 201
@@ -208,9 +213,10 @@ class ServiceItem(Resource):
         data = request.json
         
         # Validate input data
-        errors = service_update_schema.validate(data)
-        if errors:
-            raise ValidationError("Invalid service data", errors=errors)
+        try:
+            validated_data = service_update_schema.load(data, partial=True)
+        except ValidationError as err:
+            raise ValidationError("Invalid service data", errors=err.messages)
             
         with get_db_session() as session:
             service = session.query(TradingService).filter_by(id=id).first()
@@ -219,9 +225,9 @@ class ServiceItem(Resource):
                 
             try:
                 # Update the service
-                result = service.update(session, data)
+                result = service.update(session, validated_data)
                 session.commit()
-                return result
+                return service_schema.dump(result)
                 
             except ValueError as e:
                 current_app.logger.error(f"Error updating service: {str(e)}")
@@ -328,23 +334,31 @@ class ServiceCheckBuy(Resource):
             if not service:
                 raise ResourceNotFoundError('TradingService', id)
                 
-            # Implement your buy decision logic here
-            # This is just a simple example response
-            result = {
-                'should_proceed': service.can_buy,
-                'reason': 'Service ready to buy' if service.can_buy else 'Service not in buy mode or insufficient funds',
-                'timestamp': get_current_datetime().isoformat(),
-                'details': {
-                    'fund_balance': float(service.fund_balance),
-                    'minimum_balance': float(service.minimum_balance),
-                    'is_active': service.is_active,
-                    'state': service.service_state.name,
-                    'mode': service.mode.name
-                }
-            }
+            # Get current price - in a real app, this would come from a price service
+            # For now, we'll use a dummy value
+            current_price = 100.0
             
-            # Add service_id to the response
-            result['service_id'] = id
+            # Use the model's check_buy_condition method
+            buy_decision = service.check_buy_condition(current_price)
+            
+            # Add additional context if needed
+            if 'details' not in buy_decision:
+                buy_decision['details'] = {}
+            
+            buy_decision['details'].update({
+                'is_active': service.is_active,
+                'state': service.state,
+                'mode': service.mode
+            })
+            
+            # Map the model's response to the API response format
+            result = {
+                'should_proceed': buy_decision.get('should_buy', False),
+                'reason': buy_decision.get('reason', 'No reason provided'),
+                'timestamp': get_current_datetime().isoformat(),
+                'details': buy_decision,
+                'service_id': id
+            }
             
             return result
 
@@ -369,21 +383,30 @@ class ServiceCheckSell(Resource):
             if not service:
                 raise ResourceNotFoundError('TradingService', id)
                 
-            # Implement your sell decision logic here
-            # This is just a simple example response
-            result = {
-                'should_proceed': service.can_sell,
-                'reason': 'Service ready to sell' if service.can_sell else 'Service not in sell mode or no shares to sell',
-                'timestamp': get_current_datetime().isoformat(),
-                'details': {
-                    'current_shares': service.current_shares,
-                    'is_active': service.is_active,
-                    'state': service.service_state.name,
-                    'mode': service.mode.name
-                }
-            }
+            # Get current price - in a real app, this would come from a price service
+            # For now, we'll use a dummy value
+            current_price = 100.0
             
-            # Add service_id to the response
-            result['service_id'] = id
+            # Use the model's check_sell_condition method
+            sell_decision = service.check_sell_condition(current_price)
+            
+            # Add additional context if needed
+            if 'details' not in sell_decision:
+                sell_decision['details'] = {}
+                
+            sell_decision['details'].update({
+                'is_active': service.is_active,
+                'state': service.state,
+                'mode': service.mode
+            })
+            
+            # Map the model's response to the API response format
+            result = {
+                'should_proceed': sell_decision.get('should_sell', False),
+                'reason': sell_decision.get('reason', 'No reason provided'),
+                'timestamp': get_current_datetime().isoformat(),
+                'details': sell_decision,
+                'service_id': id
+            }
             
             return result 

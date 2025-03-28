@@ -3,11 +3,12 @@ Trading Service model.
 
 This model represents a trading service that can buy and sell stocks.
 """
-from typing import List, Optional, TYPE_CHECKING, Dict, Any, Union
+import logging
+from typing import List, Optional, TYPE_CHECKING, Dict, Any, Union, Set
 from decimal import Decimal
 
-from sqlalchemy import Column, ForeignKey, String, Integer, Numeric, DateTime, Boolean, Text, Enum
-from sqlalchemy.orm import relationship, Mapped, Session
+from sqlalchemy import Column, ForeignKey, String, Integer, Numeric, DateTime, Boolean, Text, Enum, and_
+from sqlalchemy.orm import relationship, Mapped, Session, validates
 from sqlalchemy.sql import func
 from flask import current_app
 
@@ -18,6 +19,9 @@ if TYPE_CHECKING:
     from app.models.stock import Stock
     from app.models.trading_transaction import TradingTransaction
     from app.models.user import User
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 class TradingService(Base):
     """
@@ -51,8 +55,8 @@ class TradingService(Base):
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     stock_symbol = Column(String(10), nullable=False)
-    state = Column(Enum(ServiceState), default=ServiceState.INACTIVE, nullable=False)
-    mode = Column(Enum(TradingMode), default=TradingMode.BUY, nullable=False)
+    state = Column(String(20), default=ServiceState.INACTIVE.value, nullable=False)
+    mode = Column(String(20), default=TradingMode.BUY.value, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     
     # Financial configuration
@@ -78,6 +82,30 @@ class TradingService(Base):
     stock: Mapped[Optional["Stock"]] = relationship("Stock", back_populates="services")
     transactions: Mapped[List["TradingTransaction"]] = relationship("TradingTransaction", back_populates="service", cascade="all, delete-orphan")
     
+    # Validations
+    @validates('stock_symbol')
+    def validate_stock_symbol(self, key, symbol):
+        """Validate stock symbol."""
+        if not symbol:
+            raise ValueError("Stock symbol is required")
+        return symbol.strip().upper()
+    
+    @validates('state')
+    def validate_state(self, key, state):
+        """Validate service state."""
+        if state and not ServiceState.is_valid(state):
+            valid_states = ServiceState.values()
+            raise ValueError(f"Invalid service state: {state}. Valid states are: {', '.join(valid_states)}")
+        return state
+    
+    @validates('mode')
+    def validate_mode(self, key, mode):
+        """Validate trading mode."""
+        if mode and not TradingMode.is_valid(mode):
+            valid_modes = TradingMode.values()
+            raise ValueError(f"Invalid trading mode: {mode}. Valid modes are: {', '.join(valid_modes)}")
+        return mode
+    
     def __repr__(self) -> str:
         """String representation of the TradingService object."""
         return f"<TradingService(id={self.id}, symbol='{self.stock_symbol}', balance={self.current_balance})>"
@@ -87,8 +115,8 @@ class TradingService(Base):
         """Check if the service can buy stocks."""
         return (
             self.is_active and 
-            self.state == ServiceState.ACTIVE and
-            self.mode == TradingMode.BUY and
+            self.state == ServiceState.ACTIVE.value and
+            self.mode == TradingMode.BUY.value and
             self.current_balance > self.minimum_balance
         )
     
@@ -97,15 +125,15 @@ class TradingService(Base):
         """Check if the service can sell stocks."""
         return (
             self.is_active and 
-            self.state == ServiceState.ACTIVE and
-            self.mode == TradingMode.SELL and
+            self.state == ServiceState.ACTIVE.value and
+            self.mode == TradingMode.SELL.value and
             self.current_shares > 0
         )
     
     @property
     def is_profitable(self) -> bool:
         """Check if the service is profitable overall."""
-        return self.total_gain_loss > 0
+        return Decimal(str(self.total_gain_loss)) > 0
     
     @property
     def performance_pct(self) -> float:
@@ -117,11 +145,44 @@ class TradingService(Base):
     
     def get_current_price(self) -> float:
         """Get the current price of the configured stock."""
-        # This is a placeholder - in a real implementation, this would get the current price
-        # from a stock price service or model
+        # Get the latest price from the stock model if available
+        if self.stock and hasattr(self.stock, 'get_latest_price'):
+            latest_price = self.stock.get_latest_price()
+            if latest_price is not None:
+                return latest_price
+        
+        # Fallback
         return 0.0
     
-    def update(self, session: Session, data: Dict[str, Any]) -> Dict[str, Any]:
+    @classmethod
+    def get_by_user(cls, session: Session, user_id: int) -> List["TradingService"]:
+        """
+        Get all services for a user.
+        
+        Args:
+            session: Database session
+            user_id: User ID
+            
+        Returns:
+            List of services
+        """
+        return session.query(cls).filter(cls.user_id == user_id).all()
+    
+    @classmethod
+    def get_by_stock(cls, session: Session, stock_symbol: str) -> List["TradingService"]:
+        """
+        Get all services for a stock.
+        
+        Args:
+            session: Database session
+            stock_symbol: Stock symbol
+            
+        Returns:
+            List of services
+        """
+        return session.query(cls).filter(cls.stock_symbol == stock_symbol.upper()).all()
+    
+    def update(self, session: Session, data: Dict[str, Any]) -> "TradingService":
         """
         Update service attributes.
         
@@ -130,7 +191,7 @@ class TradingService(Base):
             data: Dictionary of attributes to update
             
         Returns:
-            Dictionary containing updated service data
+            Updated service instance
             
         Raises:
             ValueError: If invalid data is provided
@@ -145,29 +206,29 @@ class TradingService(Base):
             'sell_threshold', 'stop_loss_percent', 'take_profit_percent'
         }
         
-        # Update fields
-        for key, value in data.items():
-            if key in allowed_fields and value is not None:
-                setattr(self, key, value)
-                
-        self.updated_at = get_current_datetime()
+        # Use the update_from_dict method from Base
+        updated = self.update_from_dict(data, allowed_fields)
         
-        try:
-            # Emit WebSocket event
-            service_data = service_schema.dump(self)
-            EventService.emit_service_update(
-                action='updated',
-                service_data=service_data,
-                service_id=self.id
-            )
+        # Only emit event if something was updated
+        if updated:
+            session.commit()
             
-            return service_data
-            
-        except Exception as e:
-            current_app.logger.error(f"Error emitting WebSocket event: {str(e)}")
-            return service_schema.dump(self)
+            try:
+                # Prepare response data
+                service_data = service_schema.dump(self)
+                
+                # Emit WebSocket event
+                EventService.emit_service_update(
+                    action='updated',
+                    service_data=service_data,
+                    service_id=self.id
+                )
+            except Exception as e:
+                logger.error(f"Error during service update process: {str(e)}")
+        
+        return self
     
-    def change_state(self, session: Session, new_state: ServiceState) -> Dict[str, Any]:
+    def change_state(self, session: Session, new_state: str) -> "TradingService":
         """
         Change the service state.
         
@@ -176,7 +237,7 @@ class TradingService(Base):
             new_state: The new state to set
             
         Returns:
-            Dictionary containing updated service data
+            Updated service instance
             
         Raises:
             ValueError: If the state transition is invalid
@@ -184,39 +245,35 @@ class TradingService(Base):
         from app.api.schemas.trading_service import service_schema
         from app.services.events import EventService
         
+        # Validate state
+        if not ServiceState.is_valid(new_state):
+            valid_states = ServiceState.values()
+            raise ValueError(f"Invalid service state: {new_state}. Valid states are: {', '.join(valid_states)}")
+        
         previous_state = self.state
         
-        # Update state
-        self.state = new_state
-        self.updated_at = get_current_datetime()
+        # Only update if state is changing
+        if previous_state != new_state:
+            self.state = new_state
+            self.updated_at = get_current_datetime()
+            session.commit()
+            
+            try:
+                # Prepare response data
+                service_data = service_schema.dump(self)
+                
+                # Emit WebSocket event
+                EventService.emit_service_update(
+                    action='state_changed',
+                    service_data=service_data,
+                    service_id=self.id
+                )
+            except Exception as e:
+                logger.error(f"Error emitting WebSocket event: {str(e)}")
         
-        try:
-            # Emit WebSocket event
-            service_data = service_schema.dump(self)
-            
-            EventService.emit_service_update(
-                action='state_changed',
-                service_data=service_data,
-                service_id=self.id
-            )
-            
-            return {
-                'message': f'Service state changed from {previous_state} to {new_state}',
-                'service': service_data,
-                'previous_state': str(previous_state),
-                'new_state': str(new_state)
-            }
-            
-        except Exception as e:
-            current_app.logger.error(f"Error emitting WebSocket event: {str(e)}")
-            return {
-                'message': f'Service state changed from {previous_state} to {new_state}',
-                'service': service_schema.dump(self),
-                'previous_state': str(previous_state),
-                'new_state': str(new_state)
-            }
+        return self
     
-    def toggle_active(self, session: Session) -> Dict[str, Any]:
+    def toggle_active(self, session: Session) -> "TradingService":
         """
         Toggle the active status of the service.
         
@@ -224,7 +281,7 @@ class TradingService(Base):
             session: Database session
             
         Returns:
-            Dictionary containing updated service data
+            Updated service instance
         """
         from app.api.schemas.trading_service import service_schema
         from app.services.events import EventService
@@ -232,130 +289,136 @@ class TradingService(Base):
         # Toggle active status
         self.is_active = not self.is_active
         self.updated_at = get_current_datetime()
+        session.commit()
         
         try:
-            # Emit WebSocket event
+            # Prepare response data
             service_data = service_schema.dump(self)
             
+            # Emit WebSocket event
             EventService.emit_service_update(
                 action='toggled',
                 service_data=service_data,
                 service_id=self.id
             )
-            
-            return service_data
-            
         except Exception as e:
-            current_app.logger.error(f"Error emitting WebSocket event: {str(e)}")
-            return service_schema.dump(self)
+            logger.error(f"Error emitting WebSocket event: {str(e)}")
+        
+        return self
+    
+    def change_mode(self, session: Session, new_mode: str) -> "TradingService":
+        """
+        Change the trading mode.
+        
+        Args:
+            session: Database session
+            new_mode: The new mode to set
+            
+        Returns:
+            Updated service instance
+            
+        Raises:
+            ValueError: If the mode is invalid
+        """
+        from app.api.schemas.trading_service import service_schema
+        from app.services.events import EventService
+        
+        # Validate mode
+        if not TradingMode.is_valid(new_mode):
+            valid_modes = TradingMode.values()
+            raise ValueError(f"Invalid trading mode: {new_mode}. Valid modes are: {', '.join(valid_modes)}")
+        
+        previous_mode = self.mode
+        
+        # Only update if mode is changing
+        if previous_mode != new_mode:
+            self.mode = new_mode
+            self.updated_at = get_current_datetime()
+            session.commit()
+            
+            try:
+                # Prepare response data
+                service_data = service_schema.dump(self)
+                
+                # Emit WebSocket event
+                EventService.emit_service_update(
+                    action='mode_changed',
+                    service_data=service_data,
+                    service_id=self.id
+                )
+            except Exception as e:
+                logger.error(f"Error emitting WebSocket event: {str(e)}")
+        
+        return self
     
     def check_buy_condition(self, current_price: float, historical_prices: List[float] = None) -> Dict[str, Any]:
         """
-        Check if the service should buy the configured stock.
+        Check if the conditions for buying are met.
         
         Args:
-            current_price: Current price of the stock
-            historical_prices: List of historical prices (optional)
+            current_price: Current stock price
+            historical_prices: List of historical prices for analysis
             
         Returns:
-            Dictionary containing the decision and relevant information
+            Dictionary with buy decision information
         """
         if not self.can_buy:
             return {
+                'should_buy': False,
                 'can_buy': False,
-                'reason': f"Service cannot buy in current state (state: {self.state}, mode: {self.mode})",
-                'current_balance': self.current_balance,
-                'minimum_balance': self.minimum_balance
+                'reason': 'Service cannot buy at this time'
             }
             
-        # Calculate maximum shares that can be purchased
-        max_amount = self.current_balance * self.allocation_percent
-        max_shares = max_amount / current_price if current_price > 0 else 0
-        
-        # TODO: Add actual strategy logic here
-        # For now, we always return that the service can buy if it's in the right state
-        
+        # Simple threshold-based buy decision
+        # In a real implementation, this would include more sophisticated analysis
+        if historical_prices and len(historical_prices) >= 2:
+            percent_change = ((current_price - historical_prices[-2]) / historical_prices[-2]) * 100
+            if percent_change <= -self.buy_threshold:
+                return {
+                    'should_buy': True,
+                    'can_buy': True,
+                    'reason': f'Price dropped by {abs(percent_change):.2f}%, which exceeds buy threshold of {self.buy_threshold}%'
+                }
+                
         return {
+            'should_buy': False,
             'can_buy': True,
-            'current_price': current_price,
-            'max_shares': max_shares,
-            'max_amount': max_amount,
-            'current_balance': self.current_balance,
-            'remaining_balance': self.current_balance - (max_shares * current_price)
+            'reason': 'Buy conditions not met'
         }
-    
+        
     def check_sell_condition(self, current_price: float, historical_prices: List[float] = None) -> Dict[str, Any]:
         """
-        Check if the service should sell its current holdings.
+        Check if the conditions for selling are met.
         
         Args:
-            current_price: Current price of the stock
-            historical_prices: List of historical prices (optional)
+            current_price: Current stock price
+            historical_prices: List of historical prices for analysis
             
         Returns:
-            Dictionary containing the decision and relevant information
+            Dictionary with sell decision information
         """
         if not self.can_sell:
             return {
+                'should_sell': False,
                 'can_sell': False,
-                'reason': f"Service cannot sell in current state (state: {self.state}, mode: {self.mode})",
-                'current_shares': self.current_shares
+                'reason': 'Service cannot sell at this time'
             }
             
-        # Get the latest transaction to check purchase price
-        latest_transaction = None
-        if self.transactions:
-            from app.models.enums import TransactionState
-            open_transactions = [t for t in self.transactions if t.state == TransactionState.OPEN]
-            if open_transactions:
-                latest_transaction = sorted(open_transactions, key=lambda t: t.purchase_date, reverse=True)[0]
-        
-        if not latest_transaction:
-            return {
-                'can_sell': False,
-                'reason': "No open transactions found",
-                'current_shares': self.current_shares
-            }
-            
-        # Calculate potential gain/loss
-        purchase_price = float(latest_transaction.purchase_price)
-        potential_gain_loss = (current_price - purchase_price) * self.current_shares
-        gain_percent = ((current_price - purchase_price) / purchase_price) * 100 if purchase_price > 0 else 0
-        
-        # Check stop loss
-        if gain_percent <= -self.stop_loss_percent:
-            return {
-                'can_sell': True,
-                'reason': f"Stop loss triggered ({gain_percent:.2f}% < -{self.stop_loss_percent:.2f}%)",
-                'current_shares': self.current_shares,
-                'current_price': current_price,
-                'purchase_price': purchase_price,
-                'potential_gain_loss': potential_gain_loss,
-                'gain_percent': gain_percent
-            }
-            
-        # Check take profit
-        if gain_percent >= self.take_profit_percent:
-            return {
-                'can_sell': True,
-                'reason': f"Take profit triggered ({gain_percent:.2f}% > {self.take_profit_percent:.2f}%)",
-                'current_shares': self.current_shares,
-                'current_price': current_price,
-                'purchase_price': purchase_price,
-                'potential_gain_loss': potential_gain_loss,
-                'gain_percent': gain_percent
-            }
-            
-        # TODO: Add more sophisticated strategy logic here
-        
+        # Simple threshold-based sell decision
+        # In a real implementation, this would include more sophisticated analysis
+        if historical_prices and len(historical_prices) >= 2:
+            percent_change = ((current_price - historical_prices[-2]) / historical_prices[-2]) * 100
+            if percent_change >= self.sell_threshold:
+                return {
+                    'should_sell': True,
+                    'can_sell': True,
+                    'reason': f'Price increased by {percent_change:.2f}%, which exceeds sell threshold of {self.sell_threshold}%'
+                }
+                
         return {
-            'can_sell': False,
-            'reason': "Strategy conditions not met",
-            'current_shares': self.current_shares,
-            'current_price': current_price,
-            'purchase_price': purchase_price,
-            'potential_gain_loss': potential_gain_loss,
-            'gain_percent': gain_percent
+            'should_sell': False,
+            'can_sell': True,
+            'reason': 'Sell conditions not met'
         }
     
     @classmethod
@@ -376,33 +439,43 @@ class TradingService(Base):
         """
         from app.api.schemas.trading_service import service_schema
         from app.services.events import EventService
-        
-        # Create the service
-        service = cls(
-            user_id=user_id,
-            name=data['name'],
-            stock_symbol=data['stock_symbol'].upper(),
-            initial_balance=data['initial_balance'],
-            current_balance=data['initial_balance'],
-            minimum_balance=data.get('minimum_balance', 0),
-            allocation_percent=data.get('allocation_percent', 0.5),
-            description=data.get('description', ''),
-            is_active=data.get('is_active', True)
-        )
-        
-        session.add(service)
-        session.commit()
+        from app.models import User, Stock
         
         try:
-            # Emit WebSocket event
+            # Validate required fields
+            required_fields = ['name', 'stock_symbol', 'initial_balance']
+            for field in required_fields:
+                if field not in data or not data[field]:
+                    raise ValueError(f"Field '{field}' is required")
+            
+            # Verify user exists
+            user = User.get_or_404(session, user_id)
+            
+            # Check if stock exists and update stock_id
+            stock_symbol = data['stock_symbol'].upper()
+            stock = Stock.get_by_symbol(session, stock_symbol)
+            if stock:
+                data['stock_id'] = stock.id
+                
+            # Set user_id
+            data['user_id'] = user_id
+            
+            # Create the service
+            service = cls.from_dict(data)
+            session.add(service)
+            session.commit()
+            
+            # Prepare response data
             service_data = service_schema.dump(service)
+            
+            # Emit WebSocket event
             EventService.emit_service_update(
                 action='created',
                 service_data=service_data
             )
             
             return service
-            
         except Exception as e:
-            current_app.logger.error(f"Error emitting WebSocket event: {str(e)}")
-            return service
+            logger.error(f"Error creating trading service: {str(e)}")
+            session.rollback()
+            raise ValueError(f"Could not create trading service: {str(e)}")

@@ -10,14 +10,17 @@ from app.services.database import get_db_session
 from app.models import Stock, StockDailyPrice, StockIntradayPrice, PriceSource
 from app.api import apply_pagination, apply_filters
 from app.api.auth import admin_required
-from app.utils.errors import ResourceNotFoundError
+from app.utils.errors import ValidationError, ResourceNotFoundError, AuthorizationError, BusinessLogicError
+from app.utils.current_datetime import get_current_datetime, get_current_date
 from app.api.schemas.stock_price import (
     daily_price_schema,
     daily_prices_schema,
     daily_price_input_schema,
+    daily_price_delete_schema,
     intraday_price_schema,
     intraday_prices_schema,
-    intraday_price_input_schema
+    intraday_price_input_schema,
+    intraday_price_delete_schema
 )
 
 # Create namespace
@@ -27,14 +30,17 @@ api = Namespace('prices', description='Stock price operations')
 daily_price_model = api.model('StockDailyPrice', {
     'id': fields.Integer(readonly=True, description='Price record identifier'),
     'stock_id': fields.Integer(description='Stock identifier'),
-    'stock_symbol': fields.String(description='Stock symbol'),
     'price_date': fields.Date(description='Price date'),
-    'open': fields.Float(description='Opening price'),
-    'high': fields.Float(description='High price'),
-    'low': fields.Float(description='Low price'),
-    'close': fields.Float(description='Closing price'),
+    'open_price': fields.Float(description='Opening price'),
+    'high_price': fields.Float(description='High price'),
+    'low_price': fields.Float(description='Low price'),
+    'close_price': fields.Float(description='Closing price'),
+    'adj_close': fields.Float(description='Adjusted closing price'),
     'volume': fields.Integer(description='Trading volume'),
-    'adjusted_close': fields.Float(description='Adjusted closing price'),
+    'source': fields.String(description='Price data source'),
+    'change': fields.Float(description='Price change (close - open)'),
+    'change_percent': fields.Float(description='Percentage price change'),
+    'stock_symbol': fields.String(description='Stock symbol'),
     'created_at': fields.DateTime(description='Creation timestamp'),
     'updated_at': fields.DateTime(description='Last update timestamp')
 })
@@ -54,14 +60,17 @@ daily_price_input_model = api.model('StockDailyPriceInput', {
 intraday_price_model = api.model('StockIntradayPrice', {
     'id': fields.Integer(readonly=True, description='Price record identifier'),
     'stock_id': fields.Integer(description='Stock identifier'),
-    'stock_symbol': fields.String(description='Stock symbol'),
     'timestamp': fields.DateTime(description='Price timestamp'),
     'interval': fields.Integer(description='Time interval in minutes'),
-    'open': fields.Float(description='Opening price'),
-    'high': fields.Float(description='High price'),
-    'low': fields.Float(description='Low price'),
-    'close': fields.Float(description='Closing price'),
+    'open_price': fields.Float(description='Opening price'),
+    'high_price': fields.Float(description='High price'),
+    'low_price': fields.Float(description='Low price'),
+    'close_price': fields.Float(description='Closing price'),
     'volume': fields.Integer(description='Trading volume'),
+    'source': fields.String(description='Price data source'),
+    'change': fields.Float(description='Price change (close - open)'),
+    'change_percent': fields.Float(description='Percentage price change'),
+    'stock_symbol': fields.String(description='Stock symbol'),
     'created_at': fields.DateTime(description='Creation timestamp'),
     'updated_at': fields.DateTime(description='Last update timestamp')
 })
@@ -89,12 +98,16 @@ pagination_model = api.model('Pagination', {
 
 daily_price_list_model = api.model('DailyPriceList', {
     'items': fields.List(fields.Nested(daily_price_model), description='List of daily prices'),
-    'pagination': fields.Nested(pagination_model, description='Pagination information')
+    'pagination': fields.Nested(pagination_model, description='Pagination information'),
+    'stock_symbol': fields.String(description='Stock symbol'),
+    'stock_id': fields.Integer(description='Stock ID')
 })
 
 intraday_price_list_model = api.model('IntradayPriceList', {
     'items': fields.List(fields.Nested(intraday_price_model), description='List of intraday prices'),
-    'pagination': fields.Nested(pagination_model, description='Pagination information')
+    'pagination': fields.Nested(pagination_model, description='Pagination information'),
+    'stock_symbol': fields.String(description='Stock symbol'),
+    'stock_id': fields.Integer(description='Stock ID')
 })
 
 @api.route('/daily/stocks/<int:stock_id>')
@@ -119,9 +132,7 @@ class StockDailyPrices(Resource):
         """Get daily price data for a specific stock with filtering and pagination."""
         with get_db_session() as session:
             # Verify stock exists
-            stock = session.query(Stock).filter_by(id=stock_id).first()
-            if not stock:
-                raise ResourceNotFoundError('Stock', stock_id)
+            stock = Stock.get_or_404(session, stock_id)
             
             # Get base query for this stock's daily prices
             query = session.query(StockDailyPrice).filter_by(stock_id=stock_id)
@@ -132,14 +143,14 @@ class StockDailyPrices(Resource):
                     start_date = datetime.strptime(request.args['start_date'], '%Y-%m-%d').date()
                     query = query.filter(StockDailyPrice.price_date >= start_date)
                 except ValueError:
-                    abort(400, 'Invalid start_date format. Use YYYY-MM-DD')
+                    raise ValidationError("Invalid start_date format. Use YYYY-MM-DD")
                     
             if 'end_date' in request.args:
                 try:
                     end_date = datetime.strptime(request.args['end_date'], '%Y-%m-%d').date()
                     query = query.filter(StockDailyPrice.price_date <= end_date)
                 except ValueError:
-                    abort(400, 'Invalid end_date format. Use YYYY-MM-DD')
+                    raise ValidationError("Invalid end_date format. Use YYYY-MM-DD")
             
             # Apply other filters
             query = apply_filters(query, StockDailyPrice)
@@ -172,48 +183,41 @@ class StockDailyPrices(Resource):
     @admin_required
     def post(self, stock_id):
         """Add a new daily price record for a stock. Requires admin privileges."""
+        data = request.json
+        
         try:
-            data = request.json
+            # Validate and load input data
+            validated_data = daily_price_input_schema.load(data)
             
             with get_db_session() as session:
-                # Check if the stock exists
-                stock = session.query(Stock).filter_by(id=stock_id).first()
-                if stock is None:
-                    abort(404, 'Stock not found')
-                
                 # Parse the price date
-                try:
-                    if isinstance(data['price_date'], str):
-                        price_date = datetime.strptime(data['price_date'], '%Y-%m-%d').date()
-                    else:
-                        price_date = data['price_date']
-                except ValueError:
-                    abort(400, 'Invalid price_date format. Use YYYY-MM-DD')
+                if isinstance(validated_data.price_date, str):
+                    try:
+                        price_date = datetime.strptime(validated_data.price_date, '%Y-%m-%d').date()
+                    except ValueError:
+                        raise ValidationError("Invalid price_date format. Use YYYY-MM-DD")
+                else:
+                    price_date = validated_data.price_date
                 
-                # Check if a record already exists for this date
-                existing = session.query(StockDailyPrice).filter_by(
-                    stock_id=stock_id, 
-                    price_date=price_date
-                ).first()
-                
-                if existing:
-                    abort(409, f'Price record for date {price_date} already exists')
-                
-                # Validate and deserialize input
-                data['stock_id'] = stock_id
-                price_record = daily_price_input_schema.load(data)
-                
-                session.add(price_record)
-                session.commit()
-                session.refresh(price_record)
+                # Create the price record using the model's method
+                price_record = StockDailyPrice.create_price(
+                    session=session,
+                    stock_id=stock_id,
+                    price_date=price_date,
+                    data=data
+                )
                 
                 return daily_price_schema.dump(price_record), 201
                 
+        except ValidationError as e:
+            current_app.logger.error(f"Validation error creating price record: {str(e)}")
+            raise
         except ValueError as e:
-            abort(400, str(e))
+            current_app.logger.error(f"Error creating price record: {str(e)}")
+            raise BusinessLogicError(str(e))
         except Exception as e:
             current_app.logger.error(f"Error creating price record: {str(e)}")
-            abort(400, str(e))
+            raise ValidationError(str(e))
 
 @api.route('/intraday/stocks/<int:stock_id>')
 @api.param('stock_id', 'The stock identifier')
@@ -238,9 +242,7 @@ class StockIntradayPrices(Resource):
         """Get intraday price data for a specific stock with filtering and pagination."""
         with get_db_session() as session:
             # Verify stock exists
-            stock = session.query(Stock).filter_by(id=stock_id).first()
-            if not stock:
-                raise ResourceNotFoundError('Stock', stock_id)
+            stock = Stock.get_or_404(session, stock_id)
             
             # Get base query for this stock's intraday prices
             query = session.query(StockIntradayPrice).filter_by(stock_id=stock_id)
@@ -251,24 +253,24 @@ class StockIntradayPrices(Resource):
                     start_time = datetime.strptime(request.args['start_time'], '%Y-%m-%d %H:%M:%S')
                     query = query.filter(StockIntradayPrice.timestamp >= start_time)
                 except ValueError:
-                    abort(400, 'Invalid start_time format. Use YYYY-MM-DD HH:MM:SS')
+                    raise ValidationError("Invalid start_time format. Use YYYY-MM-DD HH:MM:SS")
                     
             if 'end_time' in request.args:
                 try:
                     end_time = datetime.strptime(request.args['end_time'], '%Y-%m-%d %H:%M:%S')
                     query = query.filter(StockIntradayPrice.timestamp <= end_time)
                 except ValueError:
-                    abort(400, 'Invalid end_time format. Use YYYY-MM-DD HH:MM:SS')
+                    raise ValidationError("Invalid end_time format. Use YYYY-MM-DD HH:MM:SS")
             
             # Apply interval filter if provided
             if 'interval' in request.args:
                 try:
                     interval = int(request.args['interval'])
                     if interval not in [1, 5, 15, 30, 60]:
-                        abort(400, 'Invalid interval. Use 1, 5, 15, 30, or 60')
+                        raise ValidationError("Invalid interval. Use 1, 5, 15, 30, or 60")
                     query = query.filter(StockIntradayPrice.interval == interval)
                 except ValueError:
-                    abort(400, 'Invalid interval. Must be an integer')
+                    raise ValidationError("Invalid interval. Must be an integer")
             
             # Apply other filters
             query = apply_filters(query, StockIntradayPrice)
@@ -302,78 +304,210 @@ class StockIntradayPrices(Resource):
     @admin_required
     def post(self, stock_id):
         """Add a new intraday price record for a stock. Requires admin privileges."""
+        data = request.json
+        
         try:
-            data = request.json
+            # Validate and load input data
+            validated_data = intraday_price_input_schema.load(data)
             
             with get_db_session() as session:
-                # Check if the stock exists
-                stock = session.query(Stock).filter_by(id=stock_id).first()
-                if stock is None:
-                    abort(404, 'Stock not found')
-                
                 # Parse the timestamp
-                try:
-                    if isinstance(data['timestamp'], str):
-                        timestamp = datetime.fromisoformat(data['timestamp'].replace('Z', '+00:00'))
-                    else:
-                        timestamp = data['timestamp']
-                except ValueError:
-                    abort(400, 'Invalid timestamp format. Use ISO format')
+                if isinstance(validated_data.timestamp, str):
+                    try:
+                        timestamp = datetime.fromisoformat(validated_data.timestamp.replace('Z', '+00:00'))
+                    except ValueError:
+                        raise ValidationError("Invalid timestamp format. Use ISO format")
+                else:
+                    timestamp = validated_data.timestamp
                 
                 # Get the interval
-                interval = data.get('interval', 1)
+                interval = validated_data.interval
                 
-                # Check if a record already exists for this timestamp and interval
-                existing = session.query(StockIntradayPrice).filter_by(
-                    stock_id=stock_id, 
-                    timestamp=timestamp,
-                    interval=interval
-                ).first()
-                
-                if existing:
-                    abort(409, f'Price record for timestamp {timestamp} and interval {interval} already exists')
-                
-                # Create the new price record
-                price_record = StockIntradayPrice(
+                # Create the intraday price record using the model's method
+                price_record = StockIntradayPrice.create_price(
+                    session=session,
                     stock_id=stock_id,
                     timestamp=timestamp,
                     interval=interval,
-                    open_price=data.get('open_price'),
-                    high_price=data.get('high_price'),
-                    low_price=data.get('low_price'),
-                    close_price=data.get('close_price'),
-                    volume=data.get('volume'),
-                    source=data.get('source', PriceSource.DELAYED)
-                )
-                
-                session.add(price_record)
-                session.commit()
-                session.refresh(price_record)
-                
-                # Prepare price data for event emission
-                price_data = {
-                    'id': price_record.id,
-                    'stock_id': price_record.stock_id,
-                    'timestamp': price_record.timestamp.isoformat(),
-                    'interval': price_record.interval,
-                    'open_price': float(price_record.open_price),
-                    'high_price': float(price_record.high_price),
-                    'low_price': float(price_record.low_price),
-                    'close_price': float(price_record.close_price),
-                    'volume': price_record.volume,
-                    'source': price_record.source,
-                    'created_at': price_record.created_at.isoformat(),
-                    'updated_at': price_record.updated_at.isoformat()
-                }
-                
-                # Use EventService to emit WebSocket events
-                from app.services.events import EventService
-                EventService.emit_price_update(
-                    action='created',
-                    price_data=price_data,
-                    stock_symbol=stock.symbol
+                    data=data
                 )
                 
                 return intraday_price_schema.dump(price_record), 201
+                
+        except ValidationError as e:
+            current_app.logger.error(f"Validation error creating price record: {str(e)}")
+            raise
+        except ValueError as e:
+            current_app.logger.error(f"Error creating price record: {str(e)}")
+            raise BusinessLogicError(str(e))
         except Exception as e:
-            abort(400, str(e)) 
+            current_app.logger.error(f"Error creating price record: {str(e)}")
+            raise ValidationError(str(e))
+
+@api.route('/daily/<int:price_id>')
+@api.param('price_id', 'The daily price record identifier')
+@api.response(404, 'Price record not found')
+class DailyPriceItem(Resource):
+    """Resource for managing individual daily price records."""
+    
+    @api.doc('get_daily_price')
+    @api.marshal_with(daily_price_model)
+    @api.response(200, 'Success')
+    @api.response(404, 'Price record not found')
+    def get(self, price_id):
+        """Get a daily price record by ID."""
+        with get_db_session() as session:
+            price = StockDailyPrice.get_or_404(session, price_id)
+            return daily_price_schema.dump(price)
+    
+    @api.doc('update_daily_price')
+    @api.expect(daily_price_input_model)
+    @api.marshal_with(daily_price_model)
+    @api.response(200, 'Price record updated')
+    @api.response(400, 'Invalid input')
+    @api.response(401, 'Unauthorized')
+    @api.response(403, 'Admin privileges required')
+    @api.response(404, 'Price record not found')
+    @jwt_required()
+    @admin_required
+    def put(self, price_id):
+        """Update a daily price record. Requires admin privileges."""
+        data = request.json
+        
+        # Don't allow changing date or stock
+        if 'price_date' in data:
+            del data['price_date']
+        if 'stock_id' in data:
+            del data['stock_id']
+        
+        try:
+            with get_db_session() as session:
+                # Get the price record
+                price = StockDailyPrice.get_or_404(session, price_id)
+                
+                # Update the price record using the model's method
+                result = price.update(session, data)
+                
+                return daily_price_schema.dump(result)
+                
+        except ValueError as e:
+            current_app.logger.error(f"Error updating price record: {str(e)}")
+            raise BusinessLogicError(str(e))
+        except Exception as e:
+            current_app.logger.error(f"Error updating price record: {str(e)}")
+            raise ValidationError(str(e))
+    
+    @api.doc('delete_daily_price')
+    @api.response(204, 'Price record deleted')
+    @api.response(401, 'Unauthorized')
+    @api.response(403, 'Admin privileges required')
+    @api.response(404, 'Price record not found')
+    @jwt_required()
+    @admin_required
+    def delete(self, price_id):
+        """Delete a daily price record. Requires admin privileges."""
+        try:
+            with get_db_session() as session:
+                # Get the price record
+                price = StockDailyPrice.get_or_404(session, price_id)
+                
+                # Validate deletion using the delete schema
+                validation_data = {'confirm': True, 'price_id': price_id}
+                daily_price_delete_schema.load(validation_data)
+                
+                # Delete the price record
+                session.delete(price)
+                session.commit()
+                
+                return '', 204
+                
+        except ValidationError as e:
+            raise BusinessLogicError(str(e))
+        except Exception as e:
+            current_app.logger.error(f"Error deleting price record: {str(e)}")
+            raise BusinessLogicError(str(e))
+
+@api.route('/intraday/<int:price_id>')
+@api.param('price_id', 'The intraday price record identifier')
+@api.response(404, 'Price record not found')
+class IntradayPriceItem(Resource):
+    """Resource for managing individual intraday price records."""
+    
+    @api.doc('get_intraday_price')
+    @api.marshal_with(intraday_price_model)
+    @api.response(200, 'Success')
+    @api.response(404, 'Price record not found')
+    def get(self, price_id):
+        """Get an intraday price record by ID."""
+        with get_db_session() as session:
+            price = StockIntradayPrice.get_or_404(session, price_id)
+            return intraday_price_schema.dump(price)
+    
+    @api.doc('update_intraday_price')
+    @api.expect(intraday_price_input_model)
+    @api.marshal_with(intraday_price_model)
+    @api.response(200, 'Price record updated')
+    @api.response(400, 'Invalid input')
+    @api.response(401, 'Unauthorized')
+    @api.response(403, 'Admin privileges required')
+    @api.response(404, 'Price record not found')
+    @jwt_required()
+    @admin_required
+    def put(self, price_id):
+        """Update an intraday price record. Requires admin privileges."""
+        data = request.json
+        
+        # Don't allow changing timestamp, interval, or stock
+        if 'timestamp' in data:
+            del data['timestamp']
+        if 'interval' in data:
+            del data['interval']
+        if 'stock_id' in data:
+            del data['stock_id']
+        
+        try:
+            with get_db_session() as session:
+                # Get the price record
+                price = StockIntradayPrice.get_or_404(session, price_id)
+                
+                # Update the price record using the model's method
+                result = price.update(session, data)
+                
+                return intraday_price_schema.dump(result)
+                
+        except ValueError as e:
+            current_app.logger.error(f"Error updating price record: {str(e)}")
+            raise BusinessLogicError(str(e))
+        except Exception as e:
+            current_app.logger.error(f"Error updating price record: {str(e)}")
+            raise ValidationError(str(e))
+    
+    @api.doc('delete_intraday_price')
+    @api.response(204, 'Price record deleted')
+    @api.response(401, 'Unauthorized')
+    @api.response(403, 'Admin privileges required')
+    @api.response(404, 'Price record not found')
+    @jwt_required()
+    @admin_required
+    def delete(self, price_id):
+        """Delete an intraday price record. Requires admin privileges."""
+        try:
+            with get_db_session() as session:
+                # Get the price record
+                price = StockIntradayPrice.get_or_404(session, price_id)
+                
+                # Validate deletion using the delete schema
+                validation_data = {'confirm': True, 'price_id': price_id}
+                intraday_price_delete_schema.load(validation_data)
+                
+                # Delete the price record
+                session.delete(price)
+                session.commit()
+                
+                return '', 204
+                
+        except ValidationError as e:
+            raise BusinessLogicError(str(e))
+        except Exception as e:
+            current_app.logger.error(f"Error deleting price record: {str(e)}")
+            raise BusinessLogicError(str(e)) 

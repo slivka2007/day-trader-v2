@@ -69,6 +69,40 @@ class EventService:
             cls.emit('service_update', payload, room=f'service_{service_id}')
 
     @classmethod
+    def emit_user_update(cls, action: str, user_data: Dict[str, Any], 
+                       user_id: Optional[int] = None,
+                       include_sensitive: bool = False) -> None:
+        """
+        Emit a user update event.
+        
+        Args:
+            action: The action that occurred (e.g., 'created', 'updated', 'activated', 'deactivated')
+            user_data: The user data (typically from user_schema.dump())
+            user_id: The user ID for room-specific events
+            include_sensitive: Whether to include sensitive user data (default: False)
+        """
+        # Filter out sensitive data if needed
+        payload_user_data = user_data.copy()
+        if not include_sensitive:
+            # Remove sensitive fields that should not be broadcast
+            sensitive_fields = ['password', 'last_login_days_ago']
+            for field in sensitive_fields:
+                if field in payload_user_data:
+                    del payload_user_data[field]
+                    
+        payload = {
+            'action': action,
+            'user': payload_user_data
+        }
+        
+        # Emit to admin room (for admin dashboards)
+        cls.emit('user_update', payload, room='users')
+        
+        # If user_id is provided, also emit to the specific user's room
+        if user_id:
+            cls.emit('user_update', payload, room=f'user_{user_id}')
+
+    @classmethod
     def emit_transaction_update(cls, action: str, transaction_data: Dict[str, Any], 
                               service_id: Optional[int] = None,
                               additional_data: Optional[Dict[str, Any]] = None) -> None:

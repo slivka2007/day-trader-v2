@@ -66,18 +66,18 @@ class Health(Resource):
         }
 
 @api.route('/info')
-class Info(Resource):
+class SystemInfo(Resource):
     """Resource for system information."""
     
-    @api.doc('get_info')
+    @api.doc('get_system_info')
     @api.marshal_with(info_model)
     def get(self):
         """Get system information."""
         return {
-            'python_version': sys.version,
-            'platform': platform.platform(),
-            'app_name': current_app.name,
-            'environment': os.environ.get('FLASK_ENV', 'development')
+            'python_version': sys.version.split()[0],
+            'platform': platform.system(),
+            'app_name': current_app.config.get('APP_NAME', 'Day Trader API'),
+            'environment': current_app.config.get('ENVIRONMENT', 'development')
         }
 
 @api.route('/websocket-test')
@@ -126,6 +126,13 @@ class WebSocketDocs(Resource):
                 'rooms': ['services', 'service_{id}'],
             },
             {
+                'name': 'user_update',
+                'description': 'Emitted when a user is created, updated, or has status changed',
+                'direction': 'server-to-client',
+                'payload': '{"action": "created|updated|activated|deactivated", "user": {...}}',
+                'rooms': ['users', 'user_{id}'],
+            },
+            {
                 'name': 'transaction_update',
                 'description': 'Emitted when a transaction is created or completed',
                 'direction': 'server-to-client',
@@ -154,52 +161,17 @@ class WebSocketDocs(Resource):
                 'rooms': [],
             },
             {
-                'name': 'connect',
-                'description': 'Emitted when a client connects',
+                'name': 'join_room',
+                'description': 'Event to join a specific room',
                 'direction': 'client-to-server',
-                'payload': '{}',
+                'payload': '{"room": "room_name"}',
                 'rooms': [],
             },
             {
-                'name': 'disconnect',
-                'description': 'Emitted when a client disconnects',
+                'name': 'leave_room',
+                'description': 'Event to leave a specific room',
                 'direction': 'client-to-server',
-                'payload': '{}',
-                'rooms': [],
-            },
-            {
-                'name': 'join_service',
-                'description': 'Join a room for a specific service',
-                'direction': 'client-to-server',
-                'payload': '{"service_id": 1}',
-                'rooms': [],
-            },
-            {
-                'name': 'leave_service',
-                'description': 'Leave a room for a specific service',
-                'direction': 'client-to-server',
-                'payload': '{"service_id": 1}',
-                'rooms': [],
-            },
-            {
-                'name': 'join_services',
-                'description': 'Join the room for all services updates',
-                'direction': 'client-to-server',
-                'payload': '{}',
-                'rooms': [],
-            },
-            {
-                'name': 'join_transactions',
-                'description': 'Join the room for transaction updates',
-                'direction': 'client-to-server',
-                'payload': '{}',
-                'rooms': [],
-            },
-            {
-                'name': 'join_price_updates',
-                'description': 'Join the room for price updates',
-                'direction': 'client-to-server',
-                'payload': '{}',
+                'payload': '{"room": "room_name"}',
                 'rooms': [],
             },
         ]
@@ -217,6 +189,18 @@ class WebSocketDocs(Resource):
                 'description': 'Room for updates about all trading services',
                 'subscribe_event': 'join_services',
                 'events': ['service_update'],
+            },
+            {
+                'name': 'user_{id}',
+                'description': 'Room for updates about a specific user',
+                'subscribe_event': 'join_user',
+                'events': ['user_update'],
+            },
+            {
+                'name': 'users',
+                'description': 'Room for updates about all users (admin only)',
+                'subscribe_event': 'join_users',
+                'events': ['user_update'],
             },
             {
                 'name': 'transactions',

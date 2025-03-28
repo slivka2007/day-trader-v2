@@ -16,6 +16,29 @@ class StockSchema(SQLAlchemyAutoSchema):
         load_instance = True
         exclude = ('created_at', 'updated_at')
     
+    # Add calculated fields
+    has_services = fields.Method("check_has_services", dump_only=True)
+    has_transactions = fields.Method("check_has_transactions", dump_only=True)
+    price_count = fields.Method("count_prices", dump_only=True)
+    
+    def check_has_services(self, obj):
+        """Check if the stock has any associated services."""
+        return len(obj.services) > 0 if obj.services else False
+    
+    def check_has_transactions(self, obj):
+        """Check if the stock has any associated transactions."""
+        return len(obj.transactions) > 0 if obj.transactions else False
+    
+    def count_prices(self, obj):
+        """Count the number of price data points available."""
+        daily_count = len(obj.daily_prices) if obj.daily_prices else 0
+        intraday_count = len(obj.intraday_prices) if obj.intraday_prices else 0
+        return {
+            'daily': daily_count,
+            'intraday': intraday_count,
+            'total': daily_count + intraday_count
+        }
+    
     # Add validation for stock symbol
     @validates('symbol')
     def validate_symbol(self, symbol):
@@ -25,6 +48,24 @@ class StockSchema(SQLAlchemyAutoSchema):
         
         if not symbol.isalnum():
             raise ValidationError('Stock symbol must contain only letters and numbers')
+    
+    @validates('name')
+    def validate_name(self, name):
+        """Validate stock name."""
+        if name and len(name) > 200:
+            raise ValidationError('Stock name must be 200 characters or less')
+    
+    @validates('sector')
+    def validate_sector(self, sector):
+        """Validate stock sector."""
+        if sector and len(sector) > 100:
+            raise ValidationError('Stock sector must be 100 characters or less')
+    
+    @validates('description')
+    def validate_description(self, description):
+        """Validate stock description."""
+        if description and len(description) > 1000:
+            raise ValidationError('Stock description must be 1000 characters or less')
 
 # Create an instance for easy importing
 stock_schema = StockSchema()
@@ -34,15 +75,24 @@ stocks_schema = StockSchema(many=True)
 class StockInputSchema(Schema):
     """Schema for creating or updating a Stock."""
     symbol = fields.String(required=True, validate=validate.Length(min=1, max=10))
-    name = fields.String(allow_none=True)
+    name = fields.String(allow_none=True, validate=validate.Length(max=200))
     is_active = fields.Boolean(default=True)
-    sector = fields.String(allow_none=True)
-    description = fields.String(allow_none=True)
+    sector = fields.String(allow_none=True, validate=validate.Length(max=100))
+    description = fields.String(allow_none=True, validate=validate.Length(max=1000))
+    
+    @validates('symbol')
+    def validate_symbol(self, symbol):
+        """Validate stock symbol format."""
+        if not symbol.isalnum():
+            raise ValidationError('Stock symbol must contain only letters and numbers')
     
     @post_load
     def make_stock(self, data, **kwargs):
         """Create a Stock instance from validated data."""
-        return Stock(**data)
+        # Ensure symbol is uppercase
+        if 'symbol' in data:
+            data['symbol'] = data['symbol'].upper()
+        return data
 
 # Schema for deleting a stock
 class StockDeleteSchema(Schema):
@@ -51,7 +101,7 @@ class StockDeleteSchema(Schema):
     stock_id = fields.Integer(required=True)
     
     @validates_schema
-    def validate_confirmation(self, data, **kwargs):
+    def validate_deletion(self, data, **kwargs):
         """Validate that deletion is properly confirmed and stock has no dependencies."""
         if not data.get('confirm'):
             raise ValidationError("Must confirm deletion by setting 'confirm' to true")

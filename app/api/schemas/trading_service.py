@@ -22,6 +22,33 @@ class TradingServiceSchema(SQLAlchemyAutoSchema):
         """Validate initial balance is positive."""
         if value <= 0:
             raise ValidationError('Initial balance must be greater than 0')
+    
+    @validates('stock_symbol')
+    def validate_stock_symbol(self, value):
+        """Validate stock symbol."""
+        if not value or len(value) > 10:
+            raise ValidationError('Stock symbol must be 1-10 characters')
+        
+        if not value.isalnum():
+            raise ValidationError('Stock symbol must contain only letters and numbers')
+            
+    @validates('allocation_percent')
+    def validate_allocation_percent(self, value):
+        """Validate allocation percent."""
+        if value < 0 or value > 100:
+            raise ValidationError('Allocation percent must be between 0 and 100')
+            
+    @validates('buy_threshold')
+    def validate_buy_threshold(self, value):
+        """Validate buy threshold."""
+        if value < 0:
+            raise ValidationError('Buy threshold must be non-negative')
+            
+    @validates('sell_threshold')
+    def validate_sell_threshold(self, value):
+        """Validate sell threshold."""
+        if value < 0:
+            raise ValidationError('Sell threshold must be non-negative')
 
 # Create an instance for easy importing
 service_schema = TradingServiceSchema()
@@ -31,20 +58,37 @@ services_schema = TradingServiceSchema(many=True)
 class TradingServiceCreateSchema(Schema):
     """Schema for creating a TradingService."""
     stock_symbol = fields.String(required=True, validate=validate.Length(min=1, max=10))
-    name = fields.String(allow_none=True)
+    name = fields.String(required=True, validate=validate.Length(min=1, max=100))
+    description = fields.String(allow_none=True)
     initial_balance = fields.Decimal(required=True, validate=validate.Range(min=1))
+    minimum_balance = fields.Decimal(default=0, validate=validate.Range(min=0))
+    allocation_percent = fields.Decimal(default=0.5, validate=validate.Range(min=0, max=100))
+    buy_threshold = fields.Decimal(default=3.0, validate=validate.Range(min=0))
+    sell_threshold = fields.Decimal(default=2.0, validate=validate.Range(min=0))
+    stop_loss_percent = fields.Decimal(default=5.0, validate=validate.Range(min=0))
+    take_profit_percent = fields.Decimal(default=10.0, validate=validate.Range(min=0))
+    is_active = fields.Boolean(default=True)
     
     @post_load
     def make_service(self, data, **kwargs):
         """Create a TradingService instance from validated data."""
         # Set current_balance to initial_balance when creating
         data['current_balance'] = data['initial_balance']
-        return TradingService(**data)
+        return data
 
 # Schema for updating a trading service
 class TradingServiceUpdateSchema(Schema):
     """Schema for updating a TradingService."""
-    name = fields.String(allow_none=True)
+    name = fields.String(validate=validate.Length(min=1, max=100))
+    description = fields.String(allow_none=True)
+    stock_symbol = fields.String(validate=validate.Length(min=1, max=10))
+    is_active = fields.Boolean()
+    minimum_balance = fields.Decimal(validate=validate.Range(min=0))
+    allocation_percent = fields.Decimal(validate=validate.Range(min=0, max=100))
+    buy_threshold = fields.Decimal(validate=validate.Range(min=0))
+    sell_threshold = fields.Decimal(validate=validate.Range(min=0))
+    stop_loss_percent = fields.Decimal(validate=validate.Range(min=0))
+    take_profit_percent = fields.Decimal(validate=validate.Range(min=0))
     state = fields.String(validate=validate.OneOf([state.value for state in ServiceState]))
     mode = fields.String(validate=validate.OneOf([mode.value for mode in TradingMode]))
 
