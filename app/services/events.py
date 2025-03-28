@@ -46,6 +46,45 @@ class EventService:
             logger.error(f"Error emitting {event_type} event: {str(e)}")
     
     @classmethod
+    def emit_test(cls, message: str, room: str = 'test') -> None:
+        """
+        Emit a test event for WebSocket functionality verification.
+        
+        Args:
+            message: The test message
+            room: The room to emit to (default: 'test')
+        """
+        payload = {
+            'message': message,
+            'type': 'test_event'
+        }
+        
+        cls.emit('test', payload, room=room)
+    
+    @classmethod
+    def emit_stock_update(cls, action: str, stock_data: Dict[str, Any],
+                        stock_symbol: Optional[str] = None) -> None:
+        """
+        Emit a stock update event.
+        
+        Args:
+            action: The action that occurred (e.g., 'created', 'updated', 'status_changed')
+            stock_data: The stock data (typically from stock_schema.dump())
+            stock_symbol: The stock symbol for room-specific events
+        """
+        payload = {
+            'action': action,
+            'stock': stock_data
+        }
+        
+        # Emit to general stocks room
+        cls.emit('stock_update', payload, room='stocks')
+        
+        # If stock_symbol is provided, also emit to the specific stock room
+        if stock_symbol:
+            cls.emit('stock_update', payload, room=f'stock_{stock_symbol}')
+    
+    @classmethod
     def emit_service_update(cls, action: str, service_data: Dict[str, Any], 
                           service_id: Optional[int] = None) -> None:
         """
@@ -147,7 +186,7 @@ class EventService:
         Emit a price update event.
         
         Args:
-            action: The action that occurred (e.g., 'created')
+            action: The action that occurred (e.g., 'created', 'updated')
             price_data: The price data
             stock_symbol: The stock symbol
         """
@@ -162,6 +201,12 @@ class EventService:
         
         # Emit to stock-specific room
         cls.emit('price_update', payload, room=f'stock_{stock_symbol}')
+        
+        # Emit consolidated price update for data feeds
+        cls.emit('data_feed', {
+            'type': 'price_update',
+            'data': payload
+        }, room='data_feeds')
 
     @classmethod
     def emit_error(cls, error_message: str, error_code: int = 500, 

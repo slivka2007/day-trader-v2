@@ -283,3 +283,17 @@ class StockDailyPrice(Base):
                 cls.price_date <= end_date
             )
         ).order_by(cls.price_date.desc()).all()
+        
+    @classmethod
+    def get_by_id(cls, session: Session, price_id: int) -> Optional["StockDailyPrice"]:
+        """
+        Get a daily price record by ID.
+        
+        Args:
+            session: Database session
+            price_id: Price record ID to retrieve
+            
+        Returns:
+            StockDailyPrice instance if found, None otherwise
+        """
+        return session.query(cls).get(price_id)

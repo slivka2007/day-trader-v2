@@ -9,11 +9,11 @@ import threading
 from sqlalchemy import desc
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
 
-from app.services.database import get_session
-from app.services.stock_service import StockTradingService
-from app.config.constants import STATE_ACTIVE, STATE_INACTIVE, MODE_BUY, MODE_SELL, MOCK_PRICES
-from app.models.stock_service_model import StockService
-from app.models.stock_transaction_model import StockTransaction
+from app.deprecated.services.database import get_session
+from app.deprecated.services.stock_service import StockTradingService
+from app.deprecated.config.constants import STATE_ACTIVE, STATE_INACTIVE, MODE_BUY, MODE_SELL, MOCK_PRICES
+from app.models.trading_service import TradingService
+from app.models.trading_transaction import TradingTransaction
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -29,12 +29,12 @@ def index():
     """Stock trading service dashboard page."""
     # Get all services
     session = get_session()
-    services = session.query(StockService).all()
+    services = session.query(TradingService).all()
     
     # Get 10 most recent transactions
     recent_transactions = (
-        session.query(StockTransaction)
-        .order_by(desc(StockTransaction.transaction_id))
+        session.query(TradingTransaction)
+        .order_by(desc(TradingTransaction.transaction_id))
         .limit(10)
         .all()
     )
@@ -116,7 +116,7 @@ def stop_service(service_id):
     """Stop an active stock trading service."""
     try:
         session = get_session()
-        service = session.query(StockService).filter_by(service_id=service_id).first()
+        service = session.query(TradingService).filter_by(service_id=service_id).first()
         
         if not service:
             session.close()
@@ -156,7 +156,7 @@ def start_service(service_id):
     """Restart an inactive stock trading service."""
     try:
         session = get_session()
-        service = session.query(StockService).filter_by(service_id=service_id).first()
+        service = session.query(TradingService).filter_by(service_id=service_id).first()
         
         if not service:
             logger.error(f"Service {service_id} not found")
@@ -212,7 +212,7 @@ def start_service(service_id):
         session = get_session()
         try:
             # Try to reset service state if there was an error
-            service = session.query(StockService).filter_by(service_id=service_id).first()
+            service = session.query(TradingService).filter_by(service_id=service_id).first()
             if service:
                 service.service_state = STATE_INACTIVE
                 session.commit()
@@ -231,8 +231,8 @@ def recent_transactions():
     try:
         session = get_session()
         transactions = (
-            session.query(StockTransaction)
-            .order_by(desc(StockTransaction.transaction_id))
+            session.query(TradingTransaction)
+            .order_by(desc(TradingTransaction.transaction_id))
             .limit(10)
             .all()
         )
@@ -265,7 +265,7 @@ def active_services():
     """Get active services for AJAX updates."""
     try:
         session = get_session()
-        services = session.query(StockService).all()
+        services = session.query(TradingService).all()
         
         # Convert to list of dicts for JSON serialization
         result = []

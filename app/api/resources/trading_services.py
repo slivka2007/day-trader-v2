@@ -8,6 +8,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.services.database import get_db_session
 from app.models import TradingService, TradingTransaction, User, ServiceState, TradingMode
+from app.services.trading_service import TradingServiceService
 from app.api.schemas.trading_service import (
     service_schema, 
     services_schema,
@@ -18,6 +19,7 @@ from app.api import apply_pagination, apply_filters
 from app.utils.errors import ValidationError, ResourceNotFoundError, AuthorizationError, BusinessLogicError
 from app.utils.auth import require_ownership, verify_resource_ownership, get_current_user
 from app.utils.current_datetime import get_current_datetime
+
 # Create namespace
 api = Namespace('services', description='Trading service operations')
 
@@ -141,6 +143,7 @@ class ServiceList(Resource):
         try:
             validated_data = service_create_schema.load(data)
         except ValidationError as err:
+            current_app.logger.warning(f"Validation error in service creation: {err.messages}")
             raise ValidationError("Invalid service data", errors=err.messages)
             
         with get_db_session() as session:
@@ -150,8 +153,8 @@ class ServiceList(Resource):
                 raise AuthorizationError("User not authenticated")
                 
             try:
-                # Create the service
-                service = TradingService.create_service(
+                # Create the service using the service layer
+                service = TradingServiceService.create_service(
                     session=session,
                     user_id=user.id,
                     data=validated_data
@@ -159,12 +162,74 @@ class ServiceList(Resource):
                 
                 return service_schema.dump(service), 201
                 
-            except ValueError as e:
-                current_app.logger.error(f"Error creating service: {str(e)}")
-                raise BusinessLogicError(str(e))
+            except ValidationError as e:
+                current_app.logger.warning(f"Validation error creating service: {str(e)}")
+                raise
+            except BusinessLogicError as e:
+                current_app.logger.error(f"Business logic error: {str(e)}")
+                raise
             except IntegrityError as e:
                 current_app.logger.error(f"Database integrity error: {str(e)}")
                 raise BusinessLogicError("Could not create service due to database constraints")
+            except Exception as e:
+                current_app.logger.error(f"Unexpected error creating service: {str(e)}")
+                raise BusinessLogicError(f"Could not create service: {str(e)}")
+
+@api.route('/search')
+class ServiceSearch(Resource):
+    """Search for trading services by name or stock symbol"""
+    
+    @api.doc('search_services',
+             params={
+                 'q': 'Search query (name or stock symbol)',
+                 'page': 'Page number (default: 1)',
+                 'page_size': 'Number of items per page (default: 20, max: 100)'
+             })
+    @api.marshal_with(service_list_model)
+    @api.response(200, 'Success')
+    @api.response(401, 'Unauthorized')
+    @jwt_required()
+    def get(self):
+        """Search trading services by name or stock symbol"""
+        search_query = request.args.get('q', '')
+        
+        with get_db_session() as session:
+            # Get current user
+            user = get_current_user(session)
+            if not user:
+                raise AuthorizationError("User not authenticated")
+            
+            # Search services using the service layer
+            services = TradingServiceService.search_services(session, user.id, search_query)
+            
+            # Apply pagination to the result list
+            total = len(services)
+            page = int(request.args.get('page', 1))
+            page_size = min(int(request.args.get('page_size', 20)), 100)
+            start = (page - 1) * page_size
+            end = min(start + page_size, total)
+            
+            paginated_services = services[start:end]
+            
+            # Construct pagination info
+            total_pages = (total + page_size - 1) // page_size
+            has_next = page < total_pages
+            has_prev = page > 1
+            
+            pagination = {
+                'page': page,
+                'page_size': page_size,
+                'total_items': total,
+                'total_pages': total_pages,
+                'has_next': has_next,
+                'has_prev': has_prev
+            }
+            
+            # Serialize the results
+            return {
+                'items': services_schema.dump(paginated_services),
+                'pagination': pagination
+            }
 
 @api.route('/<int:id>')
 @api.param('id', 'The trading service identifier')
@@ -182,10 +247,13 @@ class ServiceItem(Resource):
     def get(self, id):
         """Get a trading service by ID"""
         with get_db_session() as session:
-            service = session.query(TradingService).filter_by(id=id).first()
-            if not service:
-                raise ResourceNotFoundError('TradingService', id)
+            # Get current user
+            user = get_current_user(session)
+            if not user:
+                raise AuthorizationError("User not authenticated")
                 
+            # Verify ownership and get service
+            service = TradingServiceService.verify_ownership(session, id, user.id)
             return service_schema.dump(service)
     
     @api.doc('update_service')
@@ -216,25 +284,62 @@ class ServiceItem(Resource):
         try:
             validated_data = service_update_schema.load(data, partial=True)
         except ValidationError as err:
+            current_app.logger.warning(f"Validation error in service update: {err.messages}")
             raise ValidationError("Invalid service data", errors=err.messages)
             
         with get_db_session() as session:
-            service = session.query(TradingService).filter_by(id=id).first()
-            if not service:
-                raise ResourceNotFoundError('TradingService', id)
+            # Get current user
+            user = get_current_user(session)
+            if not user:
+                raise AuthorizationError("User not authenticated")
                 
+            # Verify ownership and get service
+            service = TradingServiceService.verify_ownership(session, id, user.id)
+            
             try:
-                # Update the service
-                result = service.update(session, validated_data)
-                session.commit()
+                # Update the service using the service layer
+                result = TradingServiceService.update_service(session, service, validated_data)
                 return service_schema.dump(result)
                 
-            except ValueError as e:
+            except ValidationError as e:
+                current_app.logger.warning(f"Validation error updating service: {str(e)}")
+                raise
+            except BusinessLogicError as e:
+                current_app.logger.error(f"Business logic error: {str(e)}")
+                raise
+            except Exception as e:
                 current_app.logger.error(f"Error updating service: {str(e)}")
-                raise BusinessLogicError(str(e))
-            except IntegrityError as e:
-                current_app.logger.error(f"Database integrity error: {str(e)}")
-                raise BusinessLogicError("Could not update service due to database constraints")
+                raise BusinessLogicError(f"Could not update service: {str(e)}")
+    
+    @api.doc('delete_service')
+    @api.response(204, 'Service deleted')
+    @api.response(400, 'Cannot delete service with dependencies')
+    @api.response(401, 'Unauthorized')
+    @api.response(404, 'Service not found')
+    @jwt_required()
+    @require_ownership('service')
+    def delete(self, id):
+        """Delete a trading service"""
+        with get_db_session() as session:
+            # Get current user
+            user = get_current_user(session)
+            if not user:
+                raise AuthorizationError("User not authenticated")
+                
+            # Verify ownership and get service
+            service = TradingServiceService.verify_ownership(session, id, user.id)
+            
+            try:
+                # Delete service using the service layer
+                TradingServiceService.delete_service(session, service)
+                return '', 204
+                
+            except BusinessLogicError as e:
+                current_app.logger.warning(f"Business logic error deleting service: {str(e)}")
+                raise
+            except Exception as e:
+                current_app.logger.error(f"Unexpected error deleting service: {str(e)}")
+                raise BusinessLogicError(f"Could not delete service: {str(e)}")
 
 @api.route('/<int:id>/state')
 @api.param('id', 'The trading service identifier')
@@ -259,30 +364,76 @@ class ServiceStateResource(Resource):
         if 'state' not in data:
             raise ValidationError("Missing required field", errors={'state': ['Field is required']})
             
-        # Parse the state string to enum
-        try:
-            new_state = ServiceState[data['state'].upper()]
-        except (KeyError, ValueError):
-            valid_states = [s.name for s in ServiceState]
-            raise ValidationError(
-                "Invalid state value", 
-                errors={'state': [f"Must be one of: {', '.join(valid_states)}"]}
-            )
+        with get_db_session() as session:
+            # Get current user
+            user = get_current_user(session)
+            if not user:
+                raise AuthorizationError("User not authenticated")
+                
+            # Verify ownership and get service
+            service = TradingServiceService.verify_ownership(session, id, user.id)
+            
+            try:
+                # Change service state using the service layer
+                result = TradingServiceService.change_state(session, service, data['state'])
+                return service_schema.dump(result)
+                
+            except ValidationError as e:
+                current_app.logger.warning(f"Validation error changing service state: {str(e)}")
+                raise
+            except BusinessLogicError as e:
+                current_app.logger.error(f"Business logic error: {str(e)}")
+                raise
+            except Exception as e:
+                current_app.logger.error(f"Error changing service state: {str(e)}")
+                raise BusinessLogicError(f"Could not change service state: {str(e)}")
+
+@api.route('/<int:id>/mode')
+@api.param('id', 'The trading service identifier')
+@api.response(404, 'Service not found')
+class ServiceModeResource(Resource):
+    """Resource for changing a service's trading mode"""
+    
+    @api.doc('change_service_mode')
+    @api.expect(api.model('ModeChange', {
+        'mode': fields.String(required=True, description='New mode (BUY, SELL, etc.)')
+    }))
+    @api.response(200, 'Mode changed')
+    @api.response(400, 'Invalid mode')
+    @api.response(401, 'Unauthorized')
+    @api.response(404, 'Service not found')
+    @jwt_required()
+    @require_ownership('service')
+    def put(self, id):
+        """Change the trading mode of a service"""
+        data = request.json
+        
+        if 'mode' not in data:
+            raise ValidationError("Missing required field", errors={'mode': ['Field is required']})
             
         with get_db_session() as session:
-            service = session.query(TradingService).filter_by(id=id).first()
-            if not service:
-                raise ResourceNotFoundError('TradingService', id)
+            # Get current user
+            user = get_current_user(session)
+            if not user:
+                raise AuthorizationError("User not authenticated")
                 
+            # Verify ownership and get service
+            service = TradingServiceService.verify_ownership(session, id, user.id)
+            
             try:
-                # Change service state
-                result = service.change_state(session, new_state)
-                session.commit()
-                return result
+                # Change service mode using the service layer
+                result = TradingServiceService.change_mode(session, service, data['mode'])
+                return service_schema.dump(result)
                 
-            except ValueError as e:
-                current_app.logger.error(f"Error changing service state: {str(e)}")
-                raise BusinessLogicError(str(e))
+            except ValidationError as e:
+                current_app.logger.warning(f"Validation error changing service mode: {str(e)}")
+                raise
+            except BusinessLogicError as e:
+                current_app.logger.error(f"Business logic error: {str(e)}")
+                raise
+            except Exception as e:
+                current_app.logger.error(f"Error changing service mode: {str(e)}")
+                raise BusinessLogicError(f"Could not change service mode: {str(e)}")
 
 @api.route('/<int:id>/toggle')
 @api.param('id', 'The trading service identifier')
@@ -299,19 +450,25 @@ class ServiceToggle(Resource):
     def post(self, id):
         """Toggle the active status of a trading service"""
         with get_db_session() as session:
-            service = session.query(TradingService).filter_by(id=id).first()
-            if not service:
-                raise ResourceNotFoundError('TradingService', id)
+            # Get current user
+            user = get_current_user(session)
+            if not user:
+                raise AuthorizationError("User not authenticated")
                 
+            # Verify ownership and get service
+            service = TradingServiceService.verify_ownership(session, id, user.id)
+            
             try:
-                # Toggle service active status
-                result = service.toggle_active(session)
-                session.commit()
-                return result
+                # Toggle service active status using the service layer
+                result = TradingServiceService.toggle_active(session, service)
+                return service_schema.dump(result)
                 
-            except ValueError as e:
+            except BusinessLogicError as e:
+                current_app.logger.error(f"Business logic error: {str(e)}")
+                raise
+            except Exception as e:
                 current_app.logger.error(f"Error toggling service: {str(e)}")
-                raise BusinessLogicError(str(e))
+                raise BusinessLogicError(f"Could not toggle service: {str(e)}")
 
 @api.route('/<int:id>/check-buy')
 @api.param('id', 'The trading service identifier')
@@ -330,37 +487,28 @@ class ServiceCheckBuy(Resource):
     def get(self, id):
         """Check if a buy decision should be made"""
         with get_db_session() as session:
-            service = session.query(TradingService).filter_by(id=id).first()
-            if not service:
-                raise ResourceNotFoundError('TradingService', id)
+            # Get current user
+            user = get_current_user(session)
+            if not user:
+                raise AuthorizationError("User not authenticated")
                 
-            # Get current price - in a real app, this would come from a price service
-            # For now, we'll use a dummy value
-            current_price = 100.0
+            # Verify ownership and get service
+            service = TradingServiceService.verify_ownership(session, id, user.id)
             
-            # Use the model's check_buy_condition method
-            buy_decision = service.check_buy_condition(current_price)
-            
-            # Add additional context if needed
-            if 'details' not in buy_decision:
-                buy_decision['details'] = {}
-            
-            buy_decision['details'].update({
-                'is_active': service.is_active,
-                'state': service.state,
-                'mode': service.mode
-            })
-            
-            # Map the model's response to the API response format
-            result = {
-                'should_proceed': buy_decision.get('should_buy', False),
-                'reason': buy_decision.get('reason', 'No reason provided'),
-                'timestamp': get_current_datetime().isoformat(),
-                'details': buy_decision,
-                'service_id': id
-            }
-            
-            return result
+            try:
+                # Get current price
+                current_price = TradingServiceService.get_current_price(session, service.stock_symbol)
+                
+                # Check buy condition using the service layer
+                decision = TradingServiceService.check_buy_condition(session, service, current_price)
+                return decision
+                
+            except BusinessLogicError as e:
+                current_app.logger.error(f"Business logic error: {str(e)}")
+                raise
+            except Exception as e:
+                current_app.logger.error(f"Error checking buy condition: {str(e)}")
+                raise BusinessLogicError(f"Could not check buy condition: {str(e)}")
 
 @api.route('/<int:id>/check-sell')
 @api.param('id', 'The trading service identifier')
@@ -379,34 +527,25 @@ class ServiceCheckSell(Resource):
     def get(self, id):
         """Check if a sell decision should be made"""
         with get_db_session() as session:
-            service = session.query(TradingService).filter_by(id=id).first()
-            if not service:
-                raise ResourceNotFoundError('TradingService', id)
+            # Get current user
+            user = get_current_user(session)
+            if not user:
+                raise AuthorizationError("User not authenticated")
                 
-            # Get current price - in a real app, this would come from a price service
-            # For now, we'll use a dummy value
-            current_price = 100.0
+            # Verify ownership and get service
+            service = TradingServiceService.verify_ownership(session, id, user.id)
             
-            # Use the model's check_sell_condition method
-            sell_decision = service.check_sell_condition(current_price)
-            
-            # Add additional context if needed
-            if 'details' not in sell_decision:
-                sell_decision['details'] = {}
+            try:
+                # Get current price
+                current_price = TradingServiceService.get_current_price(session, service.stock_symbol)
                 
-            sell_decision['details'].update({
-                'is_active': service.is_active,
-                'state': service.state,
-                'mode': service.mode
-            })
-            
-            # Map the model's response to the API response format
-            result = {
-                'should_proceed': sell_decision.get('should_sell', False),
-                'reason': sell_decision.get('reason', 'No reason provided'),
-                'timestamp': get_current_datetime().isoformat(),
-                'details': sell_decision,
-                'service_id': id
-            }
-            
-            return result 
+                # Check sell condition using the service layer
+                decision = TradingServiceService.check_sell_condition(session, service, current_price)
+                return decision
+                
+            except BusinessLogicError as e:
+                current_app.logger.error(f"Business logic error: {str(e)}")
+                raise
+            except Exception as e:
+                current_app.logger.error(f"Error checking sell condition: {str(e)}")
+                raise BusinessLogicError(f"Could not check sell condition: {str(e)}") 

@@ -1,0 +1,14 @@
+{
+  "cursorRules": [
+    {
+      "name": "backend",
+      "path": "backend.mdc",
+      "description": "Backend architecture guidelines for Flask REST API and Flask-SocketIO"
+    },
+    {
+      "name": "frontend",
+      "path": "frontend.mdc",
+      "description": "Frontend architecture guidelines for React SPA and Socket.IO integration"
+    }
+  ]
+}

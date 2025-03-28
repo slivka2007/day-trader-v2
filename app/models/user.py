@@ -5,17 +5,15 @@ This model represents user accounts for authentication and authorization.
 """
 import logging
 import re
-from typing import Optional, List, TYPE_CHECKING, Dict, Any, Union, Set
-from datetime import datetime, timedelta
+from typing import Optional, List, TYPE_CHECKING, Dict, Any
+from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, func, event, or_
-from sqlalchemy.orm import relationship, Mapped, Session, validates
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, or_
+from sqlalchemy.orm import relationship, Mapped, validates, Session
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask import current_app
 
 from app.models.base import Base
 from app.utils.current_datetime import get_current_datetime
-from app.utils.errors import AuthorizationError, ValidationError, ResourceNotFoundError
 if TYPE_CHECKING:
     from app.models.trading_service import TradingService
 
@@ -112,6 +110,38 @@ class User(Base):
             return None
         return (get_current_datetime() - self.last_login).days
     
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert user to dictionary for API responses."""
+        return {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+            'is_active': self.is_active,
+            'is_admin': self.is_admin,
+            'last_login': self.last_login.isoformat() if self.last_login else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+        
+    def __repr__(self) -> str:
+        """String representation."""
+        return f'<User {self.username}>'
+    
+    # Class methods for database queries
+    @classmethod
+    def get_by_id(cls, session: Session, user_id: int) -> Optional["User"]:
+        """
+        Get a user by ID.
+        
+        Args:
+            session: Database session
+            user_id: User ID to retrieve
+            
+        Returns:
+            User instance if found, None otherwise
+        """
+        return session.query(cls).get(user_id)
+    
     @classmethod
     def find_by_username(cls, session: Session, username: str) -> Optional["User"]:
         """
@@ -156,247 +186,15 @@ class User(Base):
             or_(cls.username == identifier, cls.email == identifier)
         ).first()
     
-    def update(self, session: Session, data: Dict[str, Any]) -> "User":
-        """
-        Update user attributes.
-        
-        Args:
-            session: Database session
-            data: Dictionary of attributes to update
-            
-        Returns:
-            Updated user instance
-            
-        Raises:
-            ValueError: If invalid data is provided
-        """
-        from app.api.schemas.user import user_schema
-        from app.services.events import EventService
-        
-        try:
-            # Define which fields can be updated
-            allowed_fields = {
-                'username', 'email', 'is_active', 'is_admin'
-            }
-            
-            # Check for username uniqueness if changing
-            if 'username' in data and data['username'] != self.username:
-                existing = self.find_by_username(session, data['username'])
-                if existing:
-                    raise ValueError(f"Username '{data['username']}' already exists")
-                    
-            # Check for email uniqueness if changing
-            if 'email' in data and data['email'] != self.email:
-                existing = self.find_by_email(session, data['email'])
-                if existing:
-                    raise ValueError(f"Email '{data['email']}' already exists")
-            
-            # Update allowed fields
-            updated = self.update_from_dict(data, allowed_fields)
-            
-            # Handle password update separately for security
-            if 'password' in data and data['password']:
-                self.password = data['password']
-                updated = True
-            
-            # Only commit if something was updated
-            if updated:
-                self.updated_at = get_current_datetime()
-                session.commit()
-                
-                # Prepare response data
-                user_data = user_schema.dump(self)
-                
-                # Emit WebSocket event
-                EventService.emit_user_update(
-                    action='updated',
-                    user_data=user_data,
-                    user_id=self.id
-                )
-            
-            return self
-        except Exception as e:
-            logger.error(f"Error updating user: {str(e)}")
-            session.rollback()
-            raise ValueError(f"Could not update user: {str(e)}")
-    
-    def toggle_active(self, session: Session) -> "User":
-        """
-        Toggle user active status.
-        
-        Args:
-            session: Database session
-            
-        Returns:
-            Updated user instance
-        """
-        from app.api.schemas.user import user_schema
-        from app.services.events import EventService
-        
-        try:
-            # Toggle status
-            self.is_active = not self.is_active
-            self.updated_at = get_current_datetime()
-            
-            session.commit()
-            
-            # Prepare response data
-            user_data = user_schema.dump(self)
-            action = 'activated' if self.is_active else 'deactivated'
-            
-            # Emit WebSocket event
-            EventService.emit_user_update(
-                action=action,
-                user_data=user_data,
-                user_id=self.id
-            )
-            
-            return self
-        except Exception as e:
-            logger.error(f"Error toggling user active status: {str(e)}")
-            session.rollback()
-            raise ValueError(f"Could not toggle user active status: {str(e)}")
-    
-    def login(self, session: Session) -> "User":
-        """
-        Record user login.
-        
-        Args:
-            session: Database session
-            
-        Returns:
-            Updated user instance
-        """
-        self.last_login = get_current_datetime()
-        session.commit()
-        return self
-    
     @classmethod
-    def create_user(cls, session: Session, data: Dict[str, Any]) -> "User":
+    def get_all(cls, session: Session) -> List["User"]:
         """
-        Create a new user.
+        Get all users.
         
         Args:
             session: Database session
-            data: User data dictionary
             
         Returns:
-            Created user instance
-            
-        Raises:
-            ValueError: If required fields are missing
+            List of User instances
         """
-        from app.api.schemas.user import user_schema
-        from app.services.events import EventService
-        
-        try:
-            # Validate required fields
-            required_fields = ['username', 'email', 'password']
-            for field in required_fields:
-                if field not in data or not data[field]:
-                    raise ValueError(f"Field '{field}' is required")
-                    
-            # Check for duplicate username or email
-            existing_user = session.query(cls).filter(
-                or_(cls.username == data['username'], cls.email == data['email'])
-            ).first()
-            
-            if existing_user:
-                if existing_user.username == data['username']:
-                    raise ValueError(f"Username '{data['username']}' already exists")
-                else:
-                    raise ValueError(f"Email '{data['email']}' already exists")
-            
-            # Create password_hash from password
-            password = data.pop('password', None)
-            
-            # Create user from data
-            user = cls.from_dict(data)
-            
-            # Set password (triggers validation and hashing)
-            if password:
-                user.password = password
-            
-            session.add(user)
-            session.commit()
-            
-            # Prepare response data
-            user_data = user_schema.dump(user)
-            
-            # Emit WebSocket event
-            EventService.emit_user_update(
-                action='created',
-                user_data=user_data,
-                user_id=user.id
-            )
-            
-            return user
-        except Exception as e:
-            logger.error(f"Error creating user: {str(e)}")
-            session.rollback()
-            raise ValueError(f"Could not create user: {str(e)}")
-    
-    def grant_admin(self, session: Session, granting_user_id: int) -> "User":
-        """
-        Grant admin privileges to a user.
-        
-        Args:
-            session: Database session
-            granting_user_id: ID of the user granting admin privileges
-            
-        Returns:
-            Updated user instance
-            
-        Raises:
-            AuthorizationError: If the granting user is not an admin
-        """
-        from app.api.schemas.user import user_schema
-        from app.services.events import EventService
-        
-        try:
-            # Verify that granting user is an admin
-            granting_user = User.get_or_404(session, granting_user_id)
-            if not granting_user.is_admin:
-                raise AuthorizationError("Only administrators can grant admin privileges")
-            
-            # Grant admin privileges if not already an admin
-            if not self.is_admin:
-                self.is_admin = True
-                self.updated_at = get_current_datetime()
-                session.commit()
-                
-                # Prepare response data
-                user_data = user_schema.dump(self)
-                
-                # Emit WebSocket event
-                EventService.emit_user_update(
-                    action='admin_granted',
-                    user_data=user_data,
-                    user_id=self.id,
-                    additional_data={'granted_by': granting_user_id}
-                )
-            
-            return self
-        except Exception as e:
-            logger.error(f"Error granting admin privileges: {str(e)}")
-            session.rollback()
-            if isinstance(e, AuthorizationError):
-                raise
-            raise ValueError(f"Could not grant admin privileges: {str(e)}")
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert user to dictionary for API responses."""
-        return {
-            'id': self.id,
-            'username': self.username,
-            'email': self.email,
-            'is_active': self.is_active,
-            'is_admin': self.is_admin,
-            'last_login': self.last_login.isoformat() if self.last_login else None,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
-        
-    def __repr__(self) -> str:
-        """String representation."""
-        return f'<User {self.username}>' 
+        return session.query(cls).all() 

@@ -8,6 +8,7 @@ from typing import List, Optional, TYPE_CHECKING, Dict, Any, Set
 from sqlalchemy import Column, String, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship, Mapped, Session, validates
 from flask import current_app
+from sqlalchemy.sql import or_
 
 from app.models.base import Base
 from app.utils.current_datetime import get_current_datetime
@@ -92,6 +93,7 @@ class Stock(Base):
         """String representation of the Stock object."""
         return f"<Stock(id={self.id}, symbol='{self.symbol}', name='{self.name}')>"
     
+    # Basic model methods - service layer will handle business logic, event emission, etc.
     @classmethod
     def get_by_symbol(cls, session: Session, symbol: str) -> Optional["Stock"]:
         """
@@ -109,166 +111,20 @@ class Stock(Base):
             
         return session.query(cls).filter(cls.symbol == symbol.upper()).first()
     
-    @classmethod
-    def get_by_symbol_or_404(cls, session: Session, symbol: str) -> "Stock":
+    def update_from_data(self, data: Dict[str, Any], allowed_fields: Optional[Set[str]] = None) -> bool:
         """
-        Get a stock by its symbol or raise ResourceNotFoundError.
+        Update stock attributes directly without committing to the database.
+        This is a simplified version for use by the service layer.
         
         Args:
-            session: Database session
-            symbol: Stock symbol (case-insensitive)
-            
-        Returns:
-            Stock instance
-            
-        Raises:
-            ResourceNotFoundError: If stock not found
-        """
-        from app.utils.errors import ResourceNotFoundError
-        
-        stock = cls.get_by_symbol(session, symbol)
-        if not stock:
-            raise ResourceNotFoundError('Stock', f"symbol '{symbol.upper()}'")
-        return stock
-
-    def update(self, session: Session, data: Dict[str, Any]) -> "Stock":
-        """
-        Update stock attributes.
-        
-        Args:
-            session: Database session
             data: Dictionary of attributes to update
-            
+            allowed_fields: Set of field names that are allowed to be updated
+                           
         Returns:
-            Updated stock instance
-            
-        Raises:
-            ValueError: If invalid data is provided
+            True if any fields were updated, False otherwise
         """
-        from app.api.schemas.stock import stock_schema
-        from app.services.events import EventService
-        
-        # Define which fields can be updated
-        allowed_fields = {
-            'name', 'is_active', 'sector', 'description'
-        }
-        
-        # Use the update_from_dict method from Base
-        updated = self.update_from_dict(data, allowed_fields)
-        
-        # Only emit event if something was updated
-        if updated:
-            session.commit()
-            
-            # Prepare response data
-            try:
-                stock_data = stock_schema.dump(self)
-                
-                # Emit WebSocket event
-                EventService.emit(
-                    event_type='stock_update',
-                    data={
-                        'action': 'updated',
-                        'stock': stock_data
-                    },
-                    room=f'stock_{self.symbol}'
-                )
-            except Exception as e:
-                logger.error(f"Error during stock update process: {str(e)}")
-        
-        return self
+        return self.update_from_dict(data, allowed_fields)
     
-    @classmethod
-    def create_stock(cls, session: Session, data: Dict[str, Any]) -> "Stock":
-        """
-        Create a new stock.
-        
-        Args:
-            session: Database session
-            data: Stock data
-            
-        Returns:
-            The created stock instance
-            
-        Raises:
-            ValueError: If required data is missing or invalid
-        """
-        from app.api.schemas.stock import stock_schema
-        from app.services.events import EventService
-        
-        # Validate required fields
-        if 'symbol' not in data or not data['symbol']:
-            raise ValueError("Stock symbol is required")
-            
-        # Check if symbol already exists
-        existing = cls.get_by_symbol(session, data['symbol'])
-        if existing:
-            raise ValueError(f"Stock with symbol '{data['symbol'].upper()}' already exists")
-        
-        # Create the stock using from_dict
-        try:
-            stock = cls.from_dict(data)
-            session.add(stock)
-            session.commit()
-            
-            # Prepare response data
-            stock_data = stock_schema.dump(stock)
-            
-            # Emit WebSocket event
-            EventService.emit(
-                event_type='stock_update',
-                data={
-                    'action': 'created',
-                    'stock': stock_data
-                },
-                room='stocks'
-            )
-            
-            return stock
-        except Exception as e:
-            logger.error(f"Error creating stock: {str(e)}")
-            session.rollback()
-            raise ValueError(f"Could not create stock: {str(e)}")
-        
-    def change_active_status(self, session: Session, is_active: bool) -> "Stock":
-        """
-        Change the active status of the stock.
-        
-        Args:
-            session: Database session
-            is_active: New active status
-            
-        Returns:
-            Updated stock instance
-        """
-        from app.api.schemas.stock import stock_schema
-        from app.services.events import EventService
-        
-        # Only update if status is changing
-        if self.is_active != is_active:
-            self.is_active = is_active
-            self.updated_at = get_current_datetime()
-            session.commit()
-            
-            try:
-                # Prepare response data
-                stock_data = stock_schema.dump(self)
-                
-                # Emit WebSocket event
-                EventService.emit(
-                    event_type='stock_update',
-                    data={
-                        'action': 'status_changed',
-                        'stock': stock_data,
-                        'is_active': is_active
-                    },
-                    room=f'stock_{self.symbol}'
-                )
-            except Exception as e:
-                logger.error(f"Error emitting WebSocket event: {str(e)}")
-        
-        return self
-        
     def get_latest_price(self) -> Optional[float]:
         """
         Get the latest price for this stock.
@@ -288,3 +144,63 @@ class Stock(Base):
         
         # Return the close price of the most recent record
         return sorted_prices[0].close_price if sorted_prices else None
+        
+    def has_dependencies(self) -> bool:
+        """
+        Check if the stock has any dependencies that would prevent deletion.
+        
+        Returns:
+            True if stock has dependencies, False otherwise
+        """
+        return (
+            (self.services and len(self.services) > 0) or
+            (self.transactions and len(self.transactions) > 0)
+        )
+
+    @classmethod
+    def get_by_id(cls, session: Session, stock_id: int) -> Optional["Stock"]:
+        """
+        Get a stock by ID.
+        
+        Args:
+            session: Database session
+            stock_id: Stock ID to retrieve
+            
+        Returns:
+            Stock instance if found, None otherwise
+        """
+        return session.query(cls).get(stock_id)
+        
+    @classmethod
+    def get_all(cls, session: Session) -> List["Stock"]:
+        """
+        Get all stocks.
+        
+        Args:
+            session: Database session
+            
+        Returns:
+            List of Stock instances
+        """
+        return session.query(cls).all()
+        
+    @classmethod
+    def search_stocks(cls, session: Session, query: str, limit: int = 10) -> List["Stock"]:
+        """
+        Search stocks by symbol or name.
+        
+        Args:
+            session: Database session
+            query: Search query string
+            limit: Maximum number of results to return
+            
+        Returns:
+            List of matching Stock instances
+        """
+        search_term = f"%{query}%"
+        return session.query(cls).filter(
+            or_(
+                cls.symbol.ilike(search_term),
+                cls.name.ilike(search_term)
+            )
+        ).limit(limit).all()

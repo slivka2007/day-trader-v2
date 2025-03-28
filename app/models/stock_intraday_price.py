@@ -325,3 +325,17 @@ class StockIntradayPrice(Base):
                 cls.interval == interval
             )
         ).order_by(cls.timestamp.desc()).all()
+        
+    @classmethod
+    def get_by_id(cls, session: Session, price_id: int) -> Optional["StockIntradayPrice"]:
+        """
+        Get an intraday price record by ID.
+        
+        Args:
+            session: Database session
+            price_id: Price record ID to retrieve
+            
+        Returns:
+            StockIntradayPrice instance if found, None otherwise
+        """
+        return session.query(cls).get(price_id)

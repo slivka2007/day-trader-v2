@@ -11,6 +11,7 @@ from app.api.schemas.user import user_schema, users_schema, user_create_schema, 
 from app.utils.errors import ValidationError, ResourceNotFoundError, AuthorizationError, BusinessLogicError
 from app.api.decorators import admin_required
 from app.services.database import get_db_session
+from app.services.user_service import UserService
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -86,7 +87,7 @@ class UserList(Resource):
         """Get all users."""
         try:
             with get_db_session() as session:
-                users = session.query(User).all()
+                users = UserService.get_all(session)
                 return users_schema.dump(users)
         except Exception as e:
             logger.error(f"Error listing users: {str(e)}")
@@ -105,11 +106,9 @@ class UserList(Resource):
             if errors:
                 raise ValidationError(f"Invalid input data: {errors}")
             
-            user = user_create_schema.load(data)
-            
             with get_db_session() as session:
-                # Use the create_user model method
-                created_user = User.create_user(session, user)
+                # Use the user service to create user
+                created_user = UserService.create_user(session, data)
                 return user_schema.dump(created_user), 201
                 
         except ValidationError as e:
@@ -137,10 +136,7 @@ class UserDetail(Resource):
                 raise AuthorizationError("Not authorized to view this user")
                 
             with get_db_session() as session:
-                user = session.query(User).get(id)
-                if not user:
-                    raise ResourceNotFoundError("User not found")
-                
+                user = UserService.get_or_404(session, id)
                 return user_schema.dump(user)
         except (ResourceNotFoundError, AuthorizationError) as e:
             logger.warning(f"Error retrieving user {id}: {str(e)}")
@@ -169,16 +165,14 @@ class UserDetail(Resource):
                 raise ValidationError(f"Invalid input data: {errors}")
             
             with get_db_session() as session:
-                user = session.query(User).get(id)
-                if not user:
-                    raise ResourceNotFoundError("User not found")
+                user = UserService.get_or_404(session, id)
                 
                 # Non-admins cannot set admin status
                 if not g.user.is_admin and 'is_admin' in data:
                     raise AuthorizationError("Not authorized to set admin status")
                 
-                # Use the update model method
-                updated_user = user.update(session, data)
+                # Use UserService to update user
+                updated_user = UserService.update_user(session, user, data)
                 return user_schema.dump(updated_user)
                 
         except (ValidationError, ResourceNotFoundError, AuthorizationError) as e:
@@ -211,17 +205,14 @@ class UserDetail(Resource):
                 raise AuthorizationError("Invalid admin password")
             
             with get_db_session() as session:
-                user = session.query(User).get(id)
-                if not user:
-                    raise ResourceNotFoundError("User not found")
+                user = UserService.get_or_404(session, id)
                 
                 # Cannot delete self
                 if g.user.id == id:
                     raise BusinessLogicError("Cannot delete your own account")
                 
-                # Delete the user
-                session.delete(user)
-                session.commit()
+                # Use UserService to delete user
+                UserService.delete_user(session, user)
                 
                 # Log the deletion
                 logger.info(f"User {id} deleted by admin {g.user.id}")
@@ -257,7 +248,7 @@ class UserLogin(Resource):
             password = data.get('password')
             
             with get_db_session() as session:
-                user = session.query(User).filter_by(username=username).first()
+                user = UserService.find_by_username(session, username)
                 
                 # Check if user exists and password is correct
                 if not user or not user.verify_password(password):
@@ -267,8 +258,8 @@ class UserLogin(Resource):
                 if not user.is_active:
                     raise AuthorizationError("Account is disabled")
                 
-                # Record login
-                user.login(session)
+                # Record login with UserService
+                UserService.login(session, user)
                 
                 # Generate tokens
                 access_token = create_access_token(identity=user.id)
@@ -313,17 +304,10 @@ class PasswordChange(Resource):
             user_id = get_jwt_identity()
             
             with get_db_session() as session:
-                user = session.query(User).get(user_id)
-                if not user:
-                    raise ResourceNotFoundError("User not found")
+                user = UserService.get_or_404(session, user_id)
                 
-                # Verify current password
-                if not user.verify_password(current_password):
-                    raise AuthorizationError("Current password is incorrect")
-                
-                # Update password
-                user.password = new_password
-                session.commit()
+                # Use UserService to change password
+                UserService.change_password(session, user, current_password, new_password)
                 
                 # Log the password change
                 logger.info(f"Password changed for user {user_id}")
@@ -353,9 +337,7 @@ class TokenRefresh(Resource):
             user_id = get_jwt_identity()
             
             with get_db_session() as session:
-                user = session.query(User).get(user_id)
-                if not user:
-                    raise ResourceNotFoundError("User not found")
+                user = UserService.get_or_404(session, user_id)
                 
                 # Check if user is still active
                 if not user.is_active:
@@ -390,16 +372,14 @@ class UserToggleActive(Resource):
         """Toggle user active status."""
         try:
             with get_db_session() as session:
-                user = session.query(User).get(id)
-                if not user:
-                    raise ResourceNotFoundError("User not found")
+                user = UserService.get_or_404(session, id)
                 
                 # Cannot deactivate self
                 if g.user.id == id:
                     raise BusinessLogicError("Cannot deactivate your own account")
                 
-                # Toggle active status using model method
-                updated_user = user.toggle_active(session)
+                # Use UserService to toggle active status
+                updated_user = UserService.toggle_active(session, user)
                 
                 return user_schema.dump(updated_user)
                 
@@ -424,10 +404,7 @@ class CurrentUser(Resource):
             user_id = get_jwt_identity()
             
             with get_db_session() as session:
-                user = session.query(User).get(user_id)
-                if not user:
-                    raise ResourceNotFoundError("User not found")
-                
+                user = UserService.get_or_404(session, user_id)
                 return user_schema.dump(user)
                 
         except ResourceNotFoundError as e:

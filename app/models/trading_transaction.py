@@ -117,6 +117,98 @@ class TradingTransaction(Base):
         end_date = self.sale_date if self.sale_date else get_current_datetime()
         return (end_date - self.purchase_date).days
     
+    @property
+    def total_cost(self) -> Decimal:
+        """Calculate the total cost of the purchase."""
+        if self.purchase_price and self.shares:
+            return self.purchase_price * self.shares
+        return Decimal('0')
+    
+    @property
+    def total_revenue(self) -> Decimal:
+        """Calculate the total revenue from the sale."""
+        if self.sale_price and self.shares:
+            return self.sale_price * self.shares
+        return Decimal('0')
+    
+    @property
+    def profit_loss_percent(self) -> float:
+        """Calculate the profit/loss as a percentage."""
+        if self.purchase_price and self.sale_price and self.purchase_price > 0:
+            return float(((self.sale_price - self.purchase_price) / self.purchase_price) * 100)
+        return 0.0
+    
+    def calculate_gain_loss(self) -> Decimal:
+        """Calculate the gain/loss amount based on current prices."""
+        if self.sale_price and self.purchase_price and self.shares:
+            return (self.sale_price - self.purchase_price) * self.shares
+        return Decimal('0')
+    
+    def update_from_dict(self, data: Dict[str, Any]) -> None:
+        """
+        Update transaction attributes from a dictionary.
+        
+        Args:
+            data: Dictionary with attribute key/value pairs
+            
+        Returns:
+            None
+        """
+        for key, value in data.items():
+            if hasattr(self, key) and key not in ['id', 'created_at', 'updated_at']:
+                setattr(self, key, value)
+        
+        # Recalculate gain/loss if needed
+        if 'sale_price' in data and self.sale_price and self.purchase_price:
+            self.gain_loss = self.calculate_gain_loss()
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert transaction to a dictionary.
+        
+        Returns:
+            Dictionary of transaction attributes
+        """
+        return {
+            'id': self.id,
+            'service_id': self.service_id,
+            'stock_id': self.stock_id,
+            'stock_symbol': self.stock_symbol,
+            'shares': float(self.shares) if self.shares else None,
+            'state': self.state,
+            'purchase_price': float(self.purchase_price) if self.purchase_price else None,
+            'sale_price': float(self.sale_price) if self.sale_price else None,
+            'gain_loss': float(self.gain_loss) if self.gain_loss else None,
+            'purchase_date': self.purchase_date.isoformat() if self.purchase_date else None,
+            'sale_date': self.sale_date.isoformat() if self.sale_date else None,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'is_complete': self.is_complete,
+            'is_profitable': self.is_profitable,
+            'duration_days': self.duration_days,
+            'total_cost': float(self.total_cost) if self.total_cost else 0.0,
+            'total_revenue': float(self.total_revenue) if self.total_revenue else 0.0,
+            'profit_loss_percent': self.profit_loss_percent
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TradingTransaction":
+        """
+        Create a new transaction instance from a dictionary.
+        
+        Args:
+            data: Dictionary with attribute key/value pairs
+            
+        Returns:
+            New TradingTransaction instance
+        """
+        return cls(**{k: v for k, v in data.items() if k in [
+            'service_id', 'stock_id', 'stock_symbol', 'shares', 'state',
+            'purchase_price', 'sale_price', 'gain_loss', 'purchase_date',
+            'sale_date', 'notes'
+        ]})
+    
     @classmethod
     def get_by_service(cls, session: Session, service_id: int, state: Optional[str] = None) -> List["TradingTransaction"]:
         """
@@ -139,212 +231,6 @@ class TradingTransaction(Base):
             
         return query.order_by(cls.purchase_date.desc()).all()
 
-    def complete_transaction(self, session: Session, sale_price: Decimal) -> "TradingTransaction":
-        """
-        Complete a transaction by selling shares.
-        
-        Args:
-            session: Database session
-            sale_price: Price per share for the sale
-            
-        Returns:
-            Updated transaction instance
-            
-        Raises:
-            ValueError: If transaction is already completed
-        """
-        from app.api.schemas.trading_transaction import transaction_schema
-        from app.api.schemas.trading_service import service_schema
-        from app.services.events import EventService
-        
-        try:
-            if self.state == TransactionState.CLOSED.value:
-                raise ValueError("Transaction is already completed")
-            
-            if sale_price <= 0:
-                raise ValueError("Sale price must be greater than zero")
-            
-            self.sale_price = sale_price
-            self.sale_date = get_current_datetime()
-            self.state = TransactionState.CLOSED.value
-            self.gain_loss = (self.sale_price - self.purchase_price) * self.shares
-            
-            service = self.service
-            service.current_balance += (self.sale_price * self.shares)
-            service.total_gain_loss += self.gain_loss
-            service.current_shares -= self.shares
-            service.sell_count += 1
-            
-            if service.current_shares == 0:
-                service.mode = TradingMode.BUY.value
-            
-            session.commit()
-            
-            # Prepare response data
-            transaction_data = transaction_schema.dump(self)
-            service_data = service_schema.dump(service)
-            
-            # Emit WebSocket events
-            EventService.emit_transaction_update(
-                action='completed',
-                transaction_data=transaction_data,
-                service_id=service.id
-            )
-            
-            EventService.emit_service_update(
-                action='updated',
-                service_data=service_data,
-                service_id=service.id
-            )
-            
-            return self
-        except Exception as e:
-            logger.error(f"Error completing transaction: {str(e)}")
-            session.rollback()
-            raise ValueError(f"Could not complete transaction: {str(e)}")
-
-    @classmethod
-    def create_buy_transaction(cls, session: Session, service_id: int, stock_symbol: str, 
-                              shares: float, purchase_price: float) -> 'TradingTransaction':
-        """
-        Create a new buy transaction for a trading service.
-        
-        Args:
-            session: Database session
-            service_id: Trading service ID
-            stock_symbol: Stock symbol to buy
-            shares: Number of shares to buy
-            purchase_price: Price per share
-            
-        Returns:
-            The created transaction instance
-            
-        Raises:
-            ValueError: If the service doesn't have enough funds or is not in BUY mode
-        """
-        from app.models.trading_service import TradingService
-        from app.models.stock import Stock
-        from app.api.schemas.trading_transaction import transaction_schema
-        from app.services.events import EventService
-        
-        try:
-            # Verify service exists
-            service = TradingService.get_or_404(session, service_id)
-                
-            # Validate input
-            if shares <= 0:
-                raise ValueError("Shares must be greater than zero")
-                
-            if purchase_price <= 0:
-                raise ValueError("Purchase price must be greater than zero")
-                
-            total_cost = shares * purchase_price
-            if total_cost > service.current_balance:
-                raise ValueError(f"Insufficient funds. Required: ${total_cost:.2f}, Available: ${service.current_balance:.2f}")
-            
-            if not service.can_buy:
-                raise ValueError(f"Service is not in a state that allows buying (current state: {service.state})")
-            
-            # Find stock if it exists
-            stock = Stock.get_by_symbol(session, stock_symbol)
-            stock_id = stock.id if stock else None
-            
-            # Create transaction
-            transaction_data = {
-                'service_id': service_id,
-                'stock_id': stock_id,
-                'stock_symbol': stock_symbol.upper(),
-                'shares': shares,
-                'purchase_price': purchase_price,
-                'state': TransactionState.OPEN.value,
-                'purchase_date': get_current_datetime()
-            }
-            
-            transaction = cls.from_dict(transaction_data)
-            session.add(transaction)
-            
-            # Update service
-            service.current_balance -= total_cost
-            service.current_shares += shares
-            service.buy_count += 1
-            service.mode = TradingMode.SELL.value
-            
-            session.commit()
-            
-            # Prepare response data
-            transaction_data = transaction_schema.dump(transaction)
-            
-            # Emit WebSocket event
-            EventService.emit_transaction_update(
-                action='created',
-                transaction_data=transaction_data,
-                service_id=service_id
-            )
-            
-            return transaction
-        except Exception as e:
-            logger.error(f"Error creating buy transaction: {str(e)}")
-            session.rollback()
-            raise ValueError(f"Could not create buy transaction: {str(e)}")
-    
-    def cancel_transaction(self, session: Session, reason: str = "User cancelled") -> "TradingTransaction":
-        """
-        Cancel a transaction.
-        
-        Args:
-            session: Database session
-            reason: Reason for cancellation
-            
-        Returns:
-            Updated transaction instance
-            
-        Raises:
-            ValueError: If the transaction is already completed
-        """
-        from app.api.schemas.trading_transaction import transaction_schema
-        from app.api.schemas.trading_service import service_schema
-        from app.services.events import EventService
-        
-        try:
-            if self.state == TransactionState.CLOSED.value:
-                raise ValueError("Cannot cancel a completed transaction")
-                
-            if self.state == TransactionState.CANCELLED.value:
-                raise ValueError("Transaction is already cancelled")
-                
-            self.state = TransactionState.CANCELLED.value
-            self.notes = reason
-            
-            service = self.service
-            service.current_balance += (self.purchase_price * self.shares)
-            service.current_shares -= self.shares
-            
-            session.commit()
-            
-            # Prepare response data
-            transaction_data = transaction_schema.dump(self)
-            service_data = service_schema.dump(service)
-            
-            # Emit WebSocket events
-            EventService.emit_transaction_update(
-                action='cancelled',
-                transaction_data=transaction_data,
-                service_id=service.id,
-                additional_data={'reason': reason}
-            )
-            
-            EventService.emit_service_update(
-                action='updated',
-                service_data=service_data,
-                service_id=service.id
-            )
-            
-            return self
-        except Exception as e:
-            logger.error(f"Error cancelling transaction: {str(e)}")
-            session.rollback()
-            raise ValueError(f"Could not cancel transaction: {str(e)}")
-    
     @classmethod
     def get_open_transactions(cls, session: Session, service_id: Optional[int] = None) -> List["TradingTransaction"]:
         """
@@ -363,3 +249,17 @@ class TradingTransaction(Base):
             query = query.filter(cls.service_id == service_id)
             
         return query.order_by(cls.purchase_date).all()
+            
+    @classmethod
+    def get_by_id(cls, session: Session, transaction_id: int) -> Optional["TradingTransaction"]:
+        """
+        Get a transaction by ID.
+        
+        Args:
+            session: Database session
+            transaction_id: Transaction ID
+            
+        Returns:
+            TradingTransaction instance if found, None otherwise
+        """
+        return session.query(cls).get(transaction_id)

@@ -4,10 +4,10 @@ API routes for stock trading services.
 from flask import request, jsonify, current_app
 from sqlalchemy.orm import Session
 
-from app.routes.api import bp
-from app.models.stock_service_model import StockService
+from app.deprecated.routes.api import bp
+from app.models.trading_service import TradingService
 from app.services.database import get_db_session
-from app.services.stock_trading_service import StockTradingService
+from app.deprecated.services.stock_service import StockTradingService
 
 @bp.route('/services', methods=['GET'])
 def get_services():
@@ -23,7 +23,7 @@ def get_services():
     include_transactions = request.args.get('include_transactions', '').lower() == 'true'
     
     with get_db_session() as session:
-        services = session.query(StockService).all()
+        services = session.query(TradingService).all()
         result = [service.to_dict(include_relationships=include_transactions) 
                  for service in services]
     
@@ -46,7 +46,7 @@ def get_service(service_id):
     include_transactions = request.args.get('include_transactions', '').lower() == 'true'
     
     with get_db_session() as session:
-        service = session.query(StockService).filter_by(service_id=service_id).first()
+        service = session.query(TradingService).filter_by(service_id=service_id).first()
         
         if service is None:
             return jsonify({'error': 'Service not found'}), 404
@@ -90,7 +90,7 @@ def create_service():
         
         # Fetch the created service
         with get_db_session() as session:
-            service = session.query(StockService).filter_by(service_id=service_id).first()
+            service = session.query(TradingService).filter_by(service_id=service_id).first()
             result = service.to_dict()
             
         # Emit WebSocket event (will be implemented later)
@@ -122,7 +122,7 @@ def update_service(service_id):
     
     try:
         with get_db_session() as session:
-            service = session.query(StockService).filter_by(service_id=service_id).first()
+            service = session.query(TradingService).filter_by(service_id=service_id).first()
             
             if service is None:
                 return jsonify({'error': 'Service not found'}), 404
@@ -154,11 +154,11 @@ def toggle_service(service_id):
     Returns:
         JSON response with the updated state
     """
-    from app.config.constants import STATE_ACTIVE, STATE_INACTIVE
+    from app.deprecated.config.constants import STATE_ACTIVE, STATE_INACTIVE
     
     try:
         with get_db_session() as session:
-            service = session.query(StockService).filter_by(service_id=service_id).first()
+            service = session.query(TradingService).filter_by(service_id=service_id).first()
             
             if service is None:
                 return jsonify({'error': 'Service not found'}), 404
@@ -197,7 +197,7 @@ def delete_service(service_id):
     """
     try:
         with get_db_session() as session:
-            service = session.query(StockService).filter_by(service_id=service_id).first()
+            service = session.query(TradingService).filter_by(service_id=service_id).first()
             
             if service is None:
                 return jsonify({'error': 'Service not found'}), 404

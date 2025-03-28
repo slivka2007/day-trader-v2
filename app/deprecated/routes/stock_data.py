@@ -7,18 +7,18 @@ from datetime import datetime
 
 from flask import Blueprint, render_template, request, jsonify
 
-from app.config.constants import SUPPORTED_SYMBOLS
-from app.exceptions.exceptions import InvalidSymbolError, DataFetchError
-from app.services.stock_market_data_api import (
+from app.deprecated.config.constants import SUPPORTED_SYMBOLS
+from app.deprecated.exceptions.exceptions import InvalidSymbolError, DataFetchError
+from app.deprecated.services.stock_market_data_api import (
     get_intraday_data,
     save_intraday_data,
     get_daily_data,
     save_daily_data
 )
-from app.services.database import get_session
-from app.models.stock_model import Stock
-from app.models.daily_price_model import DailyPrice
-from app.models.intraday_price_model import IntradayPrice
+from app.deprecated.services.database import get_session
+from app.models.stock import Stock
+from app.models.stock_daily_price import StockDailyPrice
+from app.models.stock_intraday_price import StockIntradayPrice
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -102,17 +102,17 @@ def get_database_records(data_type: str):
         if data_type == 'intraday':
             # Get recent intraday records with stock info joined
             records = session.query(
-                IntradayPrice.id,
-                IntradayPrice.stock_id,
-                IntradayPrice.timestamp,
-                IntradayPrice.open,
-                IntradayPrice.high,
-                IntradayPrice.low,
-                IntradayPrice.close,
-                IntradayPrice.volume,
+                StockIntradayPrice.id,
+                StockIntradayPrice.stock_id,
+                StockIntradayPrice.timestamp,
+                StockIntradayPrice.open,
+                StockIntradayPrice.high,
+                StockIntradayPrice.low,
+                StockIntradayPrice.close,
+                StockIntradayPrice.volume,
                 Stock.symbol.label('stock_symbol'),
                 Stock.name.label('stock_name')
-            ).join(Stock).order_by(IntradayPrice.id.desc()).limit(10).all()
+            ).join(Stock).order_by(StockIntradayPrice.id.desc()).limit(10).all()
             
             return jsonify([{
                 'id': r.id,
@@ -130,18 +130,18 @@ def get_database_records(data_type: str):
         elif data_type == 'daily':
             # Get recent daily records with stock info joined
             records = session.query(
-                DailyPrice.id,
-                DailyPrice.stock_id,
-                DailyPrice.date,
-                DailyPrice.open,
-                DailyPrice.high,
-                DailyPrice.low,
-                DailyPrice.close,
-                DailyPrice.adj_close,
-                DailyPrice.volume,
+                StockDailyPrice.id,
+                StockDailyPrice.stock_id,
+                StockDailyPrice.date,
+                StockDailyPrice.open,
+                StockDailyPrice.high,
+                StockDailyPrice.low,
+                StockDailyPrice.close,
+                StockDailyPrice.adj_close,
+                StockDailyPrice.volume,
                 Stock.symbol.label('stock_symbol'),
                 Stock.name.label('stock_name')
-            ).join(Stock).order_by(DailyPrice.id.desc()).limit(10).all()
+            ).join(Stock).order_by(StockDailyPrice.id.desc()).limit(10).all()
             
             return jsonify([{
                 'id': r.id,

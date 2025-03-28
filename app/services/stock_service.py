@@ -1,294 +1,341 @@
+"""
+Stock service for managing Stock model operations.
+
+This service encapsulates all database interactions for the Stock model,
+providing a clean API for stock management operations.
+"""
 import logging
-import time
-import threading
-from datetime import datetime, UTC
-from decimal import Decimal
-from typing import Optional
+from typing import Optional, List, Dict, Any, Union
+from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
-from sqlalchemy import desc
+from app.models.stock import Stock
+from app.utils.errors import ValidationError, ResourceNotFoundError, BusinessLogicError
+from app.utils.current_datetime import get_current_datetime
+from app.api.schemas.stock import stock_schema, stocks_schema
 
-from app.services.stock_buy_api import should_buy_stock
-from app.services.stock_purchase_api import purchase_stock
-from app.services.stock_sale_api import sell_stock
-from app.services.stock_sell_api import should_sell_stock
-from app.services.database import get_session
-from app.exceptions.exceptions import ServiceError, InvalidStateError
-from app.services.session_manager import SessionManager
-from app.config.constants import (
-    DECISION_YES, 
-    STATE_ACTIVE, 
-    STATE_INACTIVE,
-    STATE_OPEN,
-    STATE_CLOSED,
-    MODE_BUY,
-    MODE_SELL,
-    DEFAULT_POLLING_INTERVAL,
-    DEMO_POLLING_INTERVAL
-)
-from app.models.stock_service_model import StockService
-from app.models.stock_transaction_model import StockTransaction
-
+# Set up logging
 logger = logging.getLogger(__name__)
 
-class StockTradingService:
-    """
-    Manages the trading cycle for a specific stock, alternating between
-    buy and sell modes based on API signals.
-    """
+class StockService:
+    """Service for Stock model operations."""
     
-    def __init__(self, service_id: Optional[int] = None, stock_symbol: str = "", 
-                 starting_balance: Decimal = Decimal('0.00')):
+    # Read operations
+    @staticmethod
+    def find_by_symbol(session: Session, symbol: str) -> Optional[Stock]:
         """
-        Initialize the stock trading service.
+        Find a stock by symbol.
         
         Args:
-            service_id: ID of an existing service to load, or None to create a new one
-            stock_symbol: The ticker symbol of the stock to trade
-            starting_balance: Initial funds to allocate for trading
-        
-        Raises:
-            ServiceError: If there's an error loading or creating the service
+            session: Database session
+            symbol: Stock symbol to search for (case-insensitive)
+            
+        Returns:
+            Stock instance if found, None otherwise
         """
-        self.session = get_session()
+        if not symbol:
+            return None
+            
+        return Stock.get_by_symbol(session, symbol)
+    
+    @staticmethod
+    def find_by_symbol_or_404(session: Session, symbol: str) -> Stock:
+        """
+        Find a stock by symbol or raise ResourceNotFoundError.
+        
+        Args:
+            session: Database session
+            symbol: Stock symbol to search for (case-insensitive)
+            
+        Returns:
+            Stock instance
+            
+        Raises:
+            ResourceNotFoundError: If stock not found
+        """
+        stock = StockService.find_by_symbol(session, symbol)
+        if not stock:
+            raise ResourceNotFoundError('Stock', f"symbol '{symbol.upper()}'")
+        return stock
+    
+    @staticmethod
+    def get_by_id(session: Session, stock_id: int) -> Optional[Stock]:
+        """
+        Get a stock by ID.
+        
+        Args:
+            session: Database session
+            stock_id: Stock ID to retrieve
+            
+        Returns:
+            Stock instance if found, None otherwise
+        """
+        return Stock.get_by_id(session, stock_id)
+    
+    @staticmethod
+    def get_or_404(session: Session, stock_id: int) -> Stock:
+        """
+        Get a stock by ID or raise ResourceNotFoundError.
+        
+        Args:
+            session: Database session
+            stock_id: Stock ID to retrieve
+            
+        Returns:
+            Stock instance
+            
+        Raises:
+            ResourceNotFoundError: If stock not found
+        """
+        stock = StockService.get_by_id(session, stock_id)
+        if not stock:
+            raise ResourceNotFoundError(f"Stock with ID {stock_id} not found")
+        return stock
+    
+    @staticmethod
+    def get_all(session: Session) -> List[Stock]:
+        """
+        Get all stocks.
+        
+        Args:
+            session: Database session
+            
+        Returns:
+            List of Stock instances
+        """
+        return Stock.get_all(session)
+    
+    # Write operations
+    @staticmethod
+    def create_stock(session: Session, data: Dict[str, Any]) -> Stock:
+        """
+        Create a new stock.
+        
+        Args:
+            session: Database session
+            data: Stock data dictionary
+            
+        Returns:
+            Created stock instance
+            
+        Raises:
+            ValidationError: If required fields are missing or invalid
+        """
+        from app.services.events import EventService
         
         try:
-            if service_id:
-                # Load existing service
-                self.service = self.session.query(StockService).filter_by(service_id=service_id).first()
-                if not self.service:
-                    raise InvalidStateError(f"No service found with ID {service_id}")
-            else:
-                # Create new service
-                self.service = StockService(
-                    stock_symbol=stock_symbol,
-                    starting_balance=starting_balance,
-                    fund_balance=starting_balance,
-                    total_gain_loss=Decimal('0.00'),
-                    current_number_of_shares=0,
-                    service_state=STATE_ACTIVE,
-                    service_mode=MODE_BUY,
-                    creation_date=datetime.now(UTC),
-                    last_start_date=datetime.now(UTC),
-                    number_of_buy_transactions=0,
-                    number_of_sell_transactions=0
-                )
-                self.session.add(self.service)
-                self.session.commit()
+            # Validate required fields
+            if 'symbol' not in data or not data['symbol']:
+                raise ValidationError("Stock symbol is required")
                 
-            self.stock_symbol = self.service.stock_symbol
-        except Exception as e:
-            self.session.rollback()
-            logger.error(f"Error initializing service: {str(e)}")
-            raise ServiceError(f"Failed to initialize trading service: {str(e)}")
+            # Check if symbol already exists
+            existing = StockService.find_by_symbol(session, data['symbol'])
+            if existing:
+                raise ValidationError(f"Stock with symbol '{data['symbol'].upper()}' already exists")
             
-    def start_trading_cycle(self, polling_interval: int = DEFAULT_POLLING_INTERVAL) -> None:
-        """
-        Start the trading cycle, alternating between buy and sell modes.
-        
-        This method runs a continuous loop that periodically checks if the service
-        should buy or sell stocks based on market conditions and the current mode.
-        The cycle continues until the service is explicitly stopped.
-        
-        Args:
-            polling_interval: Time in seconds to wait between decision cycles
-        """
-        logger.info(f"Starting trading cycle for {self.stock_symbol} with service ID {self.service.service_id}")
-        
-        while self.service.service_state == STATE_ACTIVE:
-            try:
-                if self.service.service_mode == MODE_BUY:
-                    self._execute_buy_cycle()
-                else:  # sell mode
-                    self._execute_sell_cycle()
-                    
-                # Save changes to service
-                self.session.commit()
-                
-                # Wait before next cycle
-                time.sleep(polling_interval)
-                
-            except Exception as e:
-                logger.error(f"Error in trading cycle: {str(e)}")
-                self.session.rollback()
-                time.sleep(polling_interval)
-    
-    def _execute_buy_cycle(self) -> None:
-        """
-        Execute the buy cycle when in buy mode.
-        
-        This method checks if market conditions are favorable for buying,
-        and if so, purchases shares using available funds. After a successful
-        purchase, it updates the service state and switches to sell mode.
-        """
-        logger.info(f"Buy cycle for {self.stock_symbol}")
-        
-        # Call Buy API to determine if we should buy
-        buy_decision = should_buy_stock(self.stock_symbol)
-        
-        if buy_decision == DECISION_YES:
-            logger.info(f"Buy decision: YES for {self.stock_symbol}")
+            # Ensure symbol is uppercase
+            if 'symbol' in data:
+                data['symbol'] = data['symbol'].upper()
             
-            # Call Stock Purchase API to buy shares
-            try:
-                number_of_shares, purchase_price, date_time_of_purchase = purchase_stock(
-                    self.stock_symbol, 
-                    self.service.fund_balance
-                )
-                
-                # Create new transaction record
-                transaction = StockTransaction(
-                    service_id=self.service.service_id,
-                    stock_symbol=self.stock_symbol,
-                    transaction_state=STATE_OPEN,
-                    number_of_shares=number_of_shares,
-                    purchase_price=purchase_price,
-                    date_time_of_purchase=date_time_of_purchase
-                )
-                self.session.add(transaction)
-                
-                # Update service record
-                total_cost = Decimal(number_of_shares) * purchase_price
-                self.service.fund_balance -= total_cost
-                self.service.current_number_of_shares += number_of_shares
-                self.service.number_of_buy_transactions += 1
-                self.service.service_mode = MODE_SELL
-                
-                logger.info(f"Purchased {number_of_shares} shares of {self.stock_symbol} at {purchase_price} per share")
-                
-            except Exception as e:
-                logger.error(f"Error purchasing stock: {str(e)}")
-                # Don't change mode if purchase failed
-        else:
-            logger.info(f"Buy decision: NO for {self.stock_symbol}")
-    
-    def _execute_sell_cycle(self) -> None:
-        """
-        Execute the sell cycle when in sell mode.
-        
-        This method checks if the service has shares to sell and if market conditions
-        are favorable for selling. If both conditions are met, it sells the shares,
-        updates transaction records with sale details, and switches to buy mode.
-        """
-        logger.info(f"Sell cycle for {self.stock_symbol}")
-        
-        # Verify we have shares to sell
-        if self.service.current_number_of_shares <= 0:
-            logger.warning(f"No shares to sell for {self.stock_symbol}")
-            self.service.service_mode = MODE_BUY
-            return
-        
-        # Get the last open transaction (transaction with no sale_price)
-        last_transaction = (
-            self.session.query(StockTransaction)
-            .filter_by(
-                service_id=self.service.service_id,
-                sale_price=None
+            # Create stock instance
+            stock = Stock.from_dict(data)
+            session.add(stock)
+            session.commit()
+            
+            # Prepare response data
+            stock_data = stock_schema.dump(stock)
+            
+            # Emit WebSocket event
+            EventService.emit_stock_update(
+                action='created',
+                stock_data=stock_data,
+                stock_symbol=stock.symbol
             )
-            .order_by(desc(StockTransaction.transaction_id))
-            .first()
-        )
-        
-        if not last_transaction:
-            logger.warning(f"No open transaction found for {self.stock_symbol}")
-            self.service.service_mode = MODE_BUY
-            return
-        
-        # Call Sell API to determine if we should sell
-        sell_decision = should_sell_stock(self.stock_symbol, last_transaction.purchase_price)
-        
-        if sell_decision == DECISION_YES:
-            logger.info(f"Sell decision: YES for {self.stock_symbol}")
             
-            # Call Stock Sale API to sell shares
-            try:
-                sale_price, date_time_of_sale = sell_stock(
-                    self.stock_symbol,
-                    self.service.current_number_of_shares
-                )
-                
-                # Update the transaction record
-                last_transaction.transaction_state = STATE_CLOSED
-                last_transaction.sale_price = sale_price
-                last_transaction.date_time_of_sale = date_time_of_sale
-                
-                # Calculate gain/loss
-                gain_loss = (sale_price - last_transaction.purchase_price) * Decimal(last_transaction.number_of_shares)
-                last_transaction.gain_loss = gain_loss
-                
-                # Update service record
-                total_proceeds = Decimal(self.service.current_number_of_shares) * sale_price
-                self.service.fund_balance += total_proceeds
-                self.service.total_gain_loss += gain_loss
-                self.service.number_of_sell_transactions += 1
-                self.service.current_number_of_shares = 0
-                self.service.service_mode = MODE_BUY
-                
-                logger.info(f"Sold {last_transaction.number_of_shares} shares of {self.stock_symbol} at {sale_price} per share")
-                logger.info(f"Gain/Loss: {gain_loss}")
-                
-            except Exception as e:
-                logger.error(f"Error selling stock: {str(e)}")
-                # Don't change mode if sale failed
-        else:
-            logger.info(f"Sell decision: NO for {self.stock_symbol}")
+            return stock
+        except Exception as e:
+            logger.error(f"Error creating stock: {str(e)}")
+            session.rollback()
+            if isinstance(e, ValidationError):
+                raise
+            raise ValidationError(f"Could not create stock: {str(e)}")
     
-    def stop_trading(self) -> None:
+    @staticmethod
+    def update_stock(session: Session, stock: Stock, data: Dict[str, Any]) -> Stock:
         """
-        Stop the trading service.
-        
-        This method updates the service state to inactive, preventing
-        further trading cycles from executing.
-        """
-        self.service.service_state = STATE_INACTIVE
-        self.service.last_stop_date = datetime.now(UTC)
-        self.session.commit()
-        logger.info(f"Stopped trading service for {self.stock_symbol}")
-        
-    def __del__(self) -> None:
-        """Ensure session is closed when object is destroyed."""
-        self.session.close()
-
-    @classmethod
-    def restart_trading_cycle(cls, service_id, polling_interval=DEMO_POLLING_INTERVAL):
-        """
-        Restart the trading cycle for an existing service that was previously stopped.
-        
-        This method loads an existing service by ID and creates a new trading
-        service instance to resume trading operations. It maintains the service's
-        existing state (fund balance, shares owned, etc.) while reactivating the
-        trading algorithm.
+        Update stock attributes.
         
         Args:
-            service_id: The ID of the existing service to restart
-            polling_interval: Seconds to wait between decision cycles
+            session: Database session
+            stock: Stock instance to update
+            data: Dictionary of attributes to update
+            
+        Returns:
+            Updated stock instance
             
         Raises:
-            ServiceError: If the service cannot be found or restarted
+            ValidationError: If invalid data is provided
         """
-        logger.info(f"Restarting trading cycle for service {service_id}")
+        from app.services.events import EventService
         
-        with SessionManager() as session:
-            service_model = session.query(StockService).filter_by(service_id=service_id).first()
+        try:
+            # Define which fields can be updated
+            allowed_fields = {
+                'name', 'is_active', 'sector', 'description'
+            }
             
-            if not service_model:
-                logger.error(f"Service {service_id} not found")
-                raise InvalidStateError(f"Service {service_id} not found")
+            # Don't allow symbol to be updated
+            if 'symbol' in data:
+                del data['symbol']
             
-            # Create a service instance from the existing service model
-            service = cls(
-                service_id=service_id,
-                stock_symbol=service_model.stock_symbol,
-                starting_balance=service_model.starting_balance
+            # Use the model's update_from_data method
+            updated = stock.update_from_data(data, allowed_fields)
+            
+            # Only emit event if something was updated
+            if updated:
+                stock.updated_at = get_current_datetime()
+                session.commit()
+                
+                # Prepare response data
+                stock_data = stock_schema.dump(stock)
+                
+                # Emit WebSocket event
+                EventService.emit_stock_update(
+                    action='updated',
+                    stock_data=stock_data,
+                    stock_symbol=stock.symbol
+                )
+            
+            return stock
+        except Exception as e:
+            logger.error(f"Error updating stock: {str(e)}")
+            session.rollback()
+            if isinstance(e, ValidationError):
+                raise
+            raise ValidationError(f"Could not update stock: {str(e)}")
+    
+    @staticmethod
+    def change_active_status(session: Session, stock: Stock, is_active: bool) -> Stock:
+        """
+        Change the active status of the stock.
+        
+        Args:
+            session: Database session
+            stock: Stock instance
+            is_active: New active status
+            
+        Returns:
+            Updated stock instance
+        """
+        from app.services.events import EventService
+        
+        try:
+            # Only update if status is changing
+            if stock.is_active != is_active:
+                stock.is_active = is_active
+                stock.updated_at = get_current_datetime()
+                session.commit()
+                
+                # Prepare response data
+                stock_data = stock_schema.dump(stock)
+                
+                # Emit WebSocket event
+                EventService.emit_stock_update(
+                    action='status_changed',
+                    stock_data=stock_data,
+                    stock_symbol=stock.symbol
+                )
+            
+            return stock
+        except Exception as e:
+            logger.error(f"Error changing stock active status: {str(e)}")
+            session.rollback()
+            raise ValidationError(f"Could not change stock active status: {str(e)}")
+    
+    @staticmethod
+    def toggle_active(session: Session, stock: Stock) -> Stock:
+        """
+        Toggle stock active status.
+        
+        Args:
+            session: Database session
+            stock: Stock instance
+            
+        Returns:
+            Updated stock instance
+        """
+        return StockService.change_active_status(session, stock, not stock.is_active)
+    
+    @staticmethod
+    def delete_stock(session: Session, stock: Stock) -> bool:
+        """
+        Delete a stock.
+        
+        Args:
+            session: Database session
+            stock: Stock to delete
+            
+        Returns:
+            True if successful
+            
+        Raises:
+            BusinessLogicError: If stock cannot be deleted due to dependencies
+        """
+        from app.services.events import EventService
+        
+        try:
+            # Check dependencies using the model's method
+            if stock.has_dependencies():
+                if stock.services and len(stock.services) > 0:
+                    raise BusinessLogicError(f"Cannot delete stock '{stock.symbol}' because it is used by trading services")
+                
+                if stock.transactions and len(stock.transactions) > 0:
+                    raise BusinessLogicError(f"Cannot delete stock '{stock.symbol}' because it has associated transactions")
+            
+            symbol = stock.symbol
+            stock_id = stock.id
+            session.delete(stock)
+            session.commit()
+            
+            # Emit WebSocket event
+            EventService.emit_stock_update(
+                action='deleted',
+                stock_data={'id': stock_id, 'symbol': symbol},
+                stock_symbol=symbol
             )
-            service.service.last_start_date = datetime.now(UTC)
             
-            # Start the trading cycle in a separate thread so it doesn't block the HTTP response
-            thread = threading.Thread(
-                target=service.start_trading_cycle,
-                kwargs={"polling_interval": polling_interval},
-                daemon=True
-            )
-            thread.start()
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting stock: {str(e)}")
+            session.rollback()
+            if isinstance(e, BusinessLogicError):
+                raise
+            raise BusinessLogicError(f"Could not delete stock: {str(e)}")
+    
+    @staticmethod
+    def get_latest_price(stock: Stock) -> Optional[float]:
+        """
+        Get the latest price for a stock.
+        
+        Args:
+            stock: Stock instance
             
-            # Return immediately instead of waiting for the trading cycle to complete
-            return service
+        Returns:
+            Latest closing price if available, None otherwise
+        """
+        return stock.get_latest_price()
+        
+    @staticmethod
+    def search_stocks(session: Session, query: str, limit: int = 10) -> List[Stock]:
+        """
+        Search stocks by symbol or name.
+        
+        Args:
+            session: Database session
+            query: Search query string
+            limit: Maximum number of results to return
+            
+        Returns:
+            List of matching Stock instances
+        """
+        return Stock.search_stocks(session, query, limit)

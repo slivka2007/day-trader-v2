@@ -12,11 +12,11 @@ import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.services.database import get_session
-from app.models.stock_model import Stock
-from app.models.intraday_price_model import IntradayPrice
-from app.models.daily_price_model import DailyPrice
-from app.config.constants import SUPPORTED_SYMBOLS
-from app.exceptions.exceptions import InvalidSymbolError, DataFetchError
+from app.models.stock import Stock
+from app.models.stock_intraday_price import StockIntradayPrice
+from app.models.stock_daily_price import StockDailyPrice
+from app.deprecated.config.constants import SUPPORTED_SYMBOLS
+from app.deprecated.exceptions.exceptions import InvalidSymbolError, DataFetchError
 
 logger = logging.getLogger(__name__)
 
@@ -158,14 +158,14 @@ def save_intraday_data(symbol: str, interval: str = '1m', period: str = '1d') ->
         records_saved = 0
         for data_point in intraday_data:
             # Check if record already exists to avoid duplicates
-            existing = session.query(IntradayPrice).filter_by(
+            existing = session.query(StockIntradayPrice).filter_by(
                 stock_id=stock.id, 
                 timestamp=data_point['timestamp']
             ).first()
             
             if not existing:
                 # Create new intraday price record
-                intraday_price = IntradayPrice(
+                intraday_price = StockIntradayPrice(
                     stock_id=stock.id,
                     timestamp=data_point['timestamp'],
                     open=data_point['open'],
@@ -319,14 +319,14 @@ def save_daily_data(symbol: str, period: str = '1y') -> Tuple[int, int]:
         records_saved = 0
         for data_point in daily_data:
             # Check if record already exists to avoid duplicates
-            existing = session.query(DailyPrice).filter_by(
+            existing = session.query(StockDailyPrice).filter_by(
                 stock_id=stock.id, 
                 date=data_point['date']
             ).first()
             
             if not existing:
                 # Create new daily price record
-                daily_price = DailyPrice(
+                daily_price = StockDailyPrice(
                     stock_id=stock.id,
                     date=data_point['date'],
                     open=data_point['open'],

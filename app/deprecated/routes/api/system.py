@@ -7,7 +7,7 @@ import sys
 import os
 from datetime import datetime
 
-from app.routes.api import bp
+from app.deprecated.routes.api import bp
 
 @bp.route('/system/health', methods=['GET'])
 def health_check():

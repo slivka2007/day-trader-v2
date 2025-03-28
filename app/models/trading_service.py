@@ -106,10 +106,25 @@ class TradingService(Base):
             raise ValueError(f"Invalid trading mode: {mode}. Valid modes are: {', '.join(valid_modes)}")
         return mode
     
+    @validates('initial_balance')
+    def validate_initial_balance(self, key, value):
+        """Validate initial balance is positive."""
+        if value is not None and float(value) <= 0:
+            raise ValueError("Initial balance must be greater than 0")
+        return value
+    
+    @validates('allocation_percent')
+    def validate_allocation_percent(self, key, value):
+        """Validate allocation percent is between 0 and 100."""
+        if value is not None and (float(value) < 0 or float(value) > 100):
+            raise ValueError("Allocation percent must be between 0 and 100")
+        return value
+    
     def __repr__(self) -> str:
         """String representation of the TradingService object."""
         return f"<TradingService(id={self.id}, symbol='{self.stock_symbol}', balance={self.current_balance})>"
     
+    # Properties for common conditions and calculations
     @property
     def can_buy(self) -> bool:
         """Check if the service can buy stocks."""
@@ -154,203 +169,16 @@ class TradingService(Base):
         # Fallback
         return 0.0
     
-    @classmethod
-    def get_by_user(cls, session: Session, user_id: int) -> List["TradingService"]:
+    def has_dependencies(self) -> bool:
         """
-        Get all services for a user.
+        Check if the service has any dependencies that would prevent deletion.
         
-        Args:
-            session: Database session
-            user_id: User ID
-            
         Returns:
-            List of services
+            True if there are dependencies, False otherwise
         """
-        return session.query(cls).filter(cls.user_id == user_id).all()
+        return bool(self.transactions and len(self.transactions) > 0)
     
-    @classmethod
-    def get_by_stock(cls, session: Session, stock_symbol: str) -> List["TradingService"]:
-        """
-        Get all services for a stock.
-        
-        Args:
-            session: Database session
-            stock_symbol: Stock symbol
-            
-        Returns:
-            List of services
-        """
-        return session.query(cls).filter(cls.stock_symbol == stock_symbol.upper()).all()
-    
-    def update(self, session: Session, data: Dict[str, Any]) -> "TradingService":
-        """
-        Update service attributes.
-        
-        Args:
-            session: Database session
-            data: Dictionary of attributes to update
-            
-        Returns:
-            Updated service instance
-            
-        Raises:
-            ValueError: If invalid data is provided
-        """
-        from app.api.schemas.trading_service import service_schema
-        from app.services.events import EventService
-        
-        # Define which fields can be updated
-        allowed_fields = {
-            'name', 'description', 'stock_symbol', 'is_active',
-            'minimum_balance', 'allocation_percent', 'buy_threshold',
-            'sell_threshold', 'stop_loss_percent', 'take_profit_percent'
-        }
-        
-        # Use the update_from_dict method from Base
-        updated = self.update_from_dict(data, allowed_fields)
-        
-        # Only emit event if something was updated
-        if updated:
-            session.commit()
-            
-            try:
-                # Prepare response data
-                service_data = service_schema.dump(self)
-                
-                # Emit WebSocket event
-                EventService.emit_service_update(
-                    action='updated',
-                    service_data=service_data,
-                    service_id=self.id
-                )
-            except Exception as e:
-                logger.error(f"Error during service update process: {str(e)}")
-        
-        return self
-    
-    def change_state(self, session: Session, new_state: str) -> "TradingService":
-        """
-        Change the service state.
-        
-        Args:
-            session: Database session
-            new_state: The new state to set
-            
-        Returns:
-            Updated service instance
-            
-        Raises:
-            ValueError: If the state transition is invalid
-        """
-        from app.api.schemas.trading_service import service_schema
-        from app.services.events import EventService
-        
-        # Validate state
-        if not ServiceState.is_valid(new_state):
-            valid_states = ServiceState.values()
-            raise ValueError(f"Invalid service state: {new_state}. Valid states are: {', '.join(valid_states)}")
-        
-        previous_state = self.state
-        
-        # Only update if state is changing
-        if previous_state != new_state:
-            self.state = new_state
-            self.updated_at = get_current_datetime()
-            session.commit()
-            
-            try:
-                # Prepare response data
-                service_data = service_schema.dump(self)
-                
-                # Emit WebSocket event
-                EventService.emit_service_update(
-                    action='state_changed',
-                    service_data=service_data,
-                    service_id=self.id
-                )
-            except Exception as e:
-                logger.error(f"Error emitting WebSocket event: {str(e)}")
-        
-        return self
-    
-    def toggle_active(self, session: Session) -> "TradingService":
-        """
-        Toggle the active status of the service.
-        
-        Args:
-            session: Database session
-            
-        Returns:
-            Updated service instance
-        """
-        from app.api.schemas.trading_service import service_schema
-        from app.services.events import EventService
-        
-        # Toggle active status
-        self.is_active = not self.is_active
-        self.updated_at = get_current_datetime()
-        session.commit()
-        
-        try:
-            # Prepare response data
-            service_data = service_schema.dump(self)
-            
-            # Emit WebSocket event
-            EventService.emit_service_update(
-                action='toggled',
-                service_data=service_data,
-                service_id=self.id
-            )
-        except Exception as e:
-            logger.error(f"Error emitting WebSocket event: {str(e)}")
-        
-        return self
-    
-    def change_mode(self, session: Session, new_mode: str) -> "TradingService":
-        """
-        Change the trading mode.
-        
-        Args:
-            session: Database session
-            new_mode: The new mode to set
-            
-        Returns:
-            Updated service instance
-            
-        Raises:
-            ValueError: If the mode is invalid
-        """
-        from app.api.schemas.trading_service import service_schema
-        from app.services.events import EventService
-        
-        # Validate mode
-        if not TradingMode.is_valid(new_mode):
-            valid_modes = TradingMode.values()
-            raise ValueError(f"Invalid trading mode: {new_mode}. Valid modes are: {', '.join(valid_modes)}")
-        
-        previous_mode = self.mode
-        
-        # Only update if mode is changing
-        if previous_mode != new_mode:
-            self.mode = new_mode
-            self.updated_at = get_current_datetime()
-            session.commit()
-            
-            try:
-                # Prepare response data
-                service_data = service_schema.dump(self)
-                
-                # Emit WebSocket event
-                EventService.emit_service_update(
-                    action='mode_changed',
-                    service_data=service_data,
-                    service_id=self.id
-                )
-            except Exception as e:
-                logger.error(f"Error emitting WebSocket event: {str(e)}")
-        
-        return self
-    
+    # Core model methods for trading logic
     def check_buy_condition(self, current_price: float, historical_prices: List[float] = None) -> Dict[str, Any]:
         """
         Check if the conditions for buying are met.
@@ -421,61 +249,82 @@ class TradingService(Base):
             'reason': 'Sell conditions not met'
         }
     
-    @classmethod
-    def create_service(cls, session: Session, user_id: int, data: Dict[str, Any]) -> "TradingService":
+    def update_from_data(self, data: Dict[str, Any], allowed_fields: Set[str] = None) -> bool:
         """
-        Create a new trading service.
+        Update model attributes from a dictionary.
+        
+        Args:
+            data: Dictionary of attributes to update
+            allowed_fields: Set of field names that are allowed to be updated
+            
+        Returns:
+            True if any attributes were updated, False otherwise
+        """
+        updated = False
+        for key, value in data.items():
+            if allowed_fields is not None and key not in allowed_fields:
+                continue
+            if hasattr(self, key) and getattr(self, key) != value:
+                setattr(self, key, value)
+                updated = True
+        
+        if updated:
+            self.updated_at = get_current_datetime()
+            
+        return updated
+    
+    # Class methods for database queries
+    @classmethod
+    def get_by_user(cls, session: Session, user_id: int) -> List["TradingService"]:
+        """
+        Get all services for a user.
         
         Args:
             session: Database session
             user_id: User ID
-            data: Service configuration data
             
         Returns:
-            The created service instance
-            
-        Raises:
-            ValueError: If required data is missing or invalid
+            List of services
         """
-        from app.api.schemas.trading_service import service_schema
-        from app.services.events import EventService
-        from app.models import User, Stock
+        return session.query(cls).filter(cls.user_id == user_id).all()
+    
+    @classmethod
+    def get_by_stock(cls, session: Session, stock_symbol: str) -> List["TradingService"]:
+        """
+        Get all services for a stock.
         
-        try:
-            # Validate required fields
-            required_fields = ['name', 'stock_symbol', 'initial_balance']
-            for field in required_fields:
-                if field not in data or not data[field]:
-                    raise ValueError(f"Field '{field}' is required")
+        Args:
+            session: Database session
+            stock_symbol: Stock symbol
             
-            # Verify user exists
-            user = User.get_or_404(session, user_id)
+        Returns:
+            List of services
+        """
+        return session.query(cls).filter(cls.stock_symbol == stock_symbol.upper()).all()
+        
+    @classmethod
+    def get_by_id(cls, session: Session, service_id: int) -> Optional["TradingService"]:
+        """
+        Get a trading service by ID.
+        
+        Args:
+            session: Database session
+            service_id: Trading service ID to retrieve
             
-            # Check if stock exists and update stock_id
-            stock_symbol = data['stock_symbol'].upper()
-            stock = Stock.get_by_symbol(session, stock_symbol)
-            if stock:
-                data['stock_id'] = stock.id
-                
-            # Set user_id
-            data['user_id'] = user_id
+        Returns:
+            TradingService instance if found, None otherwise
+        """
+        return session.query(cls).get(service_id)
+        
+    @classmethod
+    def get_all(cls, session: Session) -> List["TradingService"]:
+        """
+        Get all trading services.
+        
+        Args:
+            session: Database session
             
-            # Create the service
-            service = cls.from_dict(data)
-            session.add(service)
-            session.commit()
-            
-            # Prepare response data
-            service_data = service_schema.dump(service)
-            
-            # Emit WebSocket event
-            EventService.emit_service_update(
-                action='created',
-                service_data=service_data
-            )
-            
-            return service
-        except Exception as e:
-            logger.error(f"Error creating trading service: {str(e)}")
-            session.rollback()
-            raise ValueError(f"Could not create trading service: {str(e)}")
+        Returns:
+            List of TradingService instances
+        """
+        return session.query(cls).all()

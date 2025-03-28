@@ -1,0 +1,48 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Frontend Architecture
+
+## Core Structure
+- Single-page React application (SPA)
+- Component-based architecture with reusable UI elements
+- WebSocket connection (Socket.IO) for real-time updates
+- REST API client for data fetching and action triggering
+
+## Component Patterns
+- Page components compose multiple smaller components
+- Reusable UI components for buttons, tables, forms, and modals
+- Table components accept data arrays and column configurations
+- Button components support different states (loading, disabled) and variants
+
+## Data Flow
+- Initial data fetched from REST API on component mount
+- WebSocket listeners established on app initialization
+- Real-time updates received via WebSocket refresh UI components
+- User actions trigger REST API calls followed by WebSocket notifications
+
+## WebSocket Integration
+- Socket.IO client connects to backend WebSocket server
+- Connection established on application initialization
+- Event listeners registered for relevant data update events
+- Reconnection logic handles temporary disconnections
+
+## API Client
+- Centralized API client module for all REST requests
+- Consistent error handling and response parsing
+- Authentication headers automatically included
+- API endpoint constants defined for maintainability
+
+## State Management
+- Context API or state management library for global state
+- Local component state for UI-specific behaviors
+- WebSocket updates trigger state changes
+- Optimistic UI updates before server confirmation
+
+## Error Handling
+- User-friendly error messages displayed for failed operations
+- Connection status indicators for WebSocket state
+- Retry mechanisms for failed API calls
+- Fallback to REST API when WebSocket unavailable 

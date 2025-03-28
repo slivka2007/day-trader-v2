@@ -11,6 +11,6 @@ bp = Blueprint('api', __name__, url_prefix='/api')
 
 # Import route modules
 # Note: these imports must come after the blueprint is created
-from app.routes.api import services, transactions, system
+from app.deprecated.routes.api import services, transactions, system
 
 __all__ = ['bp'] 

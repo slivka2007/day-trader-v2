@@ -93,13 +93,9 @@ class WebSocketTest(Resource):
         
         # Use EventService to emit the test event
         from app.services.events import EventService
-        EventService.emit(
-            event_type='test',
-            data={
-                'message': message, 
-                'timestamp': timestamp.isoformat()
-            },
-            room='errors'  # Use errors room as a general broadcast
+        EventService.emit_test(
+            message=message,
+            room='test'  # Use a dedicated test room
         )
         
         return {
@@ -150,15 +146,22 @@ class WebSocketDocs(Resource):
                 'name': 'test',
                 'description': 'Test event for verifying WebSocket connectivity',
                 'direction': 'server-to-client',
-                'payload': '{"message": "...", "timestamp": "..."}',
-                'rooms': [],
+                'payload': '{"message": "...", "type": "test_event", "timestamp": "..."}',
+                'rooms': ['test'],
+            },
+            {
+                'name': 'data_feed',
+                'description': 'Consolidated data feed for multiple event types',
+                'direction': 'server-to-client',
+                'payload': '{"type": "price_update|stock_update", "data": {...}}',
+                'rooms': ['data_feeds'],
             },
             {
                 'name': 'error',
                 'description': 'Emitted when an error occurs during event processing',
                 'direction': 'server-to-client',
                 'payload': '{"error": true, "code": 400, "message": "...", "timestamp": "...", "details": {...}}',
-                'rooms': [],
+                'rooms': ['errors'],
             },
             {
                 'name': 'join_room',
@@ -214,6 +217,24 @@ class WebSocketDocs(Resource):
                 'subscribe_event': 'join_price_updates',
                 'events': ['price_update'],
             },
+            {
+                'name': 'test',
+                'description': 'Room for testing WebSocket connectivity',
+                'subscribe_event': 'join_test',
+                'events': ['test'],
+            },
+            {
+                'name': 'data_feeds',
+                'description': 'Room for consolidated data feeds',
+                'subscribe_event': 'join_data_feeds',
+                'events': ['data_feed'],
+            },
+            {
+                'name': 'errors',
+                'description': 'Room for error notifications',
+                'subscribe_event': 'join_errors',
+                'events': ['error'],
+            }
         ]
         
         return {

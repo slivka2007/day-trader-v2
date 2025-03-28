@@ -72,8 +72,8 @@ def create_app(config=None):
     init_websockets(app)
     
     # Register traditional routes for backward compatibility
-    from app.routes.stock_trading import stock_bp
-    from app.routes.stock_data import data_bp
+    from app.deprecated.routes.stock_trading import stock_bp
+    from app.deprecated.routes.stock_data import data_bp
     app.register_blueprint(stock_bp)
     app.register_blueprint(data_bp)
     

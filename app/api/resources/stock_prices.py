@@ -8,6 +8,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from app.services.database import get_db_session
 from app.models import Stock, StockDailyPrice, StockIntradayPrice, PriceSource
+from app.services.price_service import PriceService
+from app.services.stock_service import StockService
 from app.api import apply_pagination, apply_filters
 from app.api.auth import admin_required
 from app.utils.errors import ValidationError, ResourceNotFoundError, AuthorizationError, BusinessLogicError
@@ -132,7 +134,7 @@ class StockDailyPrices(Resource):
         """Get daily price data for a specific stock with filtering and pagination."""
         with get_db_session() as session:
             # Verify stock exists
-            stock = Stock.get_or_404(session, stock_id)
+            stock = StockService.get_or_404(session, stock_id)
             
             # Get base query for this stock's daily prices
             query = session.query(StockDailyPrice).filter_by(stock_id=stock_id)
@@ -199,8 +201,8 @@ class StockDailyPrices(Resource):
                 else:
                     price_date = validated_data.price_date
                 
-                # Create the price record using the model's method
-                price_record = StockDailyPrice.create_price(
+                # Create the price record using the service
+                price_record = PriceService.create_daily_price(
                     session=session,
                     stock_id=stock_id,
                     price_date=price_date,
@@ -212,9 +214,11 @@ class StockDailyPrices(Resource):
         except ValidationError as e:
             current_app.logger.error(f"Validation error creating price record: {str(e)}")
             raise
-        except ValueError as e:
-            current_app.logger.error(f"Error creating price record: {str(e)}")
-            raise BusinessLogicError(str(e))
+        except ResourceNotFoundError:
+            raise
+        except BusinessLogicError as e:
+            current_app.logger.error(f"Business logic error: {str(e)}")
+            raise
         except Exception as e:
             current_app.logger.error(f"Error creating price record: {str(e)}")
             raise ValidationError(str(e))
@@ -242,7 +246,7 @@ class StockIntradayPrices(Resource):
         """Get intraday price data for a specific stock with filtering and pagination."""
         with get_db_session() as session:
             # Verify stock exists
-            stock = Stock.get_or_404(session, stock_id)
+            stock = StockService.get_or_404(session, stock_id)
             
             # Get base query for this stock's intraday prices
             query = session.query(StockIntradayPrice).filter_by(stock_id=stock_id)
@@ -323,8 +327,8 @@ class StockIntradayPrices(Resource):
                 # Get the interval
                 interval = validated_data.interval
                 
-                # Create the intraday price record using the model's method
-                price_record = StockIntradayPrice.create_price(
+                # Create the intraday price record using the service
+                price_record = PriceService.create_intraday_price(
                     session=session,
                     stock_id=stock_id,
                     timestamp=timestamp,
@@ -337,9 +341,11 @@ class StockIntradayPrices(Resource):
         except ValidationError as e:
             current_app.logger.error(f"Validation error creating price record: {str(e)}")
             raise
-        except ValueError as e:
-            current_app.logger.error(f"Error creating price record: {str(e)}")
-            raise BusinessLogicError(str(e))
+        except ResourceNotFoundError:
+            raise
+        except BusinessLogicError as e:
+            current_app.logger.error(f"Business logic error: {str(e)}")
+            raise
         except Exception as e:
             current_app.logger.error(f"Error creating price record: {str(e)}")
             raise ValidationError(str(e))
@@ -357,7 +363,7 @@ class DailyPriceItem(Resource):
     def get(self, price_id):
         """Get a daily price record by ID."""
         with get_db_session() as session:
-            price = StockDailyPrice.get_or_404(session, price_id)
+            price = PriceService.get_daily_price_or_404(session, price_id)
             return daily_price_schema.dump(price)
     
     @api.doc('update_daily_price')
@@ -382,17 +388,16 @@ class DailyPriceItem(Resource):
         
         try:
             with get_db_session() as session:
-                # Get the price record
-                price = StockDailyPrice.get_or_404(session, price_id)
-                
-                # Update the price record using the model's method
-                result = price.update(session, data)
-                
+                # Update the price record using the service
+                result = PriceService.update_daily_price(session, price_id, data)
                 return daily_price_schema.dump(result)
                 
-        except ValueError as e:
-            current_app.logger.error(f"Error updating price record: {str(e)}")
-            raise BusinessLogicError(str(e))
+        except ValidationError as e:
+            current_app.logger.error(f"Validation error updating price record: {str(e)}")
+            raise
+        except BusinessLogicError as e:
+            current_app.logger.error(f"Business logic error: {str(e)}")
+            raise
         except Exception as e:
             current_app.logger.error(f"Error updating price record: {str(e)}")
             raise ValidationError(str(e))
@@ -408,21 +413,14 @@ class DailyPriceItem(Resource):
         """Delete a daily price record. Requires admin privileges."""
         try:
             with get_db_session() as session:
-                # Get the price record
-                price = StockDailyPrice.get_or_404(session, price_id)
-                
-                # Validate deletion using the delete schema
-                validation_data = {'confirm': True, 'price_id': price_id}
-                daily_price_delete_schema.load(validation_data)
-                
-                # Delete the price record
-                session.delete(price)
-                session.commit()
-                
+                # Delete the price record using the service
+                PriceService.delete_daily_price(session, price_id)
                 return '', 204
                 
         except ValidationError as e:
             raise BusinessLogicError(str(e))
+        except BusinessLogicError:
+            raise
         except Exception as e:
             current_app.logger.error(f"Error deleting price record: {str(e)}")
             raise BusinessLogicError(str(e))
@@ -440,7 +438,7 @@ class IntradayPriceItem(Resource):
     def get(self, price_id):
         """Get an intraday price record by ID."""
         with get_db_session() as session:
-            price = StockIntradayPrice.get_or_404(session, price_id)
+            price = PriceService.get_intraday_price_or_404(session, price_id)
             return intraday_price_schema.dump(price)
     
     @api.doc('update_intraday_price')
@@ -467,17 +465,16 @@ class IntradayPriceItem(Resource):
         
         try:
             with get_db_session() as session:
-                # Get the price record
-                price = StockIntradayPrice.get_or_404(session, price_id)
-                
-                # Update the price record using the model's method
-                result = price.update(session, data)
-                
+                # Update the price record using the service
+                result = PriceService.update_intraday_price(session, price_id, data)
                 return intraday_price_schema.dump(result)
                 
-        except ValueError as e:
-            current_app.logger.error(f"Error updating price record: {str(e)}")
-            raise BusinessLogicError(str(e))
+        except ValidationError as e:
+            current_app.logger.error(f"Validation error updating price record: {str(e)}")
+            raise
+        except BusinessLogicError as e:
+            current_app.logger.error(f"Business logic error: {str(e)}")
+            raise
         except Exception as e:
             current_app.logger.error(f"Error updating price record: {str(e)}")
             raise ValidationError(str(e))
@@ -493,21 +490,14 @@ class IntradayPriceItem(Resource):
         """Delete an intraday price record. Requires admin privileges."""
         try:
             with get_db_session() as session:
-                # Get the price record
-                price = StockIntradayPrice.get_or_404(session, price_id)
-                
-                # Validate deletion using the delete schema
-                validation_data = {'confirm': True, 'price_id': price_id}
-                intraday_price_delete_schema.load(validation_data)
-                
-                # Delete the price record
-                session.delete(price)
-                session.commit()
-                
+                # Delete the price record using the service
+                PriceService.delete_intraday_price(session, price_id)
                 return '', 204
                 
         except ValidationError as e:
             raise BusinessLogicError(str(e))
+        except BusinessLogicError:
+            raise
         except Exception as e:
             current_app.logger.error(f"Error deleting price record: {str(e)}")
             raise BusinessLogicError(str(e)) 

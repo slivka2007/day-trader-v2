@@ -1,0 +1,52 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Backend Architecture
+
+## Core Structure
+- Flask REST API provides endpoints for data retrieval and action execution
+- Flask-SocketIO enables real-time notifications for database updates
+- Backend serves as the bridge between frontend and data store
+
+## API Patterns
+- RESTful endpoints follow `/api/resource` naming convention
+- GET requests retrieve data (initial load and refreshes)
+- POST/PUT/DELETE requests trigger actions and database changes
+- API responses follow a consistent JSON format: `{"status": "success|error", "data": {...}}`
+
+## WebSocket Implementation
+- Flask-SocketIO handles WebSocket connections from frontend clients
+- Emit events follow naming pattern: `resource:action` (e.g., `trade:updated`)
+- Events triggered after database updates to notify clients of changes
+- Socket events include relevant updated data to minimize follow-up API calls
+
+## Data Flow
+- Initial data served via REST API endpoints
+- Real-time updates pushed via WebSocket events
+- Transaction operations return success/failure status before emitting socket events
+- Database triggers or post-save hooks emit WebSocket notifications
+
+## Error Handling
+- REST endpoints return appropriate HTTP status codes
+- Error responses include descriptive messages
+- WebSocket connections implement reconnection logic
+- Validation errors returned with specific field information
+
+## Security Considerations
+- Authentication via session cookies or JWT tokens
+- API endpoints validate user permissions
+- WebSocket connections authenticated before establishing
+
+## Project Structure
+When working with this codebase, you MUST:
+1. Place new models in `/app/models` with appropriate naming (lowercase, snake_case)
+2. Define API endpoints in `/app/api/resources` with resource-specific files
+3. Create serialization schemas in `/app/api/schemas` for each resource
+4. Add cross-cutting concerns to `/app/services` or `/app/utils` as appropriate
+5. Follow existing patterns for imports, error handling, and API response format
+6. Register new API resources in `/app/api/resources/__init__.py`
+7. Add new models to `/app/models/__init__.py` for easier imports
+8. Connect WebSocket events to model changes through the event service
+9. Maintain separation between models (data), API resources (endpoints), and services (business logic)
