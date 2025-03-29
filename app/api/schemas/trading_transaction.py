@@ -1,7 +1,7 @@
 """
 Trading Transaction model schemas.
 """
-from marshmallow import fields, post_load, validates, validates_schema, ValidationError, validate
+from marshmallow import fields, validates, validates_schema, ValidationError, validate
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
 
 from app.models import TradingTransaction, TransactionState

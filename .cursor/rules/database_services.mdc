@@ -1,0 +1,46 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+### Rules for Building a Database Service for a Model
+
+When creating a database service for a model, follow these rules to ensure it effectively manages persistence, complex business logic, and coordination across the application:
+
+1. **Manage All Database Operations**  
+   - Handle CRUD (Create, Read, Update, Delete) operations for the model using database queries (e.g., via an ORM like SQLAlchemy).  
+   - Manage transactions to ensure data consistency across operations.  
+   - *Example*: A `TradingService` might save a new `TradingTransaction` and commit it to the database.
+
+2. **Implement Complex Business Logic**  
+   - Address logic that spans multiple models or involves external systems (e.g., executing a trade that updates both `TradingService` and `TradingTransaction`).  
+   - Coordinate multi-step workflows that go beyond a single model’s scope.  
+   - *Example*: Check stock availability before creating a transaction.
+
+3. **Coordinate Validation Across Models**  
+   - While models handle field-level validation, the service may perform additional checks involving multiple models or external factors.  
+   - Ensure all necessary validations are satisfied before completing an operation.  
+   - *Example*: Verify that a `TradingTransaction` references an existing `TradingService`.
+
+4. **Emit Events After Successful Operations**  
+   - Trigger notifications or events (e.g., via an `EventService`) after database operations are successfully committed.  
+   - Keep models unaware of these broader application concerns.  
+   - *Example*: Emit a `transaction_completed` event after saving a trade.
+
+5. **Handle Dependencies on Other Services**  
+   - Allow the service to depend on other services or components as needed (e.g., a `TradingService` might use a `StockService` to fetch stock data).  
+   - Manage these dependencies to keep the service modular and reusable.
+
+6. **Provide a Clean API for Model Operations**  
+   - Offer a simple, abstract interface for performing operations on the model (e.g., `create_transaction`, `update_stock`).  
+   - Hide database interaction details from the API layer or other consumers.  
+   - *Example*: Expose a `get_transaction(id)` method that returns a model instance without revealing the query logic.
+
+7. **Implement Robust Error Handling**  
+   - Catch and manage exceptions related to database operations (e.g., constraint violations, connection failures).  
+   - Provide meaningful error messages and roll back transactions if necessary.  
+   - *Example*: Return a descriptive error if a duplicate `username` is detected during insertion.
+
+### Summary
+
+- **Database Services** focus on **how the data is managed**: persisting it, coordinating complex logic, and integrating with the broader application.

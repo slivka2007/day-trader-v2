@@ -8,10 +8,10 @@ import logging
 from typing import Dict, Any, Optional, Callable, TypeVar, Union
 from functools import wraps
 from sqlalchemy.orm import Session
-from flask import current_app, request, g
-from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
+from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request, jwt_required
+from flask import abort
 
-from app.models import User, TradingService, TradingTransaction, Stock
+from app.models import User, TradingService, TradingTransaction
 from app.services.database import get_db_session
 from app.utils.errors import AuthorizationError, ResourceNotFoundError
 
@@ -117,6 +117,26 @@ def require_ownership(resource_type: str, id_parameter: str = 'id'):
         return wrapper
     
     return decorator
+
+def admin_required(fn):
+    """
+    Decorator to check if the current user is an admin.
+    Must be used with the jwt_required decorator.
+    """
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        # Get user ID from token
+        user_id = get_jwt_identity()
+        
+        # Check if user is admin
+        with get_db_session() as session:
+            user = session.query(User).filter_by(id=user_id).first()
+            if not user or not user.is_admin:
+                abort(403, "Admin privileges required")
+        
+        return fn(*args, **kwargs)
+    
+    return wrapper
 
 def get_current_user(session: Optional[Session] = None) -> Optional[User]:
     """

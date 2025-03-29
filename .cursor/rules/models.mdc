@@ -1,0 +1,40 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+### Rules for Building a Model
+
+When creating a model, adhere to these rules to keep it focused on data representation, validation, and simple, intrinsic business logic:
+
+1. **Define the Data Structure**  
+   - Specify all fields, their data types, and relationships with other models (e.g., foreign keys, one-to-many relationships).  
+   - Use the model as a blueprint for how the entity is structured in the database.  
+   - *Example*: A `TradingTransaction` model might include fields like `purchase_price`, `sale_price`, and a relationship to a `TradingService`.
+
+2. **Implement Data-Level Validation**  
+   - Add validation logic for individual fields and the model as a whole (e.g., ensuring `username` is unique or `email` follows a valid format).  
+   - Leverage tools like ORM validators or custom setters to enforce constraints.  
+   - *Example*: Validate that `symbol` in a stock model is uppercase and non-empty.
+
+3. **Include Simple, Intrinsic Business Logic**  
+   - Incorporate methods or properties that operate solely on the model’s own data (e.g., a `gain_loss` property calculated from `purchase_price` and `sale_price`).  
+   - Ensure this logic is self-contained and doesn’t depend on external context or other models.  
+   - *Example*: A `User` model might have a `full_name` property combining `first_name` and `last_name`.
+
+4. **Avoid Database Query Methods**  
+   - Do not include methods for querying the database, such as `get_by_id` or `find_all`.  
+   - Keep the model free of persistence logic to maintain separation from the database layer.
+
+5. **No External Dependencies**  
+   - Ensure the model does not rely on external services, components, or the service layer.  
+   - Models should only interact with other models through defined relationships, remaining self-contained.
+
+6. **Encapsulate Data**  
+   - Use properties or controlled methods to access or modify internal data, preventing direct manipulation of the model’s state.  
+   - This maintains data integrity and enforces validation rules.  
+   - *Example*: Use a setter method to update `email` only if it passes validation.
+
+### Summary
+
+- **Models** focus on **what the data is**: defining its structure, enforcing validation, and handling simple logic tied directly to the data.  

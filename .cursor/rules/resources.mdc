@@ -1,0 +1,44 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+### Rules for Model API Resources
+
+**Model API resources** serve as the entry points for API requests, orchestrating the flow between clients, database services, and schemas. They handle HTTP interactions and coordinate data processing while relying on other components for business logic and persistence.
+
+1. **Handle HTTP Methods**  
+   - Implement methods for HTTP verbs (e.g., GET, POST, PUT, DELETE) to support standard API operations.  
+   - Ensure each method aligns with its intended purpose (e.g., GET for retrieval, POST for creation).
+
+2. **Interact with Services**  
+   - Use database services to execute CRUD operations or apply business logic.  
+   - Avoid direct database access to maintain encapsulation and separation from persistence.
+
+3. **Use Schemas for Data Handling**  
+   - Leverage API schemas to validate incoming request data and serialize response data.  
+   - Ensure all data exchanged with clients passes through schemas for consistency.
+
+4. **Manage Request and Response Flow**  
+   - Parse request components (e.g., query parameters, headers, body) to extract necessary information.  
+   - Construct responses with appropriate status codes, headers, and serialized data.
+
+5. **Implement Authentication and Authorization**  
+   - Apply access controls based on user roles or permissions to secure endpoints.  
+   - Restrict operations to authorized clients only, integrating with authentication systems.
+
+6. **Handle Errors Gracefully**  
+   - Catch exceptions from services and return standardized error responses.  
+   - Provide informative messages to clients without exposing internal system details.
+
+7. **Support Pagination and Filtering**  
+   - Enable pagination for list endpoints to efficiently handle large datasets.  
+   - Allow clients to filter and sort results using query parameters, delegating logic to services.
+
+8. **Coordinate Related Data**  
+   - Rely on services to fetch related data when required for a response.  
+   - Avoid direct querying of related models to keep resource logic focused on coordination.
+
+### Alignment with Encapsulation Strategy
+
+- **API Resources** act as orchestrators, managing client interactions and delegating data operations to services and schemas, without duplicating responsibilities.

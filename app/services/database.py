@@ -1,3 +1,9 @@
+"""
+Database service for SQLAlchemy configuration and database operations.
+
+This service provides database setup, session management, and schema management functions,
+ensuring proper initialization and consistent database state throughout the application.
+"""
 import os
 import re
 from pathlib import Path
@@ -21,10 +27,11 @@ session_factory = sessionmaker(bind=engine)
 Session = scoped_session(session_factory)
 
 def generate_sql_schema() -> str:
-    """Generate SQL DDL statements from SQLAlchemy models
+    """
+    Generate SQL DDL statements from SQLAlchemy models.
     
     Returns:
-        str: The SQL schema DDL statements
+        str: The SQL schema DDL statements as a formatted string
     """
     sql_statements: List[str] = []
     
@@ -44,20 +51,46 @@ def generate_sql_schema() -> str:
     return '\n\n'.join(sql_statements)
 
 def save_sql_schema() -> str:
-    """Generate and save SQL schema to database.sql file
+    """
+    Generate and save SQL schema to database.sql file.
     
     Returns:
         str: The SQL schema that was saved
+        
+    Raises:
+        IOError: If file cannot be written
+        Exception: For other errors during schema generation
     """
-    sql_schema: str = generate_sql_schema()
+    from app.services.events import EventService
     
-    SQL_FILE_PATH.write_text(sql_schema)
-    
-    print(f"SQL schema saved to {SQL_FILE_PATH}")
-    return sql_schema
+    try:
+        sql_schema: str = generate_sql_schema()
+        
+        SQL_FILE_PATH.write_text(sql_schema)
+        
+        # Emit database event for tracking
+        EventService.emit_database_event(
+            operation='schema_save',
+            status='completed',
+            target=str(SQL_FILE_PATH),
+            details={'size': len(sql_schema)}
+        )
+        
+        print(f"SQL schema saved to {SQL_FILE_PATH}")
+        return sql_schema
+    except Exception as e:
+        # Emit failure event
+        EventService.emit_database_event(
+            operation='schema_save',
+            status='failed',
+            target=str(SQL_FILE_PATH),
+            details={'error': str(e)}
+        )
+        raise
 
 def compare_sql_schema() -> bool:
-    """Compare existing SQL schema file with current models.
+    """
+    Compare existing SQL schema file with current models.
     
     Returns:
         bool: True if schemas match, False if they don't or file doesn't exist
@@ -94,31 +127,61 @@ def compare_sql_schema() -> bool:
         return False
 
 def init_db(reset: bool = True) -> Engine:
-    """Initialize the database, optionally resetting it first.
+    """
+    Initialize the database, optionally resetting it first.
     
     Args:
         reset: If True, drops all tables before creating them.
         
     Returns:
         Engine: SQLAlchemy engine instance
+        
+    Raises:
+        Exception: If database initialization fails
     """
-    if reset:
-        Base.metadata.drop_all(engine)
+    from app.services.events import EventService
     
-    # Create all tables
-    Base.metadata.create_all(engine)
-    
-    # Generate and save SQL schema
-    save_sql_schema()
-    
-    print(f"Database initialized at {DATABASE_URL}")
-    if reset:
-        print("All existing data has been reset.")
-    
-    return engine
+    try:
+        # Emit database initialization event
+        EventService.emit_database_event(
+            operation='initialization',
+            status='started',
+            details={'reset': reset}
+        )
+        
+        if reset:
+            Base.metadata.drop_all(engine)
+        
+        # Create all tables
+        Base.metadata.create_all(engine)
+        
+        # Generate and save SQL schema
+        save_sql_schema()
+        
+        print(f"Database initialized at {DATABASE_URL}")
+        if reset:
+            print("All existing data has been reset.")
+        
+        # Emit completion event
+        EventService.emit_database_event(
+            operation='initialization',
+            status='completed',
+            details={'reset': reset, 'url': DATABASE_URL}
+        )
+        
+        return engine
+    except Exception as e:
+        # Emit failure event
+        EventService.emit_database_event(
+            operation='initialization',
+            status='failed',
+            details={'reset': reset, 'error': str(e)}
+        )
+        raise
 
 def get_session() -> SQLAlchemySession:
-    """Get a new database session.
+    """
+    Get a new database session.
     
     Returns:
         SQLAlchemySession: A new SQLAlchemy session
@@ -126,31 +189,91 @@ def get_session() -> SQLAlchemySession:
     return Session()
 
 def check_and_update_schema() -> bool:
-    """Check if SQL schema matches models and update if needed
+    """
+    Check if SQL schema matches models and update if needed.
     
     Returns:
         bool: True if schema check/update succeeded
+        
+    Raises:
+        Exception: If schema update fails
     """
+    from app.services.events import EventService
+    
+    EventService.emit_database_event(
+        operation='schema_check',
+        status='started'
+    )
+    
     if not compare_sql_schema():
         print("Updating SQL schema file")
         save_sql_schema()
         
     # Always ensure database tables exist
     Base.metadata.create_all(engine)
+    
+    EventService.emit_database_event(
+        operation='schema_check',
+        status='completed'
+    )
+    
     return True
 
 # Function to be called in app startup
 def setup_database(reset_on_startup: bool = True) -> Engine:
-    """Setup database during application startup
+    """
+    Setup database during application startup.
     
     Args:
         reset_on_startup: Whether to reset the database on startup
         
     Returns:
         Engine: SQLAlchemy engine instance
+        
+    Raises:
+        Exception: If database setup fails
     """
-    if reset_on_startup:
-        init_db(reset=True)
-    else:
-        check_and_update_schema()
-    return engine 
+    from app.services.events import EventService
+    
+    EventService.emit_database_event(
+        operation='setup',
+        status='started',
+        details={'reset_on_startup': reset_on_startup}
+    )
+    
+    try:
+        if reset_on_startup:
+            result = init_db(reset=True)
+        else:
+            result = check_and_update_schema()
+            
+        EventService.emit_database_event(
+            operation='setup',
+            status='completed',
+            details={'reset_on_startup': reset_on_startup}
+        )
+        
+        # Also emit system notification for admin awareness
+        EventService.emit_system_notification(
+            notification_type='database',
+            message="Database setup completed successfully",
+            severity='info',
+            details={'reset_performed': reset_on_startup}
+        )
+        
+        return engine
+    except Exception as e:
+        # Emit failure events
+        EventService.emit_database_event(
+            operation='setup',
+            status='failed',
+            details={'reset_on_startup': reset_on_startup, 'error': str(e)}
+        )
+        
+        EventService.emit_system_notification(
+            notification_type='database',
+            message=f"Database setup failed: {str(e)}",
+            severity='error'
+        )
+        
+        raise 

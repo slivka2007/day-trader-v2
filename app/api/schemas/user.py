@@ -2,8 +2,6 @@
 User model schemas.
 """
 import re
-from datetime import datetime, timedelta
-
 from marshmallow import fields, post_load, validates, validates_schema, ValidationError, validate
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
 

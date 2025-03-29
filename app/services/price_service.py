@@ -5,15 +5,14 @@ This service encapsulates all database interactions for the price models,
 providing a clean API for stock price data management operations.
 """
 import logging
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any
 from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_
+from sqlalchemy import and_
 
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.stock_intraday_price import StockIntradayPrice
 from app.models.stock import Stock
-from app.models.enums import PriceSource
 from app.utils.errors import ValidationError, ResourceNotFoundError, BusinessLogicError
 from app.utils.current_datetime import get_current_datetime, get_current_date
 from app.api.schemas.stock_price import (
@@ -46,7 +45,7 @@ class PriceService:
         Returns:
             StockDailyPrice instance if found, None otherwise
         """
-        return StockDailyPrice.get_by_id(session, price_id)
+        return session.query(StockDailyPrice).get(price_id)
     
     @staticmethod
     def get_daily_price_or_404(session: Session, price_id: int) -> StockDailyPrice:
@@ -81,7 +80,9 @@ class PriceService:
         Returns:
             StockDailyPrice instance if found, None otherwise
         """
-        return StockDailyPrice.get_by_date(session, stock_id, price_date)
+        return session.query(StockDailyPrice).filter(
+            and_(StockDailyPrice.stock_id == stock_id, StockDailyPrice.price_date == price_date)
+        ).first()
     
     @staticmethod
     def get_daily_prices_by_date_range(session: Session, stock_id: int, 
@@ -98,7 +99,16 @@ class PriceService:
         Returns:
             List of StockDailyPrice instances
         """
-        return StockDailyPrice.get_by_date_range(session, stock_id, start_date, end_date)
+        if end_date is None:
+            end_date = get_current_date()
+            
+        return session.query(StockDailyPrice).filter(
+            and_(
+                StockDailyPrice.stock_id == stock_id,
+                StockDailyPrice.price_date >= start_date,
+                StockDailyPrice.price_date <= end_date
+            )
+        ).order_by(StockDailyPrice.price_date).all()
     
     @staticmethod
     def get_latest_daily_prices(session: Session, stock_id: int, days: int = 30) -> List[StockDailyPrice]:
@@ -113,7 +123,16 @@ class PriceService:
         Returns:
             List of StockDailyPrice instances, most recent first
         """
-        return StockDailyPrice.get_latest_prices(session, stock_id, days)
+        end_date = get_current_date()
+        start_date = end_date - timedelta(days=days)
+        
+        return session.query(StockDailyPrice).filter(
+            and_(
+                StockDailyPrice.stock_id == stock_id,
+                StockDailyPrice.price_date >= start_date,
+                StockDailyPrice.price_date <= end_date
+            )
+        ).order_by(StockDailyPrice.price_date.desc()).all()
     
     # Write operations
     @staticmethod
@@ -139,7 +158,7 @@ class PriceService:
         
         try:
             # Verify stock exists
-            stock = Stock.get_by_id(session, stock_id)
+            stock = session.query(Stock).get(stock_id)
             if not stock:
                 raise ResourceNotFoundError(f"Stock with ID {stock_id} not found")
                 
@@ -148,13 +167,19 @@ class PriceService:
             if existing:
                 raise ValidationError(f"Price record already exists for stock ID {stock_id} on {price_date}")
             
-            # Create the daily price record using the model's method
-            price_record = StockDailyPrice.create_price(
-                session=session,
-                stock_id=stock_id,
-                price_date=price_date,
-                data=data
-            )
+            # Validate price data
+            if 'high_price' in data and 'low_price' in data:
+                if data['high_price'] < data['low_price']:
+                    raise ValidationError("High price cannot be less than low price")
+                    
+            # Create the data dict including date and stock_id
+            create_data = {'stock_id': stock_id, 'price_date': price_date}
+            create_data.update(data)
+            
+            # Create price record
+            price_record = StockDailyPrice(**create_data)
+            session.add(price_record)
+            session.commit()
             
             # Prepare response data
             price_data = daily_price_schema.dump(price_record)
@@ -168,17 +193,11 @@ class PriceService:
             
             return price_record
             
-        except ValueError as e:
-            # Convert ValueError from model to ValidationError for API consistency
-            logger.error(f"Validation error creating daily price: {str(e)}")
-            session.rollback()
-            raise ValidationError(str(e))
-        except ResourceNotFoundError:
-            session.rollback()
-            raise
         except Exception as e:
             logger.error(f"Error creating daily price: {str(e)}")
             session.rollback()
+            if isinstance(e, (ValidationError, ResourceNotFoundError)):
+                raise
             raise BusinessLogicError(f"Could not create daily price record: {str(e)}")
     
     @staticmethod
@@ -202,27 +221,47 @@ class PriceService:
         from app.services.events import EventService
         
         try:
-            # Get the price record
+            # Get price record
             price_record = PriceService.get_daily_price_or_404(session, price_id)
             
-            # Update the price record using the model's method
-            updated_record = price_record.update(session, data)
+            # Define which fields can be updated
+            allowed_fields = {
+                'open_price', 'high_price', 'low_price', 'close_price', 
+                'adj_close', 'volume', 'source'
+            }
             
-            # No need to emit event here as the model's update method already does it
+            # Validate price data if provided
+            if 'high_price' in data and 'low_price' in data:
+                if data['high_price'] < data['low_price']:
+                    raise ValidationError("High price cannot be less than low price")
             
-            return updated_record
+            # Use the update_from_dict method
+            updated = price_record.update_from_dict(data, allowed_fields)
             
-        except ValueError as e:
-            # Convert ValueError from model to ValidationError for API consistency
-            logger.error(f"Validation error updating daily price: {str(e)}")
-            session.rollback()
-            raise ValidationError(str(e))
-        except ResourceNotFoundError:
-            session.rollback()
-            raise
+            # Only commit if something was updated
+            if updated:
+                price_record.updated_at = get_current_datetime()
+                session.commit()
+                
+                # Get stock symbol for event
+                stock_symbol = price_record.stock.symbol if price_record.stock else "unknown"
+                
+                # Prepare response data
+                price_data = daily_price_schema.dump(price_record)
+                
+                # Emit WebSocket event
+                EventService.emit_price_update(
+                    action='updated',
+                    price_data=price_data,
+                    stock_symbol=stock_symbol
+                )
+            
+            return price_record
         except Exception as e:
             logger.error(f"Error updating daily price: {str(e)}")
             session.rollback()
+            if isinstance(e, (ResourceNotFoundError, ValidationError)):
+                raise
             raise BusinessLogicError(f"Could not update daily price record: {str(e)}")
     
     @staticmethod
@@ -239,41 +278,41 @@ class PriceService:
             
         Raises:
             ResourceNotFoundError: If price record not found
-            BusinessLogicError: If price record cannot be deleted
+            BusinessLogicError: For other business logic errors
         """
         from app.services.events import EventService
         
         try:
-            # Get the price record
+            # Get price record
             price_record = PriceService.get_daily_price_or_404(session, price_id)
             
             # Get stock symbol for event
             stock_symbol = price_record.stock.symbol if price_record.stock else "unknown"
             
-            # Check if this is recent data (within last 30 days)
-            thirty_days_ago = get_current_date() - timedelta(days=30)
-            if price_record.price_date >= thirty_days_ago:
-                raise BusinessLogicError("Cannot delete recent price data (less than 30 days old). This data may be in use for active analyses.")
+            # Store price data for event
+            price_data = {
+                'id': price_record.id,
+                'stock_id': price_record.stock_id,
+                'price_date': price_record.price_date.isoformat()
+            }
             
-            # Delete the record
+            # Delete price record
             session.delete(price_record)
             session.commit()
             
             # Emit WebSocket event
             EventService.emit_price_update(
                 action='deleted',
-                price_data={'id': price_id},
+                price_data=price_data,
                 stock_symbol=stock_symbol
             )
             
             return True
-            
-        except ResourceNotFoundError:
-            session.rollback()
-            raise
         except Exception as e:
             logger.error(f"Error deleting daily price: {str(e)}")
             session.rollback()
+            if isinstance(e, ResourceNotFoundError):
+                raise
             raise BusinessLogicError(f"Could not delete daily price record: {str(e)}")
     
     #
@@ -293,7 +332,7 @@ class PriceService:
         Returns:
             StockIntradayPrice instance if found, None otherwise
         """
-        return StockIntradayPrice.get_by_id(session, price_id)
+        return session.query(StockIntradayPrice).get(price_id)
     
     @staticmethod
     def get_intraday_price_or_404(session: Session, price_id: int) -> StockIntradayPrice:
@@ -319,18 +358,24 @@ class PriceService:
     def get_intraday_price_by_timestamp(session: Session, stock_id: int, 
                                timestamp: datetime, interval: int = 1) -> Optional[StockIntradayPrice]:
         """
-        Get an intraday price record by stock ID, timestamp, and interval.
+        Get an intraday price record by stock ID and timestamp.
         
         Args:
             session: Database session
             stock_id: Stock ID
             timestamp: Timestamp of the price record
-            interval: Time interval in minutes (default: 1)
+            interval: Time interval in minutes
             
         Returns:
             StockIntradayPrice instance if found, None otherwise
         """
-        return StockIntradayPrice.get_by_timestamp(session, stock_id, timestamp, interval)
+        return session.query(StockIntradayPrice).filter(
+            and_(
+                StockIntradayPrice.stock_id == stock_id,
+                StockIntradayPrice.timestamp == timestamp,
+                StockIntradayPrice.interval == interval
+            )
+        ).first()
     
     @staticmethod
     def get_intraday_prices_by_time_range(session: Session, stock_id: int, 
@@ -343,13 +388,23 @@ class PriceService:
             session: Database session
             stock_id: Stock ID
             start_time: Start timestamp (inclusive)
-            end_time: End timestamp (inclusive), defaults to current time
-            interval: Time interval in minutes (default: 1)
+            end_time: End timestamp (inclusive), defaults to now
+            interval: Time interval in minutes
             
         Returns:
             List of StockIntradayPrice instances
         """
-        return StockIntradayPrice.get_by_time_range(session, stock_id, start_time, end_time, interval)
+        if end_time is None:
+            end_time = get_current_datetime()
+            
+        return session.query(StockIntradayPrice).filter(
+            and_(
+                StockIntradayPrice.stock_id == stock_id,
+                StockIntradayPrice.timestamp >= start_time,
+                StockIntradayPrice.timestamp <= end_time,
+                StockIntradayPrice.interval == interval
+            )
+        ).order_by(StockIntradayPrice.timestamp).all()
     
     @staticmethod
     def get_latest_intraday_prices(session: Session, stock_id: int, hours: int = 8, 
@@ -366,7 +421,17 @@ class PriceService:
         Returns:
             List of StockIntradayPrice instances, most recent first
         """
-        return StockIntradayPrice.get_latest_prices(session, stock_id, hours, interval)
+        end_time = get_current_datetime()
+        start_time = end_time - timedelta(hours=hours)
+        
+        return session.query(StockIntradayPrice).filter(
+            and_(
+                StockIntradayPrice.stock_id == stock_id,
+                StockIntradayPrice.timestamp >= start_time,
+                StockIntradayPrice.timestamp <= end_time,
+                StockIntradayPrice.interval == interval
+            )
+        ).order_by(StockIntradayPrice.timestamp.desc()).all()
     
     # Write operations
     @staticmethod
@@ -379,7 +444,7 @@ class PriceService:
             session: Database session
             stock_id: Stock ID
             timestamp: Timestamp of the price record
-            interval: Time interval in minutes (1, 5, 15, 30, 60)
+            interval: Time interval in minutes
             data: Price data
             
         Returns:
@@ -394,23 +459,32 @@ class PriceService:
         
         try:
             # Verify stock exists
-            stock = Stock.get_by_id(session, stock_id)
+            stock = session.query(Stock).get(stock_id)
             if not stock:
                 raise ResourceNotFoundError(f"Stock with ID {stock_id} not found")
                 
-            # Check if price already exists for this timestamp and interval
+            # Check if price already exists for this timestamp & interval
             existing = PriceService.get_intraday_price_by_timestamp(session, stock_id, timestamp, interval)
             if existing:
                 raise ValidationError(f"Price record already exists for stock ID {stock_id} at {timestamp} with interval {interval}")
             
-            # Create the intraday price record using the model's method
-            price_record = StockIntradayPrice.create_price(
-                session=session,
-                stock_id=stock_id,
-                timestamp=timestamp,
-                interval=interval,
-                data=data
-            )
+            # Validate price data
+            if 'high_price' in data and 'low_price' in data:
+                if data['high_price'] < data['low_price']:
+                    raise ValidationError("High price cannot be less than low price")
+                    
+            # Create the data dict including timestamp, interval and stock_id
+            create_data = {
+                'stock_id': stock_id, 
+                'timestamp': timestamp,
+                'interval': interval
+            }
+            create_data.update(data)
+            
+            # Create price record
+            price_record = StockIntradayPrice(**create_data)
+            session.add(price_record)
+            session.commit()
             
             # Prepare response data
             price_data = intraday_price_schema.dump(price_record)
@@ -419,22 +493,17 @@ class PriceService:
             EventService.emit_price_update(
                 action='created',
                 price_data=price_data,
-                stock_symbol=stock.symbol
+                stock_symbol=stock.symbol,
+                is_intraday=True
             )
             
             return price_record
             
-        except ValueError as e:
-            # Convert ValueError from model to ValidationError for API consistency
-            logger.error(f"Validation error creating intraday price: {str(e)}")
-            session.rollback()
-            raise ValidationError(str(e))
-        except ResourceNotFoundError:
-            session.rollback()
-            raise
         except Exception as e:
             logger.error(f"Error creating intraday price: {str(e)}")
             session.rollback()
+            if isinstance(e, (ValidationError, ResourceNotFoundError)):
+                raise
             raise BusinessLogicError(f"Could not create intraday price record: {str(e)}")
     
     @staticmethod
@@ -458,27 +527,48 @@ class PriceService:
         from app.services.events import EventService
         
         try:
-            # Get the price record
+            # Get price record
             price_record = PriceService.get_intraday_price_or_404(session, price_id)
             
-            # Update the price record using the model's method
-            updated_record = price_record.update(session, data)
+            # Define which fields can be updated
+            allowed_fields = {
+                'open_price', 'high_price', 'low_price', 'close_price', 
+                'volume', 'source'
+            }
             
-            # No need to emit event here as the model's update method already does it
+            # Validate price data if provided
+            if 'high_price' in data and 'low_price' in data:
+                if data['high_price'] < data['low_price']:
+                    raise ValidationError("High price cannot be less than low price")
             
-            return updated_record
+            # Use the update_from_dict method
+            updated = price_record.update_from_dict(data, allowed_fields)
             
-        except ValueError as e:
-            # Convert ValueError from model to ValidationError for API consistency
-            logger.error(f"Validation error updating intraday price: {str(e)}")
-            session.rollback()
-            raise ValidationError(str(e))
-        except ResourceNotFoundError:
-            session.rollback()
-            raise
+            # Only commit if something was updated
+            if updated:
+                price_record.updated_at = get_current_datetime()
+                session.commit()
+                
+                # Get stock symbol for event
+                stock_symbol = price_record.stock.symbol if price_record.stock else "unknown"
+                
+                # Prepare response data
+                price_data = intraday_price_schema.dump(price_record)
+                
+                # Emit WebSocket event
+                EventService.emit_price_update(
+                    action='updated',
+                    price_data=price_data,
+                    stock_symbol=stock_symbol,
+                    is_intraday=True
+                )
+            
+            return price_record
         except Exception as e:
             logger.error(f"Error updating intraday price: {str(e)}")
             session.rollback()
+            if isinstance(e, (ResourceNotFoundError, ValidationError)):
+                raise
             raise BusinessLogicError(f"Could not update intraday price record: {str(e)}")
     
     @staticmethod
@@ -495,217 +585,474 @@ class PriceService:
             
         Raises:
             ResourceNotFoundError: If price record not found
-            BusinessLogicError: If price record cannot be deleted
+            BusinessLogicError: For other business logic errors
         """
         from app.services.events import EventService
         
         try:
-            # Get the price record
+            # Get price record
             price_record = PriceService.get_intraday_price_or_404(session, price_id)
             
             # Get stock symbol for event
             stock_symbol = price_record.stock.symbol if price_record.stock else "unknown"
             
-            # Check if this is recent data (within last 7 days)
-            seven_days_ago = get_current_date() - timedelta(days=7)
-            if price_record.timestamp.date() >= seven_days_ago:
-                raise BusinessLogicError("Cannot delete recent price data (less than 7 days old). This data may be in use for active analyses.")
+            # Store price data for event
+            price_data = {
+                'id': price_record.id,
+                'stock_id': price_record.stock_id,
+                'timestamp': price_record.timestamp.isoformat()
+            }
             
-            # Delete the record
+            # Delete price record
             session.delete(price_record)
             session.commit()
             
             # Emit WebSocket event
             EventService.emit_price_update(
                 action='deleted',
-                price_data={'id': price_id},
-                stock_symbol=stock_symbol
+                price_data=price_data,
+                stock_symbol=stock_symbol,
+                is_intraday=True
             )
             
             return True
-            
-        except ResourceNotFoundError:
-            session.rollback()
-            raise
         except Exception as e:
             logger.error(f"Error deleting intraday price: {str(e)}")
             session.rollback()
+            if isinstance(e, ResourceNotFoundError):
+                raise
             raise BusinessLogicError(f"Could not delete intraday price record: {str(e)}")
     
-    #
-    # Bulk Operations
-    #
-    
+    # Bulk import operations
     @staticmethod
     def bulk_import_daily_prices(session: Session, stock_id: int, price_data: List[Dict[str, Any]]) -> List[StockDailyPrice]:
         """
-        Import multiple daily price records for a stock.
+        Bulk import daily price records.
         
         Args:
             session: Database session
             stock_id: Stock ID
-            price_data: List of price data dictionaries, each containing a 'price_date' field
+            price_data: List of price data dictionaries, each must include 'price_date'
             
         Returns:
             List of created StockDailyPrice instances
             
         Raises:
+            ValidationError: If required data is missing or invalid
             ResourceNotFoundError: If stock not found
-            ValidationError: If invalid data is provided
             BusinessLogicError: For other business logic errors
         """
         from app.services.events import EventService
         
         try:
             # Verify stock exists
-            stock = Stock.get_by_id(session, stock_id)
+            stock = session.query(Stock).get(stock_id)
             if not stock:
                 raise ResourceNotFoundError(f"Stock with ID {stock_id} not found")
-            
-            created_records = []
-            
-            # Group commit to improve performance
-            for data in price_data:
-                # Extract and validate price date
-                if 'price_date' not in data:
-                    raise ValidationError("Missing 'price_date' in price data")
                 
-                price_date = data['price_date']
+            # Validate price data
+            for item in price_data:
+                if 'price_date' not in item:
+                    raise ValidationError("Each price data item must include a 'price_date'")
+                    
+                if 'high_price' in item and 'low_price' in item:
+                    if item['high_price'] < item['low_price']:
+                        date_str = item['price_date']
+                        raise ValidationError(f"High price cannot be less than low price for date {date_str}")
+            
+            # Create price records
+            created_records = []
+            for item in price_data:
+                # Parse date if it's a string
+                price_date = item['price_date']
                 if isinstance(price_date, str):
                     try:
-                        price_date = datetime.strptime(price_date, '%Y-%m-%d').date()
+                        price_date = datetime.strptime(price_date, "%Y-%m-%d").date()
                     except ValueError:
-                        raise ValidationError(f"Invalid price_date format: {price_date}. Use YYYY-MM-DD")
+                        raise ValidationError(f"Invalid date format: {price_date}. Expected YYYY-MM-DD")
                 
-                # Check if price already exists
+                # Check if price already exists for this date
                 existing = PriceService.get_daily_price_by_date(session, stock_id, price_date)
                 if existing:
-                    logger.warning(f"Skipping existing price record for {stock.symbol} on {price_date}")
+                    logger.warning(f"Skipping existing price record for stock ID {stock_id} on {price_date}")
                     continue
                 
+                # Create data dict
+                create_data = {'stock_id': stock_id, 'price_date': price_date}
+                create_data.update({k: v for k, v in item.items() if k != 'price_date'})
+                
                 # Create price record
-                try:
-                    price_record = StockDailyPrice.create_price(
-                        session=session,
-                        stock_id=stock_id,
-                        price_date=price_date,
-                        data=data
-                    )
-                    created_records.append(price_record)
-                except Exception as e:
-                    logger.warning(f"Error creating price record for {stock.symbol} on {price_date}: {str(e)}")
-                    # Continue processing other records instead of failing the entire batch
+                price_record = StockDailyPrice(**create_data)
+                session.add(price_record)
+                created_records.append(price_record)
             
-            # Commit all changes
             session.commit()
             
-            # Emit batch update event
+            # Prepare response data and emit events
             if created_records:
-                EventService.emit_price_update(
-                    action='bulk_imported',
-                    price_data={
-                        'count': len(created_records),
-                        'stock_id': stock_id,
-                        'stock_symbol': stock.symbol
-                    },
-                    stock_symbol=stock.symbol
-                )
+                for record in created_records:
+                    price_data = daily_price_schema.dump(record)
+                    
+                    # Emit WebSocket event
+                    EventService.emit_price_update(
+                        action='created',
+                        price_data=price_data,
+                        stock_symbol=stock.symbol
+                    )
             
             return created_records
-            
         except Exception as e:
             logger.error(f"Error bulk importing daily prices: {str(e)}")
             session.rollback()
-            if isinstance(e, (ResourceNotFoundError, ValidationError)):
+            if isinstance(e, (ValidationError, ResourceNotFoundError)):
                 raise
-            raise BusinessLogicError(f"Could not import daily price records: {str(e)}")
+            raise BusinessLogicError(f"Could not bulk import daily prices: {str(e)}")
     
     @staticmethod
     def bulk_import_intraday_prices(session: Session, stock_id: int, price_data: List[Dict[str, Any]]) -> List[StockIntradayPrice]:
         """
-        Import multiple intraday price records for a stock.
+        Bulk import intraday price records.
         
         Args:
             session: Database session
             stock_id: Stock ID
-            price_data: List of price data dictionaries, each containing 'timestamp' and 'interval' fields
+            price_data: List of price data dictionaries, each must include 'timestamp' and optionally 'interval'
             
         Returns:
             List of created StockIntradayPrice instances
             
         Raises:
+            ValidationError: If required data is missing or invalid
             ResourceNotFoundError: If stock not found
-            ValidationError: If invalid data is provided
             BusinessLogicError: For other business logic errors
         """
         from app.services.events import EventService
         
         try:
             # Verify stock exists
-            stock = Stock.get_by_id(session, stock_id)
+            stock = session.query(Stock).get(stock_id)
             if not stock:
                 raise ResourceNotFoundError(f"Stock with ID {stock_id} not found")
-            
-            created_records = []
-            
-            # Group commit to improve performance
-            for data in price_data:
-                # Extract and validate timestamp
-                if 'timestamp' not in data:
-                    raise ValidationError("Missing 'timestamp' in price data")
                 
-                timestamp = data['timestamp']
+            # Validate price data
+            for item in price_data:
+                if 'timestamp' not in item:
+                    raise ValidationError("Each price data item must include a 'timestamp'")
+                    
+                if 'high_price' in item and 'low_price' in item:
+                    if item['high_price'] < item['low_price']:
+                        time_str = item['timestamp']
+                        raise ValidationError(f"High price cannot be less than low price for timestamp {time_str}")
+            
+            # Create price records
+            created_records = []
+            for item in price_data:
+                # Parse timestamp if it's a string
+                timestamp = item['timestamp']
                 if isinstance(timestamp, str):
                     try:
                         timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                     except ValueError:
-                        raise ValidationError(f"Invalid timestamp format: {timestamp}. Use ISO format")
+                        raise ValidationError(f"Invalid timestamp format: {timestamp}")
                 
-                # Extract and validate interval
-                interval = data.get('interval', 1)
-                if interval not in [1, 5, 15, 30, 60]:
-                    raise ValidationError(f"Invalid interval: {interval}. Must be one of: 1, 5, 15, 30, 60")
+                # Get interval, default to 1 minute
+                interval = item.get('interval', 1)
                 
-                # Check if price already exists
+                # Check if price already exists for this timestamp & interval
                 existing = PriceService.get_intraday_price_by_timestamp(session, stock_id, timestamp, interval)
                 if existing:
-                    logger.warning(f"Skipping existing price record for {stock.symbol} at {timestamp} (interval: {interval})")
+                    logger.warning(f"Skipping existing intraday price record for stock ID {stock_id} at {timestamp}")
                     continue
                 
+                # Create data dict
+                create_data = {
+                    'stock_id': stock_id, 
+                    'timestamp': timestamp,
+                    'interval': interval
+                }
+                create_data.update({k: v for k, v in item.items() if k not in ['timestamp', 'interval']})
+                
                 # Create price record
-                try:
-                    price_record = StockIntradayPrice.create_price(
-                        session=session,
-                        stock_id=stock_id,
-                        timestamp=timestamp,
-                        interval=interval,
-                        data=data
-                    )
-                    created_records.append(price_record)
-                except Exception as e:
-                    logger.warning(f"Error creating price record for {stock.symbol} at {timestamp}: {str(e)}")
-                    # Continue processing other records instead of failing the entire batch
+                price_record = StockIntradayPrice(**create_data)
+                session.add(price_record)
+                created_records.append(price_record)
             
-            # Commit all changes
             session.commit()
             
-            # Emit batch update event
+            # Prepare response data and emit events
             if created_records:
-                EventService.emit_price_update(
-                    action='bulk_imported',
-                    price_data={
-                        'count': len(created_records),
-                        'stock_id': stock_id,
-                        'stock_symbol': stock.symbol
-                    },
-                    stock_symbol=stock.symbol
-                )
+                for record in created_records:
+                    price_data = intraday_price_schema.dump(record)
+                    
+                    # Emit WebSocket event
+                    EventService.emit_price_update(
+                        action='created',
+                        price_data=price_data,
+                        stock_symbol=stock.symbol,
+                        is_intraday=True
+                    )
             
             return created_records
-            
         except Exception as e:
             logger.error(f"Error bulk importing intraday prices: {str(e)}")
             session.rollback()
-            if isinstance(e, (ResourceNotFoundError, ValidationError)):
+            if isinstance(e, (ValidationError, ResourceNotFoundError)):
                 raise
-            raise BusinessLogicError(f"Could not import intraday price records: {str(e)}")
+            raise BusinessLogicError(f"Could not bulk import intraday prices: {str(e)}")
+
+    # Technical Indicators for Trading Decisions
+    @staticmethod
+    def calculate_simple_moving_average(prices: List[float], period: int = 20) -> Optional[float]:
+        """
+        Calculate simple moving average for a list of prices.
+        
+        Args:
+            prices: List of prices (oldest to newest)
+            period: SMA period
+            
+        Returns:
+            SMA value if enough data points available, None otherwise
+        """
+        if len(prices) < period:
+            return None
+            
+        return sum(prices[-period:]) / period
+    
+    @staticmethod
+    def calculate_moving_averages_for_stock(session: Session, stock_id: int, 
+                                           periods: List[int] = [5, 10, 20, 50, 200]) -> Dict[int, Optional[float]]:
+        """
+        Calculate multiple moving averages for a stock.
+        
+        Args:
+            session: Database session
+            stock_id: Stock ID
+            periods: List of MA periods to calculate
+            
+        Returns:
+            Dictionary mapping period to MA value
+        """
+        # Get the last 200 days of data (or the maximum period in periods)
+        max_period = max(periods)
+        end_date = get_current_date()
+        start_date = end_date - timedelta(days=max_period*2)  # Get more data than needed to ensure enough points
+        
+        # Get prices
+        prices = PriceService.get_daily_prices_by_date_range(session, stock_id, start_date, end_date)
+        
+        # Extract closing prices
+        close_prices = [float(price.close_price) for price in prices if price.close_price is not None]
+        
+        # Calculate MAs for each period
+        result = {}
+        for period in periods:
+            result[period] = PriceService.calculate_simple_moving_average(close_prices, period)
+            
+        return result
+    
+    @staticmethod
+    def calculate_rsi(prices: List[float], period: int = 14) -> Optional[float]:
+        """
+        Calculate Relative Strength Index (RSI) for a list of prices.
+        
+        Args:
+            prices: List of prices (oldest to newest)
+            period: RSI period
+            
+        Returns:
+            RSI value if enough data points available, None otherwise
+        """
+        if len(prices) < period + 1:
+            return None
+            
+        # Calculate price changes
+        changes = [prices[i+1] - prices[i] for i in range(len(prices)-1)]
+        
+        # Separate gains and losses
+        gains = [max(0, change) for change in changes]
+        losses = [max(0, -change) for change in changes]
+        
+        # Calculate average gain and loss
+        avg_gain = sum(gains[-period:]) / period
+        avg_loss = sum(losses[-period:]) / period
+        
+        if avg_loss == 0:
+            return 100.0
+            
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        
+        return rsi
+    
+    @staticmethod
+    def calculate_bollinger_bands(prices: List[float], period: int = 20, num_std: float = 2.0) -> Dict[str, Optional[float]]:
+        """
+        Calculate Bollinger Bands for a list of prices.
+        
+        Args:
+            prices: List of prices (oldest to newest)
+            period: Period for SMA calculation
+            num_std: Number of standard deviations for bands
+            
+        Returns:
+            Dictionary with 'upper', 'middle', and 'lower' band values
+        """
+        if len(prices) < period:
+            return {'upper': None, 'middle': None, 'lower': None}
+            
+        # Calculate SMA
+        sma = PriceService.calculate_simple_moving_average(prices, period)
+        
+        # Calculate standard deviation
+        recent_prices = prices[-period:]
+        std_dev = (sum((price - sma) ** 2 for price in recent_prices) / period) ** 0.5
+        
+        # Calculate bands
+        upper_band = sma + (std_dev * num_std)
+        lower_band = sma - (std_dev * num_std)
+        
+        return {
+            'upper': upper_band,
+            'middle': sma,
+            'lower': lower_band
+        }
+    
+    @staticmethod
+    def is_price_trending_up(session: Session, stock_id: int, days: int = 10) -> bool:
+        """
+        Determine if a stock price is trending upward.
+        
+        Args:
+            session: Database session
+            stock_id: Stock ID
+            days: Number of days to analyze
+            
+        Returns:
+            True if price is trending up, False otherwise
+        """
+        prices = PriceService.get_latest_daily_prices(session, stock_id, days)
+        
+        if len(prices) < 5:  # Need at least 5 data points
+            return False
+            
+        # Extract closing prices
+        close_prices = [float(price.close_price) for price in prices if price.close_price is not None]
+        close_prices.reverse()  # Change to oldest to newest
+        
+        if len(close_prices) < 5:
+            return False
+            
+        # Calculate 5-day and 10-day MAs
+        ma5 = PriceService.calculate_simple_moving_average(close_prices, 5)
+        
+        if len(close_prices) >= 10:
+            ma10 = PriceService.calculate_simple_moving_average(close_prices, 10)
+            # 5-day MA above 10-day MA suggests uptrend
+            return ma5 > ma10
+        else:
+            # If not enough data for 10-day MA, check if recent prices are above 5-day MA
+            return close_prices[-1] > ma5
+    
+    @staticmethod
+    def get_price_analysis(session: Session, stock_id: int) -> Dict[str, Any]:
+        """
+        Get comprehensive price analysis for trading decisions.
+        
+        Args:
+            session: Database session
+            stock_id: Stock ID
+            
+        Returns:
+            Dictionary with various technical indicators and analysis results
+        """
+        # Get recent price data
+        end_date = get_current_date()
+        start_date = end_date - timedelta(days=200)  # Get up to 200 days of data
+        
+        # Get daily prices
+        prices = PriceService.get_daily_prices_by_date_range(session, stock_id, start_date, end_date)
+        
+        if not prices:
+            return {
+                'has_data': False,
+                'message': 'No price data available for analysis'
+            }
+            
+        # Extract closing prices
+        close_prices = [float(price.close_price) for price in prices if price.close_price is not None]
+        if not close_prices:
+            return {
+                'has_data': False,
+                'message': 'No closing price data available for analysis'
+            }
+        
+        # Most recent price
+        latest_price = close_prices[-1] if close_prices else None
+        
+        # Calculate moving averages
+        ma_periods = [5, 10, 20, 50, 200]
+        moving_averages = {}
+        for period in ma_periods:
+            if len(close_prices) >= period:
+                moving_averages[period] = PriceService.calculate_simple_moving_average(close_prices, period)
+        
+        # Calculate RSI
+        rsi = PriceService.calculate_rsi(close_prices) if len(close_prices) >= 15 else None
+        
+        # Calculate Bollinger Bands
+        bollinger_bands = PriceService.calculate_bollinger_bands(close_prices) if len(close_prices) >= 20 else None
+        
+        # Trend analysis
+        is_uptrend = None
+        if 'MA5' in moving_averages and 'MA10' in moving_averages:
+            is_uptrend = moving_averages[5] > moving_averages[10]
+        
+        # Calculate price change over different periods
+        price_changes = {}
+        periods = [1, 5, 10, 30, 90]
+        for period in periods:
+            if len(close_prices) > period:
+                change = (close_prices[-1] - close_prices[-(period+1)]) / close_prices[-(period+1)] * 100
+                price_changes[f'{period}_day'] = change
+        
+        # Compile analysis results
+        analysis = {
+            'has_data': True,
+            'latest_price': latest_price,
+            'moving_averages': moving_averages,
+            'rsi': rsi,
+            'bollinger_bands': bollinger_bands,
+            'is_uptrend': is_uptrend,
+            'price_changes': price_changes,
+            'analysis_date': get_current_date().isoformat()
+        }
+        
+        # Add simple trading signals
+        analysis['signals'] = {}
+        
+        # RSI signals
+        if rsi is not None:
+            if rsi < 30:
+                analysis['signals']['rsi'] = 'oversold'
+            elif rsi > 70:
+                analysis['signals']['rsi'] = 'overbought'
+            else:
+                analysis['signals']['rsi'] = 'neutral'
+        
+        # MA crossover signals
+        if 5 in moving_averages and 20 in moving_averages:
+            if moving_averages[5] > moving_averages[20]:
+                analysis['signals']['ma_crossover'] = 'bullish'
+            else:
+                analysis['signals']['ma_crossover'] = 'bearish'
+        
+        # Bollinger Band signals
+        if bollinger_bands and bollinger_bands['upper'] and latest_price:
+            if latest_price > bollinger_bands['upper']:
+                analysis['signals']['bollinger'] = 'overbought'
+            elif latest_price < bollinger_bands['lower']:
+                analysis['signals']['bollinger'] = 'oversold'
+            else:
+                analysis['signals']['bollinger'] = 'neutral'
+        
+        return analysis

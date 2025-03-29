@@ -5,7 +5,7 @@ This service encapsulates all database interactions for the User model,
 providing a clean API for user management operations.
 """
 import logging
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -32,7 +32,7 @@ class UserService:
         Returns:
             User instance if found, None otherwise
         """
-        return User.find_by_username(session, username)
+        return session.query(User).filter(User.username == username).first()
     
     @staticmethod
     def find_by_email(session: Session, email: str) -> Optional[User]:
@@ -46,7 +46,7 @@ class UserService:
         Returns:
             User instance if found, None otherwise
         """
-        return User.find_by_email(session, email)
+        return session.query(User).filter(User.email == email).first()
     
     @staticmethod
     def find_by_username_or_email(session: Session, identifier: str) -> Optional[User]:
@@ -60,7 +60,9 @@ class UserService:
         Returns:
             User instance if found, None otherwise
         """
-        return User.find_by_username_or_email(session, identifier)
+        return session.query(User).filter(
+            or_(User.username == identifier, User.email == identifier)
+        ).first()
     
     @staticmethod
     def get_by_id(session: Session, user_id: int) -> Optional[User]:
@@ -74,7 +76,7 @@ class UserService:
         Returns:
             User instance if found, None otherwise
         """
-        return User.get_by_id(session, user_id)
+        return session.query(User).get(user_id)
     
     @staticmethod
     def get_or_404(session: Session, user_id: int) -> User:
@@ -107,7 +109,7 @@ class UserService:
         Returns:
             List of User instances
         """
-        return User.get_all(session)
+        return session.query(User).all()
     
     @staticmethod
     def create_user(session: Session, data: Dict[str, Any]) -> User:
@@ -261,33 +263,30 @@ class UserService:
         from app.services.events import EventService
         
         try:
-            # Toggle status
             user.is_active = not user.is_active
             user.updated_at = get_current_datetime()
-            
             session.commit()
             
             # Prepare response data
             user_data = user_schema.dump(user)
-            action = 'activated' if user.is_active else 'deactivated'
             
             # Emit WebSocket event
             EventService.emit_user_update(
-                action=action,
+                action='status_changed',
                 user_data=user_data,
                 user_id=user.id
             )
             
             return user
         except Exception as e:
-            logger.error(f"Error toggling user active status: {str(e)}")
+            logger.error(f"Error toggling user status: {str(e)}")
             session.rollback()
-            raise ValidationError(f"Could not toggle user active status: {str(e)}")
+            raise ValidationError(f"Could not toggle user status: {str(e)}")
     
     @staticmethod
     def login(session: Session, user: User) -> User:
         """
-        Record user login.
+        Update user's last login timestamp.
         
         Args:
             session: Database session
@@ -307,45 +306,43 @@ class UserService:
         
         Args:
             session: Database session
-            user: User to grant admin privileges to
-            granting_user_id: ID of the user granting admin privileges
+            user: User instance
+            granting_user_id: ID of user granting admin privileges
             
         Returns:
             Updated user instance
             
         Raises:
-            AuthorizationError: If the granting user is not an admin
+            AuthorizationError: If granting user is not an admin
         """
         from app.services.events import EventService
         
         try:
-            # Verify that granting user is an admin
-            granting_user = UserService.get_or_404(session, granting_user_id)
-            if not granting_user.is_admin:
-                raise AuthorizationError("Only administrators can grant admin privileges")
+            # Check if granting user is an admin
+            granting_user = UserService.get_by_id(session, granting_user_id)
+            if not granting_user or not granting_user.is_admin:
+                raise AuthorizationError("Only admins can grant admin privileges")
+                
+            # Set admin flag
+            user.is_admin = True
+            user.updated_at = get_current_datetime()
+            session.commit()
             
-            # Grant admin privileges if not already an admin
-            if not user.is_admin:
-                user.is_admin = True
-                user.updated_at = get_current_datetime()
-                session.commit()
-                
-                # Prepare response data
-                user_data = user_schema.dump(user)
-                
-                # Emit WebSocket event
-                EventService.emit_user_update(
-                    action='admin_granted',
-                    user_data=user_data,
-                    user_id=user.id,
-                    additional_data={'granted_by': granting_user_id}
-                )
+            # Prepare response data
+            user_data = user_schema.dump(user)
+            
+            # Emit WebSocket event
+            EventService.emit_user_update(
+                action='admin_granted',
+                user_data=user_data,
+                user_id=user.id
+            )
             
             return user
         except Exception as e:
             logger.error(f"Error granting admin privileges: {str(e)}")
             session.rollback()
-            if isinstance(e, AuthorizationError):
+            if isinstance(e, (AuthorizationError, ResourceNotFoundError)):
                 raise
             raise ValidationError(f"Could not grant admin privileges: {str(e)}")
     
@@ -356,22 +353,18 @@ class UserService:
         
         Args:
             session: Database session
-            user: User to delete
+            user: User instance
             
         Returns:
-            True if successful
-            
-        Raises:
-            ValidationError: If user cannot be deleted
+            True if user was deleted, False otherwise
         """
         from app.services.events import EventService
         
         try:
-            # Check if user has active services
-            if hasattr(user, 'services') and user.services and any(service.is_active for service in user.services):
-                raise ValidationError("Cannot delete user with active trading services")
-            
+            # Store ID for event emission
             user_id = user.id
+            
+            # Delete user
             session.delete(user)
             session.commit()
             
@@ -386,34 +379,31 @@ class UserService:
         except Exception as e:
             logger.error(f"Error deleting user: {str(e)}")
             session.rollback()
-            if isinstance(e, ValidationError):
-                raise
             raise ValidationError(f"Could not delete user: {str(e)}")
     
     @staticmethod
     def change_password(session: Session, user: User, current_password: str, new_password: str) -> User:
         """
-        Change a user's password.
+        Change user's password.
         
         Args:
             session: Database session
             user: User instance
             current_password: Current password for verification
-            new_password: New password
+            new_password: New password to set
             
         Returns:
             Updated user instance
             
         Raises:
-            AuthorizationError: If current password is incorrect
-            ValidationError: If new password is invalid
+            ValidationError: If current password is incorrect or new password is invalid
         """
         try:
             # Verify current password
             if not user.verify_password(current_password):
-                raise AuthorizationError("Current password is incorrect")
-            
-            # Set new password
+                raise ValidationError("Current password is incorrect")
+                
+            # Set new password (triggers validation)
             user.password = new_password
             user.updated_at = get_current_datetime()
             session.commit()
@@ -422,6 +412,43 @@ class UserService:
         except Exception as e:
             logger.error(f"Error changing password: {str(e)}")
             session.rollback()
-            if isinstance(e, (AuthorizationError, ValidationError)):
+            if isinstance(e, ValidationError):
                 raise
             raise ValidationError(f"Could not change password: {str(e)}")
+    
+    @staticmethod
+    def days_since_login(user: User) -> Optional[int]:
+        """
+        Calculate days since last login.
+        
+        Args:
+            user: User instance
+            
+        Returns:
+            Number of days since last login, or None if never logged in
+        """
+        if not user.last_login:
+            return None
+        return (get_current_datetime() - user.last_login).days
+    
+    @staticmethod
+    def user_to_dict(user: User) -> Dict[str, Any]:
+        """
+        Convert user to dictionary for API responses.
+        
+        Args:
+            user: User instance
+            
+        Returns:
+            Dictionary with user data
+        """
+        return {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'is_active': user.is_active,
+            'is_admin': user.is_admin,
+            'last_login': user.last_login.isoformat() if user.last_login else None,
+            'created_at': user.created_at.isoformat() if user.created_at else None,
+            'updated_at': user.updated_at.isoformat() if user.updated_at else None
+        }

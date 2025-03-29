@@ -11,7 +11,7 @@ serialization and additional helper methods.
 """
 import logging
 from enum import auto
-from typing import List, Dict, Optional, Any, Set
+from typing import Dict, Set
 
 from app.models.base import EnumBase
 

@@ -39,6 +39,9 @@ alwaysApply: true
 - API endpoints validate user permissions
 - WebSocket connections authenticated before establishing
 
+## Datetime Consistency
+- Always use the `/app/utils/current_datetime.py` utility when calculating current datetime timestamps, current date, and current time
+
 ## Project Structure
 When working with this codebase, you MUST:
 1. Place new models in `/app/models` with appropriate naming (lowercase, snake_case)

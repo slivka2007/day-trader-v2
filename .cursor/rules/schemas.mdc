@@ -1,0 +1,40 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+### Rules for Model API Schemas
+
+**Model API schemas** are responsible for defining the structure, validation, and serialization of data exchanged through the API. They act as a bridge between the internal data models and the external API, ensuring data consistency without encroaching on business logic or persistence concerns.
+
+1. **Define Data Structure for API**  
+   - Specify the fields exposed via the API, which may be a subset of the model's fields to limit exposure.  
+   - Include data types and transformations (e.g., converting dates to strings) needed for API compatibility.
+
+2. **Handle Serialization and Deserialization**  
+   - Convert model instances into JSON-serializable formats for API responses.  
+   - Transform incoming JSON data into Python objects suitable for internal processing.
+
+3. **Implement API-Level Validation**  
+   - Enforce rules for incoming data, such as required fields, data types, and format constraints.  
+   - Validate data before it reaches services to ensure API-specific expectations are met.
+
+4. **Avoid Business Logic**  
+   - Focus exclusively on data structure and validation; do not include computations or business rules.  
+   - Remain independent of database operations or service-layer details.
+
+5. **Support Nested Schemas**  
+   - Represent relationships between models using nested schemas for consistent API output.  
+   - Define how related data is structured (e.g., nested objects or IDs) without fetching it.
+
+6. **Provide Clear Error Messages**  
+   - Generate specific, actionable validation error messages to assist API clients.  
+   - Ensure errors are user-friendly and do not leak internal implementation details.
+
+7. **Define Relationships Representation**  
+   - Specify how related models appear in the schema (e.g., as nested objects or reference IDs).  
+   - Delegate the retrieval of related data to services, keeping schemas focused on structure.
+
+### Alignment with Encapsulation Strategy
+
+- **API Schemas** focus solely on data transformation and validation, remaining isolated from business logic (handled by services) and data structure (defined by models).

@@ -5,7 +5,7 @@ This service encapsulates all database interactions for the Stock model,
 providing a clean API for stock management operations.
 """
 import logging
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Set
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -36,7 +36,7 @@ class StockService:
         if not symbol:
             return None
             
-        return Stock.get_by_symbol(session, symbol)
+        return session.query(Stock).filter(Stock.symbol == symbol.upper()).first()
     
     @staticmethod
     def find_by_symbol_or_404(session: Session, symbol: str) -> Stock:
@@ -70,7 +70,7 @@ class StockService:
         Returns:
             Stock instance if found, None otherwise
         """
-        return Stock.get_by_id(session, stock_id)
+        return session.query(Stock).get(stock_id)
     
     @staticmethod
     def get_or_404(session: Session, stock_id: int) -> Stock:
@@ -103,7 +103,7 @@ class StockService:
         Returns:
             List of Stock instances
         """
-        return Stock.get_all(session)
+        return session.query(Stock).all()
     
     # Write operations
     @staticmethod
@@ -188,8 +188,8 @@ class StockService:
             if 'symbol' in data:
                 del data['symbol']
             
-            # Use the model's update_from_data method
-            updated = stock.update_from_data(data, allowed_fields)
+            # Update the stock attributes
+            updated = StockService.update_stock_attributes(stock, data, allowed_fields)
             
             # Only emit event if something was updated
             if updated:
@@ -213,6 +213,21 @@ class StockService:
             if isinstance(e, ValidationError):
                 raise
             raise ValidationError(f"Could not update stock: {str(e)}")
+    
+    @staticmethod
+    def update_stock_attributes(stock: Stock, data: Dict[str, Any], allowed_fields: Optional[Set[str]] = None) -> bool:
+        """
+        Update stock attributes directly without committing to the database.
+        
+        Args:
+            stock: Stock instance to update
+            data: Dictionary of attributes to update
+            allowed_fields: Set of field names that are allowed to be updated
+                           
+        Returns:
+            True if any fields were updated, False otherwise
+        """
+        return stock.update_from_dict(data, allowed_fields)
     
     @staticmethod
     def change_active_status(session: Session, stock: Stock, is_active: bool) -> Stock:
@@ -248,14 +263,14 @@ class StockService:
             
             return stock
         except Exception as e:
-            logger.error(f"Error changing stock active status: {str(e)}")
+            logger.error(f"Error changing stock status: {str(e)}")
             session.rollback()
-            raise ValidationError(f"Could not change stock active status: {str(e)}")
+            raise ValidationError(f"Could not change stock status: {str(e)}")
     
     @staticmethod
     def toggle_active(session: Session, stock: Stock) -> Stock:
         """
-        Toggle stock active status.
+        Toggle the active status of the stock.
         
         Args:
             session: Database session
@@ -269,38 +284,38 @@ class StockService:
     @staticmethod
     def delete_stock(session: Session, stock: Stock) -> bool:
         """
-        Delete a stock.
+        Delete a stock if it has no dependencies.
         
         Args:
             session: Database session
-            stock: Stock to delete
+            stock: Stock instance to delete
             
         Returns:
-            True if successful
+            True if stock was deleted, False otherwise
             
         Raises:
-            BusinessLogicError: If stock cannot be deleted due to dependencies
+            BusinessLogicError: If stock has dependencies
         """
         from app.services.events import EventService
         
         try:
-            # Check dependencies using the model's method
+            # Check for dependencies
             if stock.has_dependencies():
-                if stock.services and len(stock.services) > 0:
-                    raise BusinessLogicError(f"Cannot delete stock '{stock.symbol}' because it is used by trading services")
-                
-                if stock.transactions and len(stock.transactions) > 0:
-                    raise BusinessLogicError(f"Cannot delete stock '{stock.symbol}' because it has associated transactions")
+                raise BusinessLogicError(
+                    f"Cannot delete stock '{stock.symbol}' because it has associated trading services or transactions"
+                )
             
+            # Store symbol for event
             symbol = stock.symbol
-            stock_id = stock.id
+            
+            # Delete the stock
             session.delete(stock)
             session.commit()
             
             # Emit WebSocket event
             EventService.emit_stock_update(
                 action='deleted',
-                stock_data={'id': stock_id, 'symbol': symbol},
+                stock_data={'symbol': symbol},
                 stock_symbol=symbol
             )
             
@@ -310,25 +325,36 @@ class StockService:
             session.rollback()
             if isinstance(e, BusinessLogicError):
                 raise
-            raise BusinessLogicError(f"Could not delete stock: {str(e)}")
+            raise ValidationError(f"Could not delete stock: {str(e)}")
     
     @staticmethod
-    def get_latest_price(stock: Stock) -> Optional[float]:
+    def get_latest_price(session: Session, stock: Stock) -> Optional[float]:
         """
         Get the latest price for a stock.
         
         Args:
+            session: Database session
             stock: Stock instance
             
         Returns:
             Latest closing price if available, None otherwise
         """
-        return stock.get_latest_price()
-        
+        if not stock.daily_prices:
+            return None
+            
+        # Query to get the most recent price
+        from app.models.stock_daily_price import StockDailyPrice
+        latest_price = session.query(StockDailyPrice)\
+            .filter(StockDailyPrice.stock_id == stock.id)\
+            .order_by(StockDailyPrice.price_date.desc())\
+            .first()
+            
+        return latest_price.close_price if latest_price else None
+    
     @staticmethod
     def search_stocks(session: Session, query: str, limit: int = 10) -> List[Stock]:
         """
-        Search stocks by symbol or name.
+        Search for stocks by symbol or name.
         
         Args:
             session: Database session
@@ -338,4 +364,17 @@ class StockService:
         Returns:
             List of matching Stock instances
         """
-        return Stock.search_stocks(session, query, limit)
+        if not query:
+            return []
+            
+        # Search by symbol or name (case insensitive)
+        search_term = f"%{query}%"
+        return session.query(Stock)\
+            .filter(
+                or_(
+                    Stock.symbol.ilike(search_term),
+                    Stock.name.ilike(search_term)
+                )
+            )\
+            .limit(limit)\
+            .all()

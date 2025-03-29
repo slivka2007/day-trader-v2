@@ -3,22 +3,17 @@ User model.
 
 This model represents user accounts for authentication and authorization.
 """
-import logging
 import re
-from typing import Optional, List, TYPE_CHECKING, Dict, Any
-from datetime import datetime
+from typing import List, TYPE_CHECKING
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, or_
-from sqlalchemy.orm import relationship, Mapped, validates, Session
+from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy.orm import relationship, Mapped, validates
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from app.models.base import Base
 from app.utils.current_datetime import get_current_datetime
 if TYPE_CHECKING:
     from app.models.trading_service import TradingService
-
-# Set up logging
-logger = logging.getLogger(__name__)
 
 class User(Base):
     """
@@ -103,98 +98,6 @@ class User(Base):
         """Check if user has any active trading services."""
         return any(service.is_active for service in self.services)
     
-    @property
-    def days_since_login(self) -> Optional[int]:
-        """Get days since last login."""
-        if not self.last_login:
-            return None
-        return (get_current_datetime() - self.last_login).days
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert user to dictionary for API responses."""
-        return {
-            'id': self.id,
-            'username': self.username,
-            'email': self.email,
-            'is_active': self.is_active,
-            'is_admin': self.is_admin,
-            'last_login': self.last_login.isoformat() if self.last_login else None,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
-        
     def __repr__(self) -> str:
         """String representation."""
-        return f'<User {self.username}>'
-    
-    # Class methods for database queries
-    @classmethod
-    def get_by_id(cls, session: Session, user_id: int) -> Optional["User"]:
-        """
-        Get a user by ID.
-        
-        Args:
-            session: Database session
-            user_id: User ID to retrieve
-            
-        Returns:
-            User instance if found, None otherwise
-        """
-        return session.query(cls).get(user_id)
-    
-    @classmethod
-    def find_by_username(cls, session: Session, username: str) -> Optional["User"]:
-        """
-        Find a user by username.
-        
-        Args:
-            session: Database session
-            username: Username to search for
-            
-        Returns:
-            User instance if found, None otherwise
-        """
-        return session.query(cls).filter(cls.username == username).first()
-    
-    @classmethod
-    def find_by_email(cls, session: Session, email: str) -> Optional["User"]:
-        """
-        Find a user by email.
-        
-        Args:
-            session: Database session
-            email: Email to search for
-            
-        Returns:
-            User instance if found, None otherwise
-        """
-        return session.query(cls).filter(cls.email == email).first()
-    
-    @classmethod
-    def find_by_username_or_email(cls, session: Session, identifier: str) -> Optional["User"]:
-        """
-        Find a user by username or email.
-        
-        Args:
-            session: Database session
-            identifier: Username or email to search for
-            
-        Returns:
-            User instance if found, None otherwise
-        """
-        return session.query(cls).filter(
-            or_(cls.username == identifier, cls.email == identifier)
-        ).first()
-    
-    @classmethod
-    def get_all(cls, session: Session) -> List["User"]:
-        """
-        Get all users.
-        
-        Args:
-            session: Database session
-            
-        Returns:
-            List of User instances
-        """
-        return session.query(cls).all() 
+        return f'<User {self.username}>' 

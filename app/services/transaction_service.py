@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any, Union
 from decimal import Decimal
 from datetime import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_
+from sqlalchemy import and_
 
 from app.models.trading_transaction import TradingTransaction
 from app.models.trading_service import TradingService
@@ -39,7 +39,7 @@ class TransactionService:
         Returns:
             TradingTransaction instance if found, None otherwise
         """
-        return TradingTransaction.get_by_id(session, transaction_id)
+        return session.query(TradingTransaction).get(transaction_id)
     
     @staticmethod
     def get_or_404(session: Session, transaction_id: int) -> TradingTransaction:
@@ -78,7 +78,14 @@ class TransactionService:
             ValidationError: If state is invalid
         """
         try:
-            return TradingTransaction.get_by_service(session, service_id, state)
+            query = session.query(TradingTransaction).filter(TradingTransaction.service_id == service_id)
+            
+            if state:
+                if not TransactionState.is_valid(state):
+                    raise ValueError(f"Invalid transaction state: {state}")
+                query = query.filter(TradingTransaction.state == state)
+                
+            return query.order_by(TradingTransaction.purchase_date.desc()).all()
         except ValueError as e:
             # Convert ValueError from model to ValidationError for API consistency
             raise ValidationError(str(e))
@@ -95,7 +102,12 @@ class TransactionService:
         Returns:
             List of open transactions
         """
-        return TradingTransaction.get_open_transactions(session, service_id)
+        query = session.query(TradingTransaction).filter(TradingTransaction.state == TransactionState.OPEN.value)
+        
+        if service_id is not None:
+            query = query.filter(TradingTransaction.service_id == service_id)
+            
+        return query.order_by(TradingTransaction.purchase_date).all()
     
     @staticmethod
     def check_ownership(session: Session, transaction_id: int, user_id: int) -> bool:
@@ -141,6 +153,145 @@ class TransactionService:
             raise AuthorizationError(f"User {user_id} does not own the service for transaction {transaction_id}")
         
         return transaction
+    
+    @staticmethod
+    def duration_days(transaction: TradingTransaction) -> Optional[int]:
+        """
+        Get the duration of the transaction in days.
+        
+        Args:
+            transaction: TradingTransaction instance
+            
+        Returns:
+            Number of days the transaction has been open, or None if no purchase date
+        """
+        if not transaction.purchase_date:
+            return None
+            
+        end_date = transaction.sale_date if transaction.sale_date else get_current_datetime()
+        return (end_date - transaction.purchase_date).days
+    
+    @staticmethod
+    def total_cost(transaction: TradingTransaction) -> Decimal:
+        """
+        Calculate the total cost of a transaction's purchase.
+        
+        Args:
+            transaction: TradingTransaction instance
+            
+        Returns:
+            Total cost of the purchase
+        """
+        if transaction.purchase_price and transaction.shares:
+            return transaction.purchase_price * transaction.shares
+        return Decimal('0')
+    
+    @staticmethod
+    def total_revenue(transaction: TradingTransaction) -> Decimal:
+        """
+        Calculate the total revenue from a transaction's sale.
+        
+        Args:
+            transaction: TradingTransaction instance
+            
+        Returns:
+            Total revenue from the sale, or 0 if not sold
+        """
+        if transaction.sale_price and transaction.shares:
+            return transaction.sale_price * transaction.shares
+        return Decimal('0')
+    
+    @staticmethod
+    def profit_loss_percent(transaction: TradingTransaction) -> float:
+        """
+        Calculate the profit/loss as a percentage.
+        
+        Args:
+            transaction: TradingTransaction instance
+            
+        Returns:
+            Percentage profit or loss, or 0 if not applicable
+        """
+        if transaction.purchase_price and transaction.sale_price and transaction.purchase_price > 0:
+            return float(((transaction.sale_price - transaction.purchase_price) / transaction.purchase_price) * 100)
+        return 0.0
+    
+    @staticmethod
+    def transaction_to_dict(transaction: TradingTransaction) -> Dict[str, Any]:
+        """
+        Convert a transaction to a dictionary for API responses.
+        
+        Args:
+            transaction: TradingTransaction instance
+            
+        Returns:
+            Dictionary representation of the transaction
+        """
+        return {
+            'id': transaction.id,
+            'service_id': transaction.service_id,
+            'stock_id': transaction.stock_id,
+            'stock_symbol': transaction.stock_symbol,
+            'shares': float(transaction.shares) if transaction.shares else None,
+            'state': transaction.state,
+            'purchase_price': float(transaction.purchase_price) if transaction.purchase_price else None,
+            'sale_price': float(transaction.sale_price) if transaction.sale_price else None,
+            'gain_loss': float(transaction.gain_loss) if transaction.gain_loss else None,
+            'purchase_date': transaction.purchase_date.isoformat() if transaction.purchase_date else None,
+            'sale_date': transaction.sale_date.isoformat() if transaction.sale_date else None,
+            'notes': transaction.notes,
+            'created_at': transaction.created_at.isoformat() if transaction.created_at else None,
+            'updated_at': transaction.updated_at.isoformat() if transaction.updated_at else None,
+            'is_complete': transaction.is_complete,
+            'is_profitable': transaction.is_profitable,
+            'duration_days': TransactionService.duration_days(transaction),
+            'total_cost': float(TransactionService.total_cost(transaction)) if TransactionService.total_cost(transaction) else 0.0,
+            'total_revenue': float(TransactionService.total_revenue(transaction)) if TransactionService.total_revenue(transaction) else 0.0,
+            'profit_loss_percent': TransactionService.profit_loss_percent(transaction)
+        }
+    
+    @staticmethod
+    def transaction_from_dict(data: Dict[str, Any]) -> TradingTransaction:
+        """
+        Create a new transaction instance from a dictionary.
+        
+        Args:
+            data: Dictionary with transaction attributes
+            
+        Returns:
+            New TradingTransaction instance
+        """
+        return TradingTransaction(**{k: v for k, v in data.items() if k in [
+            'service_id', 'stock_id', 'stock_symbol', 'shares', 'state',
+            'purchase_price', 'sale_price', 'gain_loss', 'purchase_date',
+            'sale_date', 'notes'
+        ]})
+    
+    @staticmethod
+    def update_transaction_from_dict(transaction: TradingTransaction, data: Dict[str, Any]) -> bool:
+        """
+        Update transaction attributes from a dictionary.
+        
+        Args:
+            transaction: TradingTransaction instance to update
+            data: Dictionary with attribute key/value pairs
+            
+        Returns:
+            True if any fields were updated, False otherwise
+        """
+        updated = False
+        for key, value in data.items():
+            if hasattr(transaction, key) and key not in ['id', 'created_at', 'updated_at']:
+                if getattr(transaction, key) != value:
+                    setattr(transaction, key, value)
+                    updated = True
+        
+        # Recalculate gain/loss if needed
+        if ('sale_price' in data) and transaction.sale_price and transaction.purchase_price:
+            transaction.gain_loss = transaction.calculate_gain_loss()
+            updated = True
+            
+        return updated
     
     # Write operations
     @staticmethod
@@ -205,18 +356,17 @@ class TransactionService:
             transaction = TradingTransaction.from_dict(transaction_data)
             session.add(transaction)
             
-            # Update service
-            service.current_balance -= total_cost
-            service.current_shares += shares
-            service.buy_count += 1
-            service.mode = TradingMode.SELL.value
+            # Update service balance
+            service.current_balance -= Decimal(str(total_cost))
+            service.updated_at = get_current_datetime()
             
             session.commit()
             
-            # Emit WebSocket events
-            transaction_data = transaction.to_dict()
+            # Prepare response data
+            transaction_data = transaction_schema.dump(transaction)
             service_data = service_schema.dump(service)
             
+            # Emit WebSocket events
             EventService.emit_transaction_update(
                 action='created',
                 transaction_data=transaction_data,
@@ -224,44 +374,36 @@ class TransactionService:
             )
             
             EventService.emit_service_update(
-                action='updated',
+                action='balance_updated',
                 service_data=service_data,
                 service_id=service_id
             )
             
             return transaction
-            
-        except ValidationError:
-            session.rollback()
-            raise
-        except ResourceNotFoundError:
-            session.rollback()
-            raise
-        except BusinessLogicError:
-            session.rollback()
-            raise
         except Exception as e:
             logger.error(f"Error creating buy transaction: {str(e)}")
             session.rollback()
-            raise BusinessLogicError(f"Could not create buy transaction: {str(e)}")
+            if isinstance(e, (ValidationError, ResourceNotFoundError, BusinessLogicError)):
+                raise
+            raise ValidationError(f"Could not create buy transaction: {str(e)}")
     
     @staticmethod
     def complete_transaction(session: Session, transaction_id: int, sale_price: Decimal) -> TradingTransaction:
         """
-        Complete a transaction by selling shares.
+        Complete (sell) an open transaction.
         
         Args:
             session: Database session
             transaction_id: Transaction ID to complete
-            sale_price: Price per share for the sale
+            sale_price: Sale price per share
             
         Returns:
             Updated transaction instance
             
         Raises:
-            ValidationError: If sale price is invalid
-            ResourceNotFoundError: If transaction not found
-            BusinessLogicError: If transaction is already completed
+            ValidationError: If the sale price is invalid
+            ResourceNotFoundError: If the transaction doesn't exist
+            BusinessLogicError: If the transaction can't be completed (already completed/cancelled)
         """
         from app.services.events import EventService
         
@@ -270,40 +412,44 @@ class TransactionService:
             if sale_price <= 0:
                 raise ValidationError("Sale price must be greater than zero")
             
-            # Get the transaction
+            # Get transaction
             transaction = TransactionService.get_or_404(session, transaction_id)
             
             # Check if transaction can be completed
-            if transaction.state == TransactionState.CLOSED.value:
-                raise BusinessLogicError("Transaction is already completed")
+            if transaction.state != TransactionState.OPEN.value:
+                raise BusinessLogicError(f"Transaction cannot be completed because it is not open (current state: {transaction.state})")
             
-            if transaction.state == TransactionState.CANCELLED.value:
-                raise BusinessLogicError("Cannot complete a cancelled transaction")
+            # Get associated service
+            service = session.query(TradingService).filter_by(id=transaction.service_id).first()
+            if not service:
+                raise ResourceNotFoundError(f"Trading service with ID {transaction.service_id} not found")
             
             # Update transaction
-            transaction.update_from_dict({
-                'sale_price': sale_price,
-                'sale_date': get_current_datetime(),
-                'state': TransactionState.CLOSED.value
-            })
+            transaction.sale_price = sale_price
+            transaction.sale_date = get_current_datetime()
+            transaction.state = TransactionState.CLOSED.value
             
-            # Update service
-            service = transaction.service
-            service.current_balance += (transaction.sale_price * transaction.shares)
-            service.total_gain_loss += transaction.gain_loss
-            service.current_shares -= transaction.shares
-            service.sell_count += 1
+            # Calculate gain/loss
+            transaction.gain_loss = transaction.calculate_gain_loss()
             
-            # Change service mode to BUY if no shares left
-            if service.current_shares == 0:
-                service.mode = TradingMode.BUY.value
+            # Update service balance
+            sale_amount = Decimal(str(sale_price)) * Decimal(str(transaction.shares))
+            service.current_balance += sale_amount
+            service.updated_at = get_current_datetime()
+            
+            # Update profit/loss history
+            if transaction.gain_loss > 0:
+                service.total_profit += transaction.gain_loss
+            else:
+                service.total_loss += abs(transaction.gain_loss)
             
             session.commit()
             
-            # Emit WebSocket events
-            transaction_data = transaction.to_dict()
+            # Prepare response data
+            transaction_data = transaction_schema.dump(transaction)
             service_data = service_schema.dump(service)
             
+            # Emit WebSocket events
             EventService.emit_transaction_update(
                 action='completed',
                 transaction_data=transaction_data,
@@ -311,31 +457,23 @@ class TransactionService:
             )
             
             EventService.emit_service_update(
-                action='updated',
+                action='balance_updated',
                 service_data=service_data,
                 service_id=service.id
             )
             
             return transaction
-            
-        except ValidationError:
-            session.rollback()
-            raise
-        except ResourceNotFoundError:
-            session.rollback()
-            raise
-        except BusinessLogicError:
-            session.rollback()
-            raise
         except Exception as e:
             logger.error(f"Error completing transaction: {str(e)}")
             session.rollback()
-            raise BusinessLogicError(f"Could not complete transaction: {str(e)}")
+            if isinstance(e, (ValidationError, ResourceNotFoundError, BusinessLogicError)):
+                raise
+            raise ValidationError(f"Could not complete transaction: {str(e)}")
     
     @staticmethod
     def cancel_transaction(session: Session, transaction_id: int, reason: str = "User cancelled") -> TradingTransaction:
         """
-        Cancel a transaction.
+        Cancel an open transaction.
         
         Args:
             session: Database session
@@ -346,76 +484,65 @@ class TransactionService:
             Updated transaction instance
             
         Raises:
-            ResourceNotFoundError: If transaction not found
-            BusinessLogicError: If transaction cannot be cancelled
+            ResourceNotFoundError: If the transaction doesn't exist
+            BusinessLogicError: If the transaction can't be cancelled (already completed/cancelled)
         """
         from app.services.events import EventService
         
         try:
-            # Get the transaction
+            # Get transaction
             transaction = TransactionService.get_or_404(session, transaction_id)
             
             # Check if transaction can be cancelled
-            if transaction.state == TransactionState.CLOSED.value:
-                raise BusinessLogicError("Cannot cancel a completed transaction")
-                
-            if transaction.state == TransactionState.CANCELLED.value:
-                raise BusinessLogicError("Transaction is already cancelled")
-            
             if not transaction.can_be_cancelled:
-                raise BusinessLogicError("Transaction cannot be cancelled in its current state")
+                raise BusinessLogicError(f"Transaction cannot be cancelled because it is in state: {transaction.state}")
+            
+            # Get associated service
+            service = session.query(TradingService).filter_by(id=transaction.service_id).first()
+            if not service:
+                raise ResourceNotFoundError(f"Trading service with ID {transaction.service_id} not found")
             
             # Update transaction
-            transaction.update_from_dict({
-                'state': TransactionState.CANCELLED.value,
-                'notes': reason
-            })
+            transaction.state = TransactionState.CANCELLED.value
+            transaction.notes = f"{transaction.notes or ''}\nCancelled: {reason}".strip()
+            transaction.updated_at = get_current_datetime()
             
-            # Update service
-            service = transaction.service
-            service.current_balance += (transaction.purchase_price * transaction.shares)
-            service.current_shares -= transaction.shares
-            
-            # Change service mode to BUY if no shares left
-            if service.current_shares == 0:
-                service.mode = TradingMode.BUY.value
+            # Refund service balance
+            refund_amount = Decimal(str(transaction.purchase_price)) * Decimal(str(transaction.shares))
+            service.current_balance += refund_amount
+            service.updated_at = get_current_datetime()
             
             session.commit()
             
-            # Emit WebSocket events
-            transaction_data = transaction.to_dict()
+            # Prepare response data
+            transaction_data = transaction_schema.dump(transaction)
             service_data = service_schema.dump(service)
             
+            # Emit WebSocket events
             EventService.emit_transaction_update(
                 action='cancelled',
                 transaction_data=transaction_data,
-                service_id=service.id,
-                additional_data={'reason': reason}
+                service_id=service.id
             )
             
             EventService.emit_service_update(
-                action='updated',
+                action='balance_updated',
                 service_data=service_data,
                 service_id=service.id
             )
             
             return transaction
-            
-        except ResourceNotFoundError:
-            session.rollback()
-            raise
-        except BusinessLogicError:
-            session.rollback()
-            raise
         except Exception as e:
             logger.error(f"Error cancelling transaction: {str(e)}")
             session.rollback()
+            if isinstance(e, (ResourceNotFoundError, BusinessLogicError)):
+                raise
             raise BusinessLogicError(f"Could not cancel transaction: {str(e)}")
     
     @staticmethod
     def delete_transaction(session: Session, transaction_id: int) -> bool:
         """
-        Delete a transaction. Only cancelled transactions can be deleted.
+        Delete a transaction.
         
         Args:
             session: Database session
@@ -425,20 +552,22 @@ class TransactionService:
             True if successful
             
         Raises:
-            ResourceNotFoundError: If transaction not found
-            BusinessLogicError: If transaction cannot be deleted
+            ResourceNotFoundError: If the transaction doesn't exist
+            BusinessLogicError: If the transaction can't be deleted (is open)
         """
         from app.services.events import EventService
         
         try:
-            # Get the transaction
+            # Get transaction
             transaction = TransactionService.get_or_404(session, transaction_id)
             
-            # Check if transaction can be deleted
-            if transaction.state != TransactionState.CANCELLED.value:
-                raise BusinessLogicError("Cannot delete an open or closed transaction")
+            # Don't allow deletion of open transactions
+            if transaction.state == TransactionState.OPEN.value:
+                raise BusinessLogicError("Cannot delete an open transaction. Cancel it first.")
             
+            # Store service ID and transaction ID for event emission
             service_id = transaction.service_id
+            transaction_id = transaction.id
             
             # Delete transaction
             session.delete(transaction)
@@ -452,16 +581,11 @@ class TransactionService:
             )
             
             return True
-            
-        except ResourceNotFoundError:
-            session.rollback()
-            raise
-        except BusinessLogicError:
-            session.rollback()
-            raise
         except Exception as e:
             logger.error(f"Error deleting transaction: {str(e)}")
             session.rollback()
+            if isinstance(e, (ResourceNotFoundError, BusinessLogicError)):
+                raise
             raise BusinessLogicError(f"Could not delete transaction: {str(e)}")
     
     @staticmethod
@@ -472,145 +596,114 @@ class TransactionService:
         Args:
             session: Database session
             transaction_id: Transaction ID
-            notes: New notes
+            notes: New notes text
             
         Returns:
             Updated transaction instance
             
         Raises:
-            ResourceNotFoundError: If transaction not found
+            ResourceNotFoundError: If the transaction doesn't exist
         """
         from app.services.events import EventService
         
         try:
-            # Get the transaction
+            # Get transaction
             transaction = TransactionService.get_or_404(session, transaction_id)
             
             # Update notes
-            if transaction.notes != notes:
-                transaction.update_from_dict({
-                    'notes': notes,
-                    'updated_at': get_current_datetime()
-                })
-                
-                session.commit()
-                
-                # Emit WebSocket event
-                transaction_data = transaction.to_dict()
-                
-                EventService.emit_transaction_update(
-                    action='updated',
-                    transaction_data=transaction_data,
-                    service_id=transaction.service_id
-                )
+            transaction.notes = notes
+            transaction.updated_at = get_current_datetime()
+            
+            session.commit()
+            
+            # Prepare response data
+            transaction_data = transaction_schema.dump(transaction)
+            
+            # Emit WebSocket event
+            EventService.emit_transaction_update(
+                action='updated',
+                transaction_data=transaction_data,
+                service_id=transaction.service_id
+            )
             
             return transaction
-            
-        except ResourceNotFoundError:
-            session.rollback()
-            raise
         except Exception as e:
             logger.error(f"Error updating transaction notes: {str(e)}")
             session.rollback()
-            raise BusinessLogicError(f"Could not update transaction notes: {str(e)}")
+            if isinstance(e, ResourceNotFoundError):
+                raise
+            raise ValidationError(f"Could not update transaction notes: {str(e)}")
     
     @staticmethod
     def calculate_transaction_metrics(session: Session, service_id: int) -> Dict[str, Any]:
         """
-        Calculate metrics for transactions of a service.
+        Calculate metrics for a service's transactions.
         
         Args:
             session: Database session
             service_id: Service ID
             
         Returns:
-            Dictionary with transaction metrics
+            Dictionary of transaction metrics
         """
-        try:
-            # Get all transactions for the service
-            transactions = TransactionService.get_by_service(session, service_id)
-            
-            # Initialize metrics
-            metrics = {
-                'total_transactions': len(transactions),
-                'open_transactions': 0,
-                'closed_transactions': 0,
-                'cancelled_transactions': 0,
-                'total_bought': 0,
-                'total_sold': 0,
-                'total_gain_loss': 0,
-                'average_gain_loss_percent': 0,
-                'best_transaction': None,
-                'worst_transaction': None,
-                'average_transaction_duration_days': 0
-            }
-            
-            if not transactions:
-                return metrics
-            
-            # Calculate metrics
-            total_gain_loss_percent = 0
-            total_duration_days = 0
-            closed_count = 0
-            best_gain_percent = -float('inf')
-            worst_gain_percent = float('inf')
-            best_transaction = None
-            worst_transaction = None
-            
-            for transaction in transactions:
-                if transaction.state == TransactionState.OPEN.value:
-                    metrics['open_transactions'] += 1
-                    metrics['total_bought'] += float(transaction.total_cost)
-                elif transaction.state == TransactionState.CLOSED.value:
-                    metrics['closed_transactions'] += 1
-                    metrics['total_bought'] += float(transaction.total_cost)
-                    metrics['total_sold'] += float(transaction.total_revenue)
-                    metrics['total_gain_loss'] += float(transaction.gain_loss)
-                    
-                    # Calculate gain/loss percent
-                    gain_percent = transaction.profit_loss_percent
-                    total_gain_loss_percent += gain_percent
-                    
-                    # Track best and worst transactions
-                    if gain_percent > best_gain_percent:
-                        best_gain_percent = gain_percent
-                        best_transaction = transaction
-                    if gain_percent < worst_gain_percent:
-                        worst_gain_percent = gain_percent
-                        worst_transaction = transaction
-                    
-                    # Calculate duration
-                    if transaction.duration_days is not None:
-                        total_duration_days += transaction.duration_days
-                    
-                    closed_count += 1
-                elif transaction.state == TransactionState.CANCELLED.value:
-                    metrics['cancelled_transactions'] += 1
-            
-            # Calculate averages
-            if closed_count > 0:
-                metrics['average_gain_loss_percent'] = total_gain_loss_percent / closed_count
-                metrics['average_transaction_duration_days'] = total_duration_days / closed_count
-                
-                # Set best and worst transactions
-                if best_transaction:
-                    metrics['best_transaction'] = {
-                        'id': best_transaction.id,
-                        'stock_symbol': best_transaction.stock_symbol,
-                        'gain_percent': best_gain_percent,
-                        'gain_amount': float(best_transaction.gain_loss)
-                    }
-                
-                if worst_transaction:
-                    metrics['worst_transaction'] = {
-                        'id': worst_transaction.id,
-                        'stock_symbol': worst_transaction.stock_symbol,
-                        'gain_percent': worst_gain_percent,
-                        'gain_amount': float(worst_transaction.gain_loss)
-                    }
-            
+        from app.services.events import EventService
+        
+        metrics = {
+            'total_transactions': 0,
+            'open_transactions': 0,
+            'closed_transactions': 0,
+            'cancelled_transactions': 0,
+            'total_profit': 0.0,
+            'total_loss': 0.0,
+            'net_gain_loss': 0.0,
+            'average_profit_per_transaction': 0.0,
+            'average_loss_per_transaction': 0.0,
+            'profitable_transactions': 0,
+            'unprofitable_transactions': 0,
+            'win_rate': 0.0
+        }
+        
+        # Get all transactions for the service
+        transactions = TransactionService.get_by_service(session, service_id)
+        
+        if not transactions:
             return metrics
             
-        except Exception as e:
-            logger.error(f"Error calculating transaction metrics: {str(e)}")
-            raise BusinessLogicError(f"Could not calculate transaction metrics: {str(e)}")
+        # Count transactions by state
+        for t in transactions:
+            if t.state == TransactionState.OPEN.value:
+                metrics['open_transactions'] += 1
+            elif t.state == TransactionState.CLOSED.value:
+                metrics['closed_transactions'] += 1
+                
+                if t.is_profitable:
+                    metrics['profitable_transactions'] += 1
+                    metrics['total_profit'] += float(t.gain_loss or 0)
+                else:
+                    metrics['unprofitable_transactions'] += 1
+                    metrics['total_loss'] += abs(float(t.gain_loss or 0))
+            elif t.state == TransactionState.CANCELLED.value:
+                metrics['cancelled_transactions'] += 1
+                
+        metrics['total_transactions'] = len(transactions)
+        metrics['net_gain_loss'] = metrics['total_profit'] - metrics['total_loss']
+        
+        # Calculate averages and rates
+        if metrics['profitable_transactions'] > 0:
+            metrics['average_profit_per_transaction'] = metrics['total_profit'] / metrics['profitable_transactions']
+            
+        if metrics['unprofitable_transactions'] > 0:
+            metrics['average_loss_per_transaction'] = metrics['total_loss'] / metrics['unprofitable_transactions']
+            
+        if metrics['closed_transactions'] > 0:
+            metrics['win_rate'] = (metrics['profitable_transactions'] / metrics['closed_transactions']) * 100
+            
+        # Emit metrics update event
+        EventService.emit_metrics_update(
+            metric_type='transaction_stats',
+            metric_data=metrics,
+            resource_id=service_id,
+            resource_type='service'
+        )
+            
+        return metrics

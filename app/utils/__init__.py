@@ -19,7 +19,8 @@ from app.utils.errors import (
 from app.utils.auth import (
     verify_resource_ownership,
     require_ownership,
-    get_current_user
+    get_current_user,
+    admin_required
 )
 
 from app.utils.current_datetime import (
@@ -43,6 +44,7 @@ __all__ = [
     'verify_resource_ownership',
     'require_ownership',
     'get_current_user',
+    'admin_required',
     
     # Datetime utilities
     'get_current_datetime',

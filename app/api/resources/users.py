@@ -2,14 +2,14 @@
 User API resources.
 """
 import logging
-from flask import request, g, jsonify
+from flask import request, g
 from flask_restx import Resource, Namespace, fields
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token, create_refresh_token
 
 from app.models import User
 from app.api.schemas.user import user_schema, users_schema, user_create_schema, user_update_schema, user_delete_schema, user_login_schema, password_change_schema
 from app.utils.errors import ValidationError, ResourceNotFoundError, AuthorizationError, BusinessLogicError
-from app.api.decorators import admin_required
+from app.utils.auth import admin_required
 from app.services.database import get_db_session
 from app.services.user_service import UserService
 

@@ -2,17 +2,17 @@
 Stock API resources.
 """
 from flask import request, current_app
-from flask_restx import Namespace, Resource, fields, abort
+from flask_restx import Namespace, Resource, fields
 from sqlalchemy.exc import IntegrityError
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required
 
 from app.services.database import get_db_session
 from app.models import Stock
 from app.services.stock_service import StockService
 from app.api.schemas.stock import stock_schema, stocks_schema, stock_input_schema
 from app.api import apply_pagination, apply_filters
-from app.api.auth import admin_required
-from app.utils.errors import ValidationError, ResourceNotFoundError, AuthorizationError, BusinessLogicError
+from app.utils.auth import admin_required
+from app.utils.errors import ValidationError, BusinessLogicError
 
 # Create namespace
 api = Namespace('stocks', description='Stock operations')

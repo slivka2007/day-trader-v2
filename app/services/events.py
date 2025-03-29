@@ -228,4 +228,90 @@ class EventService:
         if details:
             payload['details'] = details
             
-        cls.emit('error', payload, room='errors') 
+        cls.emit('error', payload, room='errors')
+
+    @classmethod
+    def emit_metrics_update(cls, metric_type: str, metric_data: Dict[str, Any],
+                          resource_id: Optional[int] = None,
+                          resource_type: Optional[str] = None) -> None:
+        """
+        Emit a metrics update event for analytics dashboards.
+        
+        Args:
+            metric_type: The type of metrics (e.g., 'performance', 'transaction_stats')
+            metric_data: The metrics data
+            resource_id: Optional ID of the related resource
+            resource_type: Optional type of the related resource
+        """
+        payload = {
+            'type': metric_type,
+            'metrics': metric_data
+        }
+        
+        if resource_id is not None and resource_type:
+            payload['resource'] = {
+                'id': resource_id,
+                'type': resource_type
+            }
+            
+        # Emit to general metrics room
+        cls.emit('metrics_update', payload, room='metrics')
+        
+        # If resource details are provided, also emit to resource-specific room
+        if resource_id is not None and resource_type:
+            cls.emit('metrics_update', payload, room=f'{resource_type}_{resource_id}_metrics')
+
+    @classmethod
+    def emit_system_notification(cls, notification_type: str, message: str,
+                               severity: str = 'info',
+                               details: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Emit a system-wide notification event.
+        
+        Args:
+            notification_type: The type of notification (e.g., 'maintenance', 'alert')
+            message: The notification message
+            severity: The severity level ('info', 'warning', 'error', 'critical')
+            details: Optional additional details
+        """
+        payload = {
+            'type': notification_type,
+            'message': message,
+            'severity': severity
+        }
+        
+        if details:
+            payload['details'] = details
+            
+        # Emit to system notifications room
+        cls.emit('system_notification', payload, room='system')
+        
+        # Also emit to severity-specific room for filtered subscriptions
+        cls.emit('system_notification', payload, room=f'system_{severity}')
+
+    @classmethod
+    def emit_database_event(cls, operation: str, status: str,
+                          target: Optional[str] = None,
+                          details: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Emit a database operation event.
+        
+        Args:
+            operation: The operation performed (e.g., 'backup', 'restore', 'migration')
+            status: The operation status ('started', 'completed', 'failed')
+            target: Optional target of the operation (e.g., table name or backup file)
+            details: Optional additional details
+        """
+        payload = {
+            'operation': operation,
+            'status': status
+        }
+        
+        if target:
+            payload['target'] = target
+            
+        if details:
+            payload['details'] = details
+            
+        # Emit to database events room
+        cls.emit('database_event', payload, room='database_admin') 

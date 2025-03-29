@@ -11,9 +11,9 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Dict, List, Optional, TypeVar, Union, Set, Type, cast
+from typing import Any, Dict, List, Optional, TypeVar, Set
 
-from sqlalchemy import Column, Integer, DateTime, inspect
+from sqlalchemy import Column, Integer, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, class_mapper, ColumnProperty
 

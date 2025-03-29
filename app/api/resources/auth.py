@@ -3,20 +3,20 @@ Authentication API resources.
 
 This module contains JWT-based authentication endpoints and helpers.
 """
-from flask import request, current_app, jsonify
+from flask import request
 from flask_restx import Namespace, Resource, fields, abort
 from flask_jwt_extended import (
     create_access_token, 
     create_refresh_token,
     get_jwt_identity,
     jwt_required,
-    get_jwt
 )
-from werkzeug.security import generate_password_hash
 
 from app.services.database import get_db_session
 from app.models import User
 from app.utils.current_datetime import get_current_datetime
+from app.utils.auth import admin_required
+
 # Create namespace
 api = Namespace('auth', description='Authentication operations')
 
@@ -48,24 +48,6 @@ token_model = api.model('Token', {
 def handle_auth_error(error):
     """Return a custom error message and 401 status code."""
     return {'message': str(error)}, 401
-
-# Helper functions for role checking
-def admin_required(fn):
-    """Decorator to check if the user has admin privileges."""
-    @jwt_required()
-    def wrapper(*args, **kwargs):
-        # Get user ID from token
-        user_id = get_jwt_identity()
-        
-        # Check if user is admin
-        with get_db_session() as session:
-            user = session.query(User).filter_by(id=user_id).first()
-            if not user or not user.is_admin:
-                abort(403, "Admin privileges required")
-        
-        return fn(*args, **kwargs)
-    
-    return wrapper
 
 @api.route('/register')
 class Register(Resource):

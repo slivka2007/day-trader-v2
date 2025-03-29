@@ -17,6 +17,8 @@ from app.api.resources.stock_prices import api as stock_prices_api
 from app.api.resources.trading_services import api as trading_services_api
 from app.api.resources.trading_transactions import api as trading_transactions_api
 from app.api.resources.system import api as system_api
+from app.api.resources.auth import api as auth_api
+from app.api.resources.users import api as users_api
 
 # Make common imports available
 __all__ = [
@@ -37,7 +39,9 @@ api_resources = [
     stock_prices_api,
     trading_services_api,
     trading_transactions_api,
-    system_api
+    system_api,
+    auth_api,
+    users_api
 ]
 
 def register_resources(api: Api):

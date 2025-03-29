@@ -4,7 +4,6 @@ WebSocket event handlers for the Day Trader application.
 This module provides comprehensive event handlers for real-time updates via WebSockets.
 It handles connections, room management, and various event subscriptions.
 """
-from flask import current_app
 from flask_socketio import emit, join_room, leave_room
 import functools
 import logging
@@ -97,8 +96,17 @@ def register_handlers(socketio):
         - 'services': For all trading service updates
         - 'transactions': For all transaction updates
         - 'price_updates': For all stock price updates
+        - 'users': For user account updates
+        - 'stocks': For general stock updates
+        - 'metrics': For analytics dashboard updates
+        - 'system': For system-wide notifications
+        - 'system_{severity}': For filtered system notifications by severity
+        - 'errors': For error events
+        - 'data_feeds': For consolidated data feeds
+        - 'database_admin': For database operation events
         - 'service_{id}': For updates to a specific service (use service_id parameter)
         - 'stock_{symbol}': For updates to a specific stock (use symbol parameter)
+        - 'user_{id}': For updates to a specific user (use user_id parameter)
         
         Example:
         ```
@@ -216,22 +224,132 @@ def register_handlers(socketio):
         logger.debug(f"Client joined transactions room")
         emit('joined', {'room': room}, room=room)
 
-    logger.info('WebSocket event handlers registered')
-    return socketio
+    # ========== USER EVENT HANDLERS ==========
+    
+    @socketio.on('join_users')
+    @socketio_handler('join_users')
+    def join_users():
+        """
+        Join the users room to receive all user updates.
+        
+        This is a convenience method that joins the 'users' room.
+        For consistency, prefer using the generic 'join' event with the room parameter.
+        """
+        room = "users"
+        join_room(room)
+        logger.debug(f"Client joined users room")
+        emit('joined', {'room': room}, room=room)
+    
+    @socketio.on('user_watch')
+    @socketio_handler('user_watch')
+    def handle_user_watch(data):
+        """
+        Handle watching a specific user.
+        
+        This is a convenience method that joins the 'user_{id}' room.
+        For consistency, prefer using the generic 'join' event with the room parameter.
+        """
+        if not isinstance(data, dict) or 'user_id' not in data:
+            emit('error', create_error_response('Invalid user watch request',
+                                               details={'required_fields': ['user_id']}))
+            return
+            
+        user_id = data['user_id']
+        room = f'user_{user_id}'
+        logger.info(f'Client watching user ID: {user_id}')
+        join_room(room)
+        emit('watch_response', {'status': 'watching', 'type': 'user', 'id': user_id})
+    
+    # ========== METRICS EVENT HANDLERS ==========
+    
+    @socketio.on('join_metrics')
+    @socketio_handler('join_metrics')
+    def join_metrics():
+        """
+        Join the metrics room to receive all metrics updates.
+        
+        This is a convenience method that joins the 'metrics' room.
+        For consistency, prefer using the generic 'join' event with the room parameter.
+        """
+        room = "metrics"
+        join_room(room)
+        logger.debug(f"Client joined metrics room")
+        emit('joined', {'room': room}, room=room)
+    
+    # ========== SYSTEM NOTIFICATION HANDLERS ==========
+    
+    @socketio.on('join_system')
+    @socketio_handler('join_system')
+    def join_system(data=None):
+        """
+        Join the system notifications room.
+        
+        Optionally specify a severity to only receive notifications of that level.
+        Valid severity levels: 'info', 'warning', 'error', 'critical'
+        
+        This is a convenience method that joins the 'system' or 'system_{severity}' room.
+        For consistency, prefer using the generic 'join' event with the room parameter.
+        """
+        severity = None
+        if isinstance(data, dict) and 'severity' in data:
+            severity = data['severity']
+            if severity not in ['info', 'warning', 'error', 'critical']:
+                emit('error', create_error_response('Invalid severity level',
+                                                   details={'valid_levels': ['info', 'warning', 'error', 'critical']}))
+                return
+        
+        room = "system" if severity is None else f"system_{severity}"
+        join_room(room)
+        logger.debug(f"Client joined system notifications room: {room}")
+        emit('joined', {'room': room}, room=room)
+    
+    # ========== ERROR EVENT HANDLERS ==========
+    
+    @socketio.on('join_errors')
+    @socketio_handler('join_errors')
+    def join_errors():
+        """
+        Join the errors room to receive all error events.
+        
+        This is a convenience method that joins the 'errors' room.
+        For consistency, prefer using the generic 'join' event with the room parameter.
+        """
+        room = "errors"
+        join_room(room)
+        logger.debug(f"Client joined errors room")
+        emit('joined', {'room': room}, room=room)
+    
+    # ========== DATA FEED HANDLERS ==========
+    
+    @socketio.on('join_data_feeds')
+    @socketio_handler('join_data_feeds')
+    def join_data_feeds():
+        """
+        Join the data feeds room to receive consolidated data updates.
+        
+        This is a convenience method that joins the 'data_feeds' room.
+        For consistency, prefer using the generic 'join' event with the room parameter.
+        """
+        room = "data_feeds"
+        join_room(room)
+        logger.debug(f"Client joined data feeds room")
+        emit('joined', {'room': room}, room=room)
+    
+    # ========== DATABASE EVENT HANDLERS ==========
+    
+    @socketio.on('join_database_admin')
+    @socketio_handler('join_database_admin')
+    def join_database_admin():
+        """
+        Join the database_admin room to receive database operation events.
+        
+        This is a convenience method that joins the 'database_admin' room.
+        For consistency, prefer using the generic 'join' event with the room parameter.
+        """
+        room = "database_admin"
+        join_room(room)
+        logger.debug(f"Client joined database admin room")
+        emit('joined', {'room': room}, room=room)
 
-# Public function for initializing WebSockets in the main app
-def init_websockets(app):
-    """Initialize WebSocket handlers"""
-    from flask_socketio import SocketIO
-    
-    # Create SocketIO instance with CORS support
-    socketio = SocketIO(cors_allowed_origins="*")
-    socketio.init_app(app)
-    
-    # Register all event handlers
-    register_handlers(socketio)
-    
-    # Store reference in app for easy access from routes
-    app.socketio = socketio
-    
+    logger.info('WebSocket event handlers registered')
     return socketio 

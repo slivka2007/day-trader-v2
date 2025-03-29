@@ -5,7 +5,6 @@ from flask import request, current_app
 from flask_restx import Namespace, Resource, fields
 import platform
 import sys
-import os
 
 from app.utils.current_datetime import get_current_datetime
 

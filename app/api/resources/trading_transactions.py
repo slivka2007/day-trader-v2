@@ -2,21 +2,20 @@
 Trading Transactions API resources.
 """
 import logging
-from flask import request, current_app
-from flask_restx import Namespace, Resource, fields, abort
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask import request
+from flask_restx import Namespace, Resource, fields
+from flask_jwt_extended import jwt_required
 
 from app.services.database import get_db_session
 from app.models import TransactionState, TradingService
 from app.services.transaction_service import TransactionService
 from app.api.schemas.trading_transaction import (
     transaction_schema, 
-    transactions_schema,
     transaction_complete_schema,
     transaction_create_schema,
     transaction_cancel_schema
 )
-from app.api import apply_pagination, apply_filters
+from app.api import apply_pagination
 from app.utils.errors import ValidationError, ResourceNotFoundError, AuthorizationError, BusinessLogicError
 from app.utils.auth import require_ownership, verify_resource_ownership, get_current_user
 

@@ -8,7 +8,8 @@ from app.models.enums import (
     ServiceState, 
     TradingMode, 
     TransactionState,
-    PriceSource
+    PriceSource,
+    AnalysisTimeframe
 )
 
 # Import all model classes for SQLAlchemy's metadata
@@ -32,4 +33,5 @@ __all__ = [
     'TradingMode',
     'TransactionState',
     'PriceSource',
+    'AnalysisTimeframe',
 ] 

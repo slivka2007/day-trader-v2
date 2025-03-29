@@ -5,7 +5,6 @@ This module provides session management utilities including a context manager
 for automatic session handling and a decorator for wrapping functions that 
 require database access.
 """
-
 import logging
 import functools
 from typing import Callable, TypeVar

@@ -1,0 +1,55 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+### Rules for WebSocket Events to Enforce Encapsulation
+
+1. **Emit Events Exclusively from the Service Layer**  
+   - All business-related WebSocket events (e.g., "user updated," "order placed") should be emitted from the service layer, where the business logic lives.  
+   - This ties events directly to the execution of business operations, not to how the operation was triggered (like an API call).
+
+2. **Do Not Emit Events from API Resources**  
+   - API endpoints or resources should focus solely on handling HTTP requests and responses.  
+   - They must not call event emission methods directly, as this mixes concerns and breaks encapsulation.
+
+3. **Use Middleware or Decorators for API-Specific Events**  
+   - If you need events related to the API layer (e.g., "API request received" or "API call failed"), handle them separately using middleware or decorators.  
+   - Keep these API-specific events distinct from business events to maintain clarity.
+
+4. **Centralize Event Emission Logic**  
+   - Place all event emission code in the service layer to ensure consistency across all entry points (e.g., API, CLI, or background tasks).  
+   - This prevents scattered event logic and guarantees uniform behavior no matter how the application is accessed.
+
+5. **Decouple the API Layer from the Event System**  
+   - The API layer should not depend on or interact directly with the event system.  
+   - This separation makes it easier to update or replace either the API or the event system without affecting the other.
+
+6. **Handle Event Emission Errors in the Service Layer**  
+   - Catch and manage any errors that occur during event emission within the service layer.  
+   - Ensure these errors don’t disrupt the API response or the client experience, keeping the API layer unaffected.
+
+7. **Avoid Redundant Event Emissions**  
+   - Emit each event only once per business operation to prevent duplicates.  
+   - Redundant emissions can confuse downstream systems or lead to unnecessary processing.
+
+8. **Document Event Triggers Clearly**  
+   - Clearly document which service methods trigger specific WebSocket events.  
+   - This helps developers understand the event flow without digging through code, improving maintainability.
+
+### Why These Rules Matter
+
+- **Separation of Concerns**: The API layer handles HTTP traffic, while the service layer manages business logic and events. This keeps each layer focused on its job.
+- **Consistency**: Centralizing event emission in the service layer ensures events behave the same way regardless of how the application is used.
+- **Maintainability**: Decoupling layers and avoiding duplication makes the codebase easier to update and debug.
+- **Scalability**: A clean event system can handle growth—like adding new entry points—without breaking existing functionality.
+
+### Example in Practice
+
+Imagine an application where a user updates their profile:
+- **API Layer**: Receives the HTTP `PATCH /user` request and passes the data to the service layer.
+- **Service Layer**: Updates the user in the database and emits a `"user_updated"` WebSocket event.
+- **Event System**: Notifies all connected clients about the update.
+- **API Layer (again)**: Returns a `200 OK` response to the client, unaware of the event emission.
+
+If you need to log that the API request happened, middleware could emit an `"api_request_completed"` event separately, keeping it isolated from the business logic.

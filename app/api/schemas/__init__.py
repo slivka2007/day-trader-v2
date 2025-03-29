@@ -55,7 +55,8 @@ from app.api.schemas.stock_price import (
     intraday_price_schema,
     intraday_prices_schema,
     intraday_price_input_schema,
-    intraday_price_delete_schema
+    intraday_price_delete_schema,
+    BasePriceSchema
 )
 from app.api.schemas.user import (
     user_schema,
@@ -63,7 +64,8 @@ from app.api.schemas.user import (
     user_create_schema,
     user_update_schema,
     user_delete_schema,
-    user_login_schema
+    user_login_schema,
+    password_change_schema
 )
 
 __all__ = [
@@ -104,6 +106,7 @@ __all__ = [
     'intraday_prices_schema',
     'intraday_price_input_schema',
     'intraday_price_delete_schema',
+    'BasePriceSchema',
     # User schemas
     'user_schema',
     'users_schema',
@@ -111,4 +114,5 @@ __all__ = [
     'user_update_schema',
     'user_delete_schema',
     'user_login_schema',
+    'password_change_schema',
 ] 

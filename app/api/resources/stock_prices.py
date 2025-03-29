@@ -2,27 +2,24 @@
 Stock Prices API resources.
 """
 from flask import request, current_app
-from flask_restx import Namespace, Resource, fields, abort
+from flask_restx import Namespace, Resource, fields
 from datetime import datetime
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required
 
 from app.services.database import get_db_session
-from app.models import Stock, StockDailyPrice, StockIntradayPrice, PriceSource
+from app.models import StockDailyPrice, StockIntradayPrice
 from app.services.price_service import PriceService
 from app.services.stock_service import StockService
 from app.api import apply_pagination, apply_filters
-from app.api.auth import admin_required
-from app.utils.errors import ValidationError, ResourceNotFoundError, AuthorizationError, BusinessLogicError
-from app.utils.current_datetime import get_current_datetime, get_current_date
+from app.utils.auth import admin_required
+from app.utils.errors import ValidationError, ResourceNotFoundError, BusinessLogicError
 from app.api.schemas.stock_price import (
     daily_price_schema,
     daily_prices_schema,
     daily_price_input_schema,
-    daily_price_delete_schema,
     intraday_price_schema,
     intraday_prices_schema,
     intraday_price_input_schema,
-    intraday_price_delete_schema
 )
 
 # Create namespace
