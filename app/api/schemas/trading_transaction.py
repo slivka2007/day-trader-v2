@@ -6,7 +6,7 @@ from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
 
 from app.models import TradingTransaction, TransactionState
 from app.api.schemas import Schema
-from app.services.database import get_db_session
+from app.services.session_manager import SessionManager
 
 class TradingTransactionSchema(SQLAlchemyAutoSchema):
     """Schema for serializing/deserializing TradingTransaction models."""
@@ -122,11 +122,11 @@ class TransactionCreateSchema(Schema):
         """Validate the service is in a state where it can buy."""
         from app.models import TradingService
         
-        with get_db_session() as session:
+        with SessionManager() as session:
             service = session.query(TradingService).filter_by(id=data['service_id']).first()
             if not service:
                 raise ValidationError("Service not found")
-            if not service.can_buy:
+            if not service.can_buy:  # type: ignore
                 raise ValidationError("Service cannot make purchases in its current state")
             
             # If stock symbol not provided, use the one from service
@@ -158,12 +158,12 @@ class TransactionDeleteSchema(Schema):
             raise ValidationError("Must confirm deletion by setting 'confirm' to true")
         
         # Check if the transaction is in a state that allows deletion
-        with get_db_session() as session:
+        with SessionManager() as session:
             transaction = session.query(TradingTransaction).filter_by(id=data['transaction_id']).first()
             if not transaction:
                 raise ValidationError("Transaction not found")
             
-            if transaction.state != TransactionState.CANCELLED:
+            if transaction.state != TransactionState.CANCELLED:  # type: ignore
                 raise ValidationError("Cannot delete an open or closed transaction")
 
 # Create instances for easy importing

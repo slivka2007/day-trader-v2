@@ -37,7 +37,7 @@ class ServiceState(EnumBase):
     @classmethod
     def active_states(cls) -> Set[str]:
         """Get the set of states where the service is considered operational."""
-        return {cls.ACTIVE.value}
+        return {str(cls.ACTIVE.value)}
     
     @classmethod
     def is_active(cls, state: str) -> bool:
@@ -67,10 +67,10 @@ class TradingMode(EnumBase):
     def opposite_mode(cls, mode: str) -> str:
         """Get the opposite trading mode (BUY -> SELL, SELL -> BUY, HOLD -> HOLD)."""
         try:
-            if mode == cls.BUY.value:
-                return cls.SELL.value
-            elif mode == cls.SELL.value:
-                return cls.BUY.value
+            if mode == str(cls.BUY.value):
+                return str(cls.SELL.value)
+            elif mode == str(cls.SELL.value):
+                return str(cls.BUY.value)
             else:
                 return mode
         except Exception as e:
@@ -94,7 +94,7 @@ class TransactionState(EnumBase):
     @classmethod
     def terminal_states(cls) -> Set[str]:
         """Get the set of states where the transaction is considered complete."""
-        return {cls.CLOSED.value, cls.CANCELLED.value}
+        return {str(cls.CLOSED.value), str(cls.CANCELLED.value)}
     
     @classmethod
     def is_terminal(cls, state: str) -> bool:
@@ -131,10 +131,10 @@ class PriceSource(EnumBase):
     def for_display(cls) -> Dict[str, str]:
         """Get a dictionary of sources with display-friendly names."""
         return {
-            cls.REAL_TIME.value: "Real-Time",
-            cls.DELAYED.value: "Delayed (15min)",
-            cls.SIMULATED.value: "Simulated",
-            cls.HISTORICAL.value: "Historical"
+            str(cls.REAL_TIME.value): "Real-Time",
+            str(cls.DELAYED.value): "Delayed (15min)",
+            str(cls.SIMULATED.value): "Simulated",
+            str(cls.HISTORICAL.value): "Historical"
         }
 
 # Additional enumerations can be added here as needed
@@ -162,11 +162,11 @@ class AnalysisTimeframe(EnumBase):
     def get_days(cls, timeframe: str) -> int:
         """Get the approximate number of days in this timeframe."""
         days_map = {
-            cls.INTRADAY.value: 1,
-            cls.DAILY.value: 1,
-            cls.WEEKLY.value: 7,
-            cls.MONTHLY.value: 30,
-            cls.QUARTERLY.value: 90,
-            cls.YEARLY.value: 365
+            str(cls.INTRADAY.value): 1,
+            str(cls.DAILY.value): 1,
+            str(cls.WEEKLY.value): 7,
+            str(cls.MONTHLY.value): 30,
+            str(cls.QUARTERLY.value): 90,
+            str(cls.YEARLY.value): 365
         }
         return days_map.get(timeframe, 1) 

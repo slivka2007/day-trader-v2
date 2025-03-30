@@ -5,8 +5,9 @@ import logging
 from flask import request
 from flask_restx import Namespace, Resource, fields
 from flask_jwt_extended import jwt_required
+from http import HTTPStatus
 
-from app.services.database import get_db_session
+from app.services.session_manager import SessionManager
 from app.models import TransactionState, TradingService
 from app.services.transaction_service import TransactionService
 from app.api.schemas.trading_transaction import (
@@ -96,7 +97,7 @@ class TransactionList(Resource):
     @jwt_required()
     def get(self):
         """List all transactions for the current user."""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
@@ -143,11 +144,11 @@ class TransactionList(Resource):
                     for service_id in service_ids:
                         if 'state' in filters:
                             transactions = TransactionService.get_by_service(
-                                session, service_id, filters['state']
+                                session, int(service_id), filters['state']  # type: ignore
                             )
                         else:
                             transactions = TransactionService.get_by_service(
-                                session, service_id
+                                session, int(service_id)  # type: ignore
                             )
                             
                         all_transactions.extend(transactions)
@@ -158,15 +159,13 @@ class TransactionList(Resource):
                 
                 all_transactions = sorted(
                     all_transactions,
-                    key=lambda t: getattr(t, sort_field, t.purchase_date),
+                    key=lambda t: getattr(t, sort_field, t.purchase_date),  
                     reverse=(sort_order.lower() == 'desc')
                 )
                 
                 # Apply pagination
                 paginated_data = apply_pagination(
-                    items=[transaction_schema.dump(t) for t in all_transactions],
-                    page=request.args.get('page', 1, type=int),
-                    page_size=request.args.get('page_size', 20, type=int)
+                    query=all_transactions  # type: ignore
                 )
                 
                 return paginated_data
@@ -180,7 +179,7 @@ class TransactionList(Resource):
 
     @api.doc('create_transaction')
     @api.expect(transaction_create_model)
-    @api.marshal_with(transaction_model, code=201)
+    @api.marshal_with(transaction_model)
     @api.response(201, 'Transaction created')
     @api.response(400, 'Validation error')
     @api.response(401, 'Unauthorized')
@@ -192,14 +191,20 @@ class TransactionList(Resource):
         
         # Validate input data
         try:
-            validated_data = transaction_create_schema.load(data)
+            validated_data = transaction_create_schema.load(data or {})
         except ValidationError as err:
-            logger.warning(f"Validation error creating transaction: {err.messages}")
-            raise ValidationError("Invalid transaction data", errors=err.messages)
+            logger.warning(f"Validation error creating transaction: {str(err)}")
+            raise ValidationError("Invalid transaction data", errors={"general": [str(err)]})
             
-        service_id = validated_data['service_id']
+        # Safety check to ensure validated_data is a dictionary
+        if not validated_data or not isinstance(validated_data, dict):
+            raise ValidationError("Invalid transaction data format")
+            
+        service_id = validated_data.get('service_id')
+        if not service_id:
+            raise ValidationError("Missing service_id")
         
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user and verify service ownership
             user = get_current_user(session)
             if not user:
@@ -210,7 +215,7 @@ class TransactionList(Resource):
                 session=session,
                 resource_type='service',
                 resource_id=service_id,
-                user_id=user.id
+                user_id=user.id  # type: ignore
             )
                 
             try:
@@ -218,9 +223,9 @@ class TransactionList(Resource):
                 transaction = TransactionService.create_buy_transaction(
                     session=session,
                     service_id=service_id,
-                    stock_symbol=validated_data['stock_symbol'],
-                    shares=validated_data['shares'],
-                    purchase_price=validated_data['purchase_price']
+                    stock_symbol=validated_data.get('stock_symbol', ''),
+                    shares=validated_data.get('shares', 0),
+                    purchase_price=validated_data.get('purchase_price', 0)
                 )
                 
                 return transaction_schema.dump(transaction), 201
@@ -253,14 +258,14 @@ class TransactionItem(Resource):
     @require_ownership('transaction')
     def get(self, id):
         """Get a transaction by ID"""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
                 raise AuthorizationError("User not authenticated")
                 
             # Verify ownership and get transaction
-            transaction = TransactionService.verify_ownership(session, id, user.id)
+            transaction = TransactionService.verify_ownership(session, id, int(user.id))  # type: ignore
             return transaction_schema.dump(transaction)
             
     @api.doc('delete_transaction')
@@ -272,14 +277,14 @@ class TransactionItem(Resource):
     @require_ownership('transaction')
     def delete(self, id):
         """Delete a transaction."""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
                 raise AuthorizationError("User not authenticated")
                 
             # Verify ownership
-            TransactionService.verify_ownership(session, id, user.id)
+            TransactionService.verify_ownership(session, id, int(user.id))  # type: ignore
                 
             try:
                 # Delete the transaction
@@ -317,21 +322,21 @@ class TransactionComplete(Resource):
         
         # Validate input data
         try:
-            validated_data = transaction_complete_schema.load(data)
+            validated_data = transaction_complete_schema.load(data)  # type: ignore
         except ValidationError as err:
-            logger.warning(f"Validation error completing transaction: {err.messages}")
-            raise ValidationError("Invalid sale data", errors=err.messages)
+            logger.warning(f"Validation error completing transaction: {str(err)}")
+            raise ValidationError("Invalid sale data", errors={"general": [str(err)]})
             
-        sale_price = validated_data['sale_price']
+        sale_price = validated_data['sale_price']  # type: ignore
         
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
                 raise AuthorizationError("User not authenticated")
                 
             # Verify ownership
-            TransactionService.verify_ownership(session, id, user.id)
+            TransactionService.verify_ownership(session, id, int(user.id))  # type: ignore
                 
             try:
                 # Complete the transaction using the service layer
@@ -374,19 +379,19 @@ class TransactionCancel(Resource):
         try:
             validated_data = transaction_cancel_schema.load(data)
         except ValidationError as err:
-            logger.warning(f"Validation error cancelling transaction: {err.messages}")
-            raise ValidationError("Invalid cancellation data", errors=err.messages)
+            logger.warning(f"Validation error cancelling transaction: {str(err)}")  # type: ignore
+            raise ValidationError("Invalid cancellation data", errors={"general": [str(err)]})  # type: ignore
         
-        reason = validated_data.get('reason', 'User cancelled')
+        reason = validated_data.get('reason', 'User cancelled')  # type: ignore
         
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
                 raise AuthorizationError("User not authenticated")
                 
             # Verify ownership
-            TransactionService.verify_ownership(session, id, user.id)
+            TransactionService.verify_ownership(session, id, int(user.id))  # type: ignore
                 
             try:
                 # Cancel the transaction using the service layer
@@ -428,12 +433,12 @@ class ServiceTransactions(Resource):
     @require_ownership('service')
     def get(self, service_id):
         """Get all transactions for a specific trading service."""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Check if service exists and belongs to user
             # (require_ownership decorator already verifies ownership)
             service = session.query(TradingService).filter_by(id=service_id).first()
             if not service:
-                raise ResourceNotFoundError(f"TradingService with ID {service_id} not found")
+                raise ResourceNotFoundError(f"TradingService with ID {service_id} not found", resource_id=service_id)
             
             # Get transactions for this service
             state = request.args.get('state')
@@ -451,15 +456,13 @@ class ServiceTransactions(Resource):
                 
                 transactions = sorted(
                     transactions,
-                    key=lambda t: getattr(t, sort_field, t.purchase_date),
+                    key=lambda t: getattr(t, sort_field, t.purchase_date),  # type: ignore
                     reverse=(sort_order.lower() == 'desc')
                 )
                     
                 # Apply pagination
                 paginated_data = apply_pagination(
-                    items=[transaction_schema.dump(t) for t in transactions],
-                    page=request.args.get('page', 1, type=int),
-                    page_size=request.args.get('page_size', 20, type=int)
+                    query=transactions
                 )
                 
                 return paginated_data
@@ -492,21 +495,21 @@ class TransactionNotes(Resource):
         """Update transaction notes"""
         data = request.json
         
-        if 'notes' not in data:
+        if 'notes' not in data:  # type: ignore
             raise ValidationError("Missing required field", errors={'notes': ['Field is required']})
         
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
                 raise AuthorizationError("User not authenticated")
                 
             # Verify ownership
-            TransactionService.verify_ownership(session, id, user.id)
+            TransactionService.verify_ownership(session, id, int(user.id))  # type: ignore
                 
             try:
                 # Update notes using the service layer
-                transaction = TransactionService.update_transaction_notes(session, id, data['notes'])
+                transaction = TransactionService.update_transaction_notes(session, id, data['notes'])  # type: ignore
                 return transaction_schema.dump(transaction)
                 
             except ResourceNotFoundError as e:
@@ -530,12 +533,12 @@ class TransactionMetrics(Resource):
     @require_ownership('service')
     def get(self, service_id):
         """Get metrics for transactions of a service"""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Check if service exists and belongs to user
             # (require_ownership decorator already verifies ownership)
             service = session.query(TradingService).filter_by(id=service_id).first()
             if not service:
-                raise ResourceNotFoundError(f"TradingService with ID {service_id} not found")
+                raise ResourceNotFoundError(f"TradingService with ID {service_id} not found", resource_id=service_id)
             
             try:
                 # Calculate metrics using the service layer

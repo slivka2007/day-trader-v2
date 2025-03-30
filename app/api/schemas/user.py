@@ -7,7 +7,7 @@ from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
 
 from app.models import User
 from app.api.schemas import Schema
-from app.services.database import get_db_session
+from app.services.session_manager import SessionManager
 from app.utils.current_datetime import get_current_datetime
 
 class UserSchema(SQLAlchemyAutoSchema):
@@ -63,7 +63,7 @@ class UserCreateSchema(Schema):
             raise ValidationError('Username must contain only letters, numbers and underscores')
         
         # Check if username already exists
-        with get_db_session() as session:
+        with SessionManager() as session:
             existing_user = session.query(User).filter_by(username=username).first()
             if existing_user:
                 raise ValidationError('Username already exists')
@@ -72,7 +72,7 @@ class UserCreateSchema(Schema):
     def validate_email(self, email):
         """Validate email format and uniqueness."""
         # Check if email already exists
-        with get_db_session() as session:
+        with SessionManager() as session:
             existing_user = session.query(User).filter_by(email=email).first()
             if existing_user:
                 raise ValidationError('Email address already exists')
@@ -160,7 +160,7 @@ class UserDeleteSchema(Schema):
             raise ValidationError("Must confirm deletion by setting 'confirm' to true")
         
         # Verify the user exists and password is correct
-        with get_db_session() as session:
+        with SessionManager() as session:
             user = session.query(User).filter_by(id=data['user_id']).first()
             if not user:
                 raise ValidationError("User not found")
@@ -181,7 +181,7 @@ class UserLoginSchema(Schema):
     @validates_schema
     def validate_credentials(self, data, **kwargs):
         """Validate username exists."""
-        with get_db_session() as session:
+        with SessionManager() as session:
             user = session.query(User).filter_by(username=data.get('username')).first()
             if not user:
                 raise ValidationError("Invalid username or password")

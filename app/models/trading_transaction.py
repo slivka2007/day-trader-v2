@@ -89,22 +89,22 @@ class TradingTransaction(Base):
     @property
     def is_complete(self) -> bool:
         """Check if the transaction is completed (sold)."""
-        return self.state == TransactionState.CLOSED.value
+        return self.state == TransactionState.CLOSED.value  # type: ignore
 
     @property
     def is_profitable(self) -> bool:
         """Check if the transaction is profitable."""
-        if not self.is_complete or self.gain_loss is None:
+        if not self.is_complete or self.gain_loss is None:  # type: ignore
             return False
-        return Decimal(str(self.gain_loss)) > 0
+        return Decimal(str(self.gain_loss)) > 0  # type: ignore
     
     @property
     def can_be_cancelled(self) -> bool:
         """Check if the transaction can be cancelled."""
-        return TransactionState.can_be_cancelled(self.state)
+        return TransactionState.can_be_cancelled(self.state)  # type: ignore
     
     def calculate_gain_loss(self) -> Decimal:
         """Calculate the gain/loss amount based on current prices."""
-        if self.sale_price and self.purchase_price and self.shares:
-            return (self.sale_price - self.purchase_price) * self.shares
+        if self.sale_price and self.purchase_price and self.shares:  # type: ignore
+            return (self.sale_price - self.purchase_price) * self.shares  # type: ignore
         return Decimal('0')

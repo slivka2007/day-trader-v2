@@ -95,7 +95,7 @@ class UserService:
         """
         user = UserService.get_by_id(session, user_id)
         if not user:
-            raise ResourceNotFoundError(f"User with ID {user_id} not found")
+            raise ResourceNotFoundError(f"User with ID {user_id} not found", resource_id=user_id)
         return user
     
     @staticmethod
@@ -165,8 +165,8 @@ class UserService:
             # Emit WebSocket event
             EventService.emit_user_update(
                 action='created',
-                user_data=user_data,
-                user_id=user.id
+                user_data=user_data if isinstance(user_data, dict) else user_data[0],    
+                user_id=int(str(user.id))
             )
             
             return user
@@ -227,7 +227,7 @@ class UserService:
             
             # Only commit if something was updated
             if updated:
-                user.updated_at = get_current_datetime()
+                setattr(user, 'updated_at', get_current_datetime())    
                 session.commit()
                 
                 # Prepare response data
@@ -236,8 +236,8 @@ class UserService:
                 # Emit WebSocket event
                 EventService.emit_user_update(
                     action='updated',
-                    user_data=user_data,
-                    user_id=user.id
+                    user_data=user_data if isinstance(user_data, dict) else user_data[0],    
+                    user_id=int(str(user.id))
                 )
             
             return user
@@ -263,8 +263,8 @@ class UserService:
         from app.services.events import EventService
         
         try:
-            user.is_active = not user.is_active
-            user.updated_at = get_current_datetime()
+            setattr(user, 'is_active', not bool(user.is_active))    
+            setattr(user, 'updated_at', get_current_datetime())    
             session.commit()
             
             # Prepare response data
@@ -273,8 +273,8 @@ class UserService:
             # Emit WebSocket event
             EventService.emit_user_update(
                 action='status_changed',
-                user_data=user_data,
-                user_id=user.id
+                user_data=user_data if isinstance(user_data, dict) else user_data[0],    
+                user_id=int(str(user.id))
             )
             
             return user
@@ -295,7 +295,7 @@ class UserService:
         Returns:
             Updated user instance
         """
-        user.last_login = get_current_datetime()
+        setattr(user, 'last_login', get_current_datetime())    
         session.commit()
         return user
     
@@ -320,12 +320,12 @@ class UserService:
         try:
             # Check if granting user is an admin
             granting_user = UserService.get_by_id(session, granting_user_id)
-            if not granting_user or not granting_user.is_admin:
+            if not granting_user or not bool(granting_user.is_admin):    
                 raise AuthorizationError("Only admins can grant admin privileges")
                 
             # Set admin flag
-            user.is_admin = True
-            user.updated_at = get_current_datetime()
+            setattr(user, 'is_admin', True)    
+            setattr(user, 'updated_at', get_current_datetime())    
             session.commit()
             
             # Prepare response data
@@ -334,8 +334,8 @@ class UserService:
             # Emit WebSocket event
             EventService.emit_user_update(
                 action='admin_granted',
-                user_data=user_data,
-                user_id=user.id
+                user_data=user_data if isinstance(user_data, dict) else user_data[0],    
+                user_id=int(str(user.id))
             )
             
             return user
@@ -372,7 +372,7 @@ class UserService:
             EventService.emit_user_update(
                 action='deleted',
                 user_data={'id': user_id},
-                user_id=user_id
+                user_id=int(str(user_id))
             )
             
             return True
@@ -405,7 +405,7 @@ class UserService:
                 
             # Set new password (triggers validation)
             user.password = new_password
-            user.updated_at = get_current_datetime()
+            setattr(user, 'updated_at', get_current_datetime())    
             session.commit()
             
             return user
@@ -427,7 +427,7 @@ class UserService:
         Returns:
             Number of days since last login, or None if never logged in
         """
-        if not user.last_login:
+        if user.last_login is None:    
             return None
         return (get_current_datetime() - user.last_login).days
     
@@ -448,7 +448,7 @@ class UserService:
             'email': user.email,
             'is_active': user.is_active,
             'is_admin': user.is_admin,
-            'last_login': user.last_login.isoformat() if user.last_login else None,
-            'created_at': user.created_at.isoformat() if user.created_at else None,
-            'updated_at': user.updated_at.isoformat() if user.updated_at else None
+            'last_login': user.last_login.isoformat() if user.last_login is not None else None,    
+            'created_at': user.created_at.isoformat() if user.created_at is not None else None,    
+            'updated_at': user.updated_at.isoformat() if user.updated_at is not None else None    
         }

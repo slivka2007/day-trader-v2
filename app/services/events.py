@@ -5,13 +5,25 @@ This module centralizes WebSocket event emission logic to ensure consistent
 formatting and behavior across the application.
 """
 import logging
-from typing import Dict, Any, Optional
-from flask import current_app
+from typing import Dict, Any, Optional, cast, TypedDict
+from flask import current_app, Flask
 
 from app.utils.current_datetime import get_current_datetime
 
 logger = logging.getLogger(__name__)
 
+# Type definitions for payload dictionaries
+class PayloadDict(TypedDict, total=False):
+    timestamp: str
+    action: str
+    message: str
+    type: str
+    error: bool
+    code: int
+    details: Dict[str, Any]
+    operation: str
+    status: str
+    target: str
 
 class EventService:
     """Service for emitting standardized WebSocket events."""
@@ -30,7 +42,8 @@ class EventService:
         """
         try:
             # Ensure socketio is available
-            if not hasattr(current_app, 'socketio'):
+            app = cast(Any, current_app)
+            if not hasattr(app, 'socketio'):
                 logger.warning("SocketIO not initialized, skipping event emission")
                 return
                 
@@ -39,7 +52,7 @@ class EventService:
                 data['timestamp'] = get_current_datetime().isoformat()
                 
             # Emit the event
-            current_app.socketio.emit(event_type, data, room=room)
+            app.socketio.emit(event_type, data, room=room)
             logger.debug(f"Emitted {event_type} event to room {room}")
             
         except Exception as e:
@@ -274,7 +287,7 @@ class EventService:
             severity: The severity level ('info', 'warning', 'error', 'critical')
             details: Optional additional details
         """
-        payload = {
+        payload: Dict[str, Any] = {
             'type': notification_type,
             'message': message,
             'severity': severity
@@ -302,7 +315,7 @@ class EventService:
             target: Optional target of the operation (e.g., table name or backup file)
             details: Optional additional details
         """
-        payload = {
+        payload: Dict[str, Any] = {
             'operation': operation,
             'status': status
         }

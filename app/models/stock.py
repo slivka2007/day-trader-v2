@@ -95,7 +95,7 @@ class Stock(Base):
         Returns:
             True if stock has dependencies, False otherwise
         """
-        return (
-            (self.services and len(self.services) > 0) or
-            (self.transactions and len(self.transactions) > 0)
+        return bool(
+            (self.services is not None and len(self.services) > 0) or
+            (self.transactions is not None and len(self.transactions) > 0)
         )

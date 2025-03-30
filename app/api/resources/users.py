@@ -10,7 +10,7 @@ from app.models import User
 from app.api.schemas.user import user_schema, users_schema, user_create_schema, user_update_schema, user_delete_schema, user_login_schema, password_change_schema
 from app.utils.errors import ValidationError, ResourceNotFoundError, AuthorizationError, BusinessLogicError
 from app.utils.auth import admin_required
-from app.services.database import get_db_session
+from app.services.session_manager import SessionManager
 from app.services.user_service import UserService
 
 # Set up logging
@@ -86,7 +86,7 @@ class UserList(Resource):
     def get(self):
         """Get all users."""
         try:
-            with get_db_session() as session:
+            with SessionManager() as session:
                 users = UserService.get_all(session)
                 return users_schema.dump(users)
         except Exception as e:
@@ -100,15 +100,15 @@ class UserList(Resource):
     def post(self):
         """Create a new user."""
         try:
-            data = request.json
+            data = request.json or {}
             # Validate input with schema
-            errors = user_create_schema.validate(data)
+            errors = user_create_schema.validate(data)  
             if errors:
-                raise ValidationError(f"Invalid input data: {errors}")
+                raise ValidationError(f"Invalid input data: {errors}")  
             
-            with get_db_session() as session:
+            with SessionManager() as session:
                 # Use the user service to create user
-                created_user = UserService.create_user(session, data)
+                created_user = UserService.create_user(session, data)  
                 return user_schema.dump(created_user), 201
                 
         except ValidationError as e:
@@ -135,7 +135,7 @@ class UserDetail(Resource):
             if not g.user.is_admin and g.user.id != id:
                 raise AuthorizationError("Not authorized to view this user")
                 
-            with get_db_session() as session:
+            with SessionManager() as session:
                 user = UserService.get_or_404(session, id)
                 return user_schema.dump(user)
         except (ResourceNotFoundError, AuthorizationError) as e:
@@ -158,21 +158,21 @@ class UserDetail(Resource):
             if not g.user.is_admin and g.user.id != id:
                 raise AuthorizationError("Not authorized to update this user")
                 
-            data = request.json
+            data = request.json or {}
             # Validate input with schema
-            errors = user_update_schema.validate(data)
+            errors = user_update_schema.validate(data)  
             if errors:
                 raise ValidationError(f"Invalid input data: {errors}")
             
-            with get_db_session() as session:
+            with SessionManager() as session:
                 user = UserService.get_or_404(session, id)
                 
                 # Non-admins cannot set admin status
-                if not g.user.is_admin and 'is_admin' in data:
+                if not g.user.is_admin and 'is_admin' in data:  
                     raise AuthorizationError("Not authorized to set admin status")
                 
                 # Use UserService to update user
-                updated_user = UserService.update_user(session, user, data)
+                updated_user = UserService.update_user(session, user, data)  
                 return user_schema.dump(updated_user)
                 
         except (ValidationError, ResourceNotFoundError, AuthorizationError) as e:
@@ -192,7 +192,7 @@ class UserDetail(Resource):
     def delete(self, id):
         """Delete a user."""
         try:
-            data = request.json
+            data = request.json or {}
             data['user_id'] = id  # Ensure the ID matches the URL
             
             # Validate deletion request
@@ -204,7 +204,7 @@ class UserDetail(Resource):
             if not g.user.verify_password(data['password']):
                 raise AuthorizationError("Invalid admin password")
             
-            with get_db_session() as session:
+            with SessionManager() as session:
                 user = UserService.get_or_404(session, id)
                 
                 # Cannot delete self
@@ -238,16 +238,16 @@ class UserLogin(Resource):
     def post(self):
         """Authenticate a user and return tokens."""
         try:
-            data = request.json
+            data = request.json or {}
             # Validate input format
             errors = user_login_schema.validate(data)
             if errors:
                 raise ValidationError(f"Invalid login data: {errors}")
             
-            username = data.get('username')
-            password = data.get('password')
+            username = data.get('username', '')
+            password = data.get('password', '')
             
-            with get_db_session() as session:
+            with SessionManager() as session:
                 user = UserService.find_by_username(session, username)
                 
                 # Check if user exists and password is correct
@@ -255,7 +255,7 @@ class UserLogin(Resource):
                     raise AuthorizationError("Invalid username or password")
                 
                 # Check if user is active
-                if not user.is_active:
+                if not user.is_active:  # type: ignore
                     raise AuthorizationError("Account is disabled")
                 
                 # Record login with UserService
@@ -291,19 +291,19 @@ class PasswordChange(Resource):
     def post(self):
         """Change user password."""
         try:
-            data = request.json
+            data = request.json or {}
             # Validate input format
             errors = password_change_schema.validate(data)
             if errors:
                 raise ValidationError(f"Invalid password change data: {errors}")
             
-            current_password = data.get('current_password')
-            new_password = data.get('new_password')
+            current_password = data.get('current_password', '')
+            new_password = data.get('new_password', '')
             
             # Get the current user
             user_id = get_jwt_identity()
             
-            with get_db_session() as session:
+            with SessionManager() as session:
                 user = UserService.get_or_404(session, user_id)
                 
                 # Use UserService to change password
@@ -336,11 +336,11 @@ class TokenRefresh(Resource):
             # Get user identity from refresh token
             user_id = get_jwt_identity()
             
-            with get_db_session() as session:
+            with SessionManager() as session:
                 user = UserService.get_or_404(session, user_id)
                 
                 # Check if user is still active
-                if not user.is_active:
+                if not user.is_active:  # type: ignore
                     raise AuthorizationError("Account is disabled")
                 
                 # Generate new access token
@@ -371,7 +371,7 @@ class UserToggleActive(Resource):
     def post(self, id):
         """Toggle user active status."""
         try:
-            with get_db_session() as session:
+            with SessionManager() as session:
                 user = UserService.get_or_404(session, id)
                 
                 # Cannot deactivate self
@@ -403,7 +403,7 @@ class CurrentUser(Resource):
         try:
             user_id = get_jwt_identity()
             
-            with get_db_session() as session:
+            with SessionManager() as session:
                 user = UserService.get_or_404(session, user_id)
                 return user_schema.dump(user)
                 

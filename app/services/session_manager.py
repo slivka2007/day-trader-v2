@@ -39,15 +39,19 @@ class SessionManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is not None:
             logger.error(f"Session rolled back due to exception: {exc_val}")
-            self.session.rollback()
+            if self.session:
+                self.session.rollback()
         else:
             try:
-                self.session.commit()
+                if self.session:
+                    self.session.commit()
             except Exception as e:
                 logger.error(f"Failed to commit session: {e}")
-                self.session.rollback()
+                if self.session:
+                    self.session.rollback()
                 raise
-        self.session.close()
+        if self.session:
+            self.session.close()
 
 
 def with_session(func: Callable[..., T]) -> Callable[..., T]:

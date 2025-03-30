@@ -1,166 +1,291 @@
 # day-trader-v1
-The application is designed to generate revenue by automatically trading stocks.
 
 ## Overview
-The application is designed to generate revenue by automatically trading stocks in which the user wishes to take a long (bullish) position. It continuously cycles between buying and selling a specified stock based on signals from decision-making APIs until the user disables the service. The system leverages a simple database to track services and transactions, and it integrates with a mock trading system that simulates market behavior for testing purposes. A web dashboard allows users to monitor and control trading services in real-time.
+DayTrader is a comprehensive algorithmic trading platform that automates stock trading based on configurable strategies and technical analysis. Built on a three-layer architecture (Model, Service, API), the system features a Flask-based RESTful API backend with WebSocket support for real-time updates, an extensive service layer for business logic, and a robust relational database model for persistent storage.
 
-## Project Structure
+The platform allows users to create and manage multiple trading services, each dedicated to a specific stock symbol. These services continuously analyze price data and execute buy/sell decisions based on technical indicators and configurable thresholds. The system tracks all transactions, calculates performance metrics, and provides real-time notifications of market activities.
 
-- **Backend**
-  - `/app` - Main application package
-    - `/api` - REST API implementation
-      - `/resources` - Flask-RestX resource definitions (endpoint implementation)
-      - `/schemas` - Marshmallow schemas for serialization/validation
-      - `__init__.py` - API initialization, pagination, filtering
-      - `sockets.py` - WebSocket handlers
-      - `decorators.py` - API-related decorators
-      - `auth.py` - Authentication related endpoints
-    - `/models` - SQLAlchemy ORM models
-      - `base.py` - Base model class and shared functionality
-      - `enums.py` - Enum definitions used across models
-      - Model files (`user.py`, `stock.py`, etc.) - Domain-specific model definitions
-    - `/services` - Application services
-      - `events.py` - Event emission service
-      - `database.py` - Database connection management
-      - `session_manager.py` - Session management utilities
-    - `/utils` - Utility modules
-      - `auth.py` - Authentication utilities
-      - `errors.py` - Error handling utilities
-      - `current_datetime.py` - Date/time handling utilities
+Key features include user authentication with role-based access control, real-time WebSocket event notifications, comprehensive error handling, session-based database transactions, and a simulated trading environment for testing strategies. The modular design enables easy extension of trading strategies and integration with external data sources and trading platforms.
 
-- **Flow**
-  - Client → API Layer (Resource) → Service Layer → Database Layer (via Database Service) → Service Layer → API Layer (Schema) → Client
+## Backend Project Structure
 
-- **Summary**
-  - API Resources: Handle requests and call the service layer.
+- `/app` - Main application package
+  - `/api` - REST API implementation
+    - `/resources` - Flask-RestX resource definitions (endpoint implementation)
+      - `__init__.py` - Resource registration and namespace initialization
+      - `auth.py` - Authentication and authorization endpoints
+      - `stocks.py` - Stock data management endpoints
+      - `stock_prices.py` - Price data management endpoints
+      - `system.py` - System status and operations endpoints
+      - `trading_services.py` - Trading service management endpoints
+      - `trading_transactions.py` - Transaction tracking endpoints
+      - `users.py` - User account management endpoints
+    - `/schemas` - Marshmallow schemas for serialization/validation
+      - `__init__.py` - Schema registration and common schema utilities
+      - `stock.py` - Stock data serialization schemas
+      - `stock_price.py` - Price data serialization schemas
+      - `trading_service.py` - Trading service serialization schemas
+      - `trading_transaction.py` - Transaction serialization schemas
+      - `user.py` - User data serialization schemas
+    - `/parsers` - Request parsers for API parameters
+    - `__init__.py` - API initialization, pagination, filtering
+    - `sockets.py` - WebSocket handlers and event definitions
+  - `/models` - SQLAlchemy ORM models
+    - `__init__.py` - Model registration and imports
+    - `base.py` - Base model class and shared functionality
+    - `enums.py` - Enum definitions used across models
+    - `stock.py` - Stock data model
+    - `stock_daily_price.py` - Daily stock price model
+    - `stock_intraday_price.py` - Intraday stock price model
+    - `trading_service.py` - Trading service model
+    - `trading_transaction.py` - Transaction model
+    - `user.py` - User account model
+  - `/services` - Application services
+    - `__init__.py` - Service registration and imports
+    - `database.py` - Database connection management
+    - `events.py` - Event emission service
+    - `price_service.py` - Price data business logic
+    - `session_manager.py` - Database session management
+    - `stock_service.py` - Stock data business logic
+    - `trading_service.py` - Trading service business logic
+    - `transaction_service.py` - Transaction business logic
+    - `user_service.py` - User account business logic
+  - `/utils` - Utility modules
+    - `__init__.py` - Utility registration and imports
+    - `auth.py` - Authentication utilities
+    - `current_datetime.py` - Date/time handling utilities
+    - `errors.py` - Error handling utilities
+  - `/instance` - Instance-specific data
+    - `database.sql` - Database schema SQL
+    - `daytrader.db` - SQLite database file
 
-  - API Schemas: Validate and format data between the client and service layer.
-
-  - Service Layer: Contains business logic and uses the Database Service to interact with database models.
-
-  - Database Layer: Stores data, accessed only via the Database Service.
-
-  - This separation ensures the API layer focuses on client communication, the service layer manages logic, and the database layer handles persistence.
-
-## Database Schema
+## Model Layer
 The application uses a relational database with the following core tables:
 
 - **Base Model (Abstract)**  
   Provides common functionality for all models:
-  - `id` (integer, primary key, autoincrement)
-  - `created_at` (datetime, when the record was created)
-  - `updated_at` (datetime, when the record was last updated)
+  - `id` (Integer, primary key, autoincrement)
+  - `created_at` (DateTime, when the record was created)
+  - `updated_at` (DateTime, when the record was last updated)
 
 - **User Model**  
   Stores user account information:
-  - `id` (integer, primary key, unique identifier for each user)
-  - `username` (string, unique username for login, max 50 characters)
-  - `email` (string, unique email address, max 120 characters)
-  - `password_hash` (string, securely hashed password, max 128 characters)
-  - `is_active` (boolean, whether the user account is active)
-  - `is_admin` (boolean, whether the user has admin privileges)
-  - `last_login` (datetime, timestamp of last login)
-  - `created_at` (datetime, when the record was created)
-  - `updated_at` (datetime, when the record was last updated)
+  - `id` (Integer, primary key)
+  - `username` (String(50), unique, nullable=False)
+  - `email` (String(120), unique, nullable=False)
+  - `password_hash` (String(128), nullable=False)
+  - `is_active` (Boolean, default=True)
+  - `is_admin` (Boolean, default=False)
+  - `last_login` (DateTime)
+  - `created_at` (DateTime, default=get_current_datetime)
+  - `updated_at` (DateTime, default=get_current_datetime, onupdate=get_current_datetime)
+  - Relationships:
+    - `services` (One-to-Many relationship to TradingService, cascade="all, delete-orphan")
 
 - **Stock Model**  
   Stores basic information about stocks:
-  - `id` (integer, primary key, unique identifier for each stock)
-  - `symbol` (string, unique ticker symbol, max 10 characters, index)
-  - `name` (string, full company/entity name, max 200 characters)
-  - `is_active` (boolean, whether the stock is actively traded)
-  - `sector` (string, industry sector, max 100 characters)
-  - `description` (string, brief description, max 1000 characters)
-  - `created_at` (datetime, when the record was created)
-  - `updated_at` (datetime, when the record was last updated)
-  - Relationships to daily prices, intraday prices, services, and transactions
+  - `id` (Integer, primary key, inherited from Base)
+  - `symbol` (String(10), unique, nullable=False, indexed)
+  - `name` (String(200), nullable=True)
+  - `is_active` (Boolean, default=True, nullable=False)
+  - `sector` (String(100), nullable=True)
+  - `description` (String(1000), nullable=True)
+  - `created_at` (DateTime, inherited from Base)
+  - `updated_at` (DateTime, inherited from Base)
+  - Relationships:
+    - `daily_prices` (One-to-Many relationship to StockDailyPrice, cascade="all, delete-orphan")
+    - `intraday_prices` (One-to-Many relationship to StockIntradayPrice, cascade="all, delete-orphan")
+    - `services` (One-to-Many relationship to TradingService)
+    - `transactions` (One-to-Many relationship to TradingTransaction)
 
 - **Stock Daily Price Model**  
   Stores end-of-day price data for stocks:
-  - `id` (integer, primary key)
-  - `stock_id` (integer, foreign key to the stock)
-  - `price_date` (date, the trading date this price represents)
-  - `open_price` (float, opening price for the trading day)
-  - `high_price` (float, highest price during the trading day)
-  - `low_price` (float, lowest price during the trading day)
-  - `close_price` (float, closing price for the trading day)
-  - `adj_close` (float, adjusted closing price)
-  - `volume` (integer, number of shares traded)
-  - `source` (string, source of the price data, e.g., "HISTORICAL", "DELAYED")
-  - `created_at` (datetime, when the record was created)
-  - `updated_at` (datetime, when the record was last updated)
-  - Unique constraint on `(stock_id, price_date)`
+  - `id` (Integer, primary key, inherited from Base)
+  - `stock_id` (Integer, ForeignKey to the stock, nullable=False)
+  - `price_date` (Date, nullable=False)
+  - `open_price` (Float, nullable=True)
+  - `high_price` (Float, nullable=True)
+  - `low_price` (Float, nullable=True)
+  - `close_price` (Float, nullable=True)
+  - `adj_close` (Float, nullable=True)
+  - `volume` (Integer, nullable=True)
+  - `source` (String(20), default=PriceSource.HISTORICAL.value, nullable=False)
+  - `created_at` (DateTime, inherited from Base)
+  - `updated_at` (DateTime, inherited from Base)
+  - Relationships:
+    - `stock` (Many-to-One relationship to Stock)
+  - Constraints:
+    - Unique constraint on `(stock_id, price_date)`
 
 - **Stock Intraday Price Model**  
   Stores intraday (e.g., minute-by-minute) price data:
-  - `id` (integer, primary key)
-  - `stock_id` (integer, foreign key to the stock)
-  - `timestamp` (datetime, timestamp for this price point)
-  - `interval` (integer, time interval in minutes, e.g., 1, 5, 15, 30, 60)
-  - `open_price` (float, opening price for the interval)
-  - `high_price` (float, highest price during the interval)
-  - `low_price` (float, lowest price during the interval)
-  - `close_price` (float, closing price for the interval)
-  - `volume` (integer, number of shares traded)
-  - `source` (string, source of the price data)
-  - `created_at` (datetime, when the record was created)
-  - `updated_at` (datetime, when the record was last updated)
-  - Unique constraint on `(stock_id, timestamp, interval)`
+  - `id` (Integer, primary key, inherited from Base)
+  - `stock_id` (Integer, ForeignKey to the stock, nullable=False)
+  - `timestamp` (DateTime, nullable=False)
+  - `interval` (Integer, default=1, nullable=False) - Time interval in minutes (1, 5, 15, 30, 60)
+  - `open_price` (Float, nullable=True)
+  - `high_price` (Float, nullable=True)
+  - `low_price` (Float, nullable=True)
+  - `close_price` (Float, nullable=True)
+  - `volume` (Integer, nullable=True)
+  - `source` (String(20), default=PriceSource.DELAYED.value, nullable=False)
+  - `created_at` (DateTime, inherited from Base)
+  - `updated_at` (DateTime, inherited from Base)
+  - Relationships:
+    - `stock` (Many-to-One relationship to Stock)
+  - Constraints:
+    - Unique constraint on `(stock_id, timestamp, interval)`
 
 - **Trading Service Model**  
   Stores information about each trading service instance:
-  - `id` (integer, primary key, unique identifier for each service)
-  - `user_id` (integer, foreign key to the user who owns this service)
-  - `stock_id` (integer, foreign key to the stock being traded)
-  - `name` (string, descriptive name for the service, max 100 characters)
-  - `description` (text, optional detailed description)
-  - `stock_symbol` (string, the stock ticker symbol, e.g., "AAPL", max 10 characters)
-  - `state` (string, current state of the service, e.g., "ACTIVE", "INACTIVE", "PAUSED", "ERROR")
-  - `mode` (string, current trading mode, e.g., "BUY", "SELL", "HOLD")
-  - `is_active` (boolean, whether the service is enabled)
-  - `initial_balance` (decimal(18,2), initial funds provided by the user)
-  - `current_balance` (decimal(18,2), current funds available for trading)
-  - `minimum_balance` (decimal(18,2), minimum balance to maintain)
-  - `allocation_percent` (decimal(18,2), percentage of funds to allocate per trade)
-  - `buy_threshold` (decimal(18,2), threshold for buy decisions)
-  - `sell_threshold` (decimal(18,2), threshold for sell decisions)
-  - `stop_loss_percent` (decimal(18,2), stop loss percentage)
-  - `take_profit_percent` (decimal(18,2), take profit percentage)
-  - `current_shares` (integer, number of shares currently held)
-  - `buy_count` (integer, count of completed buy transactions)
-  - `sell_count` (integer, count of completed sell transactions)
-  - `total_gain_loss` (decimal(18,2), cumulative profit or loss from completed transactions)
-  - `created_at` (datetime, when the record was created)
-  - `updated_at` (datetime, when the record was last updated)
+  - `id` (Integer, primary key)
+  - `user_id` (Integer, ForeignKey to User, nullable=False)
+  - `stock_id` (Integer, ForeignKey to Stock, nullable=True)
+  - `name` (String(100), nullable=False)
+  - `description` (Text, nullable=True)
+  - `stock_symbol` (String(10), nullable=False)
+  - `state` (String(20), default=ServiceState.INACTIVE.value, nullable=False)
+  - `mode` (String(20), default=TradingMode.BUY.value, nullable=False)
+  - `is_active` (Boolean, default=True, nullable=False)
+  - `initial_balance` (Numeric(18,2), nullable=False)
+  - `current_balance` (Numeric(18,2), nullable=False)
+  - `minimum_balance` (Numeric(18,2), default=0, nullable=False)
+  - `allocation_percent` (Numeric(18,2), default=0.5, nullable=False)
+  - `buy_threshold` (Numeric(18,2), default=3.0, nullable=False)
+  - `sell_threshold` (Numeric(18,2), default=2.0, nullable=False)
+  - `stop_loss_percent` (Numeric(18,2), default=5.0, nullable=False)
+  - `take_profit_percent` (Numeric(18,2), default=10.0, nullable=False)
+  - `current_shares` (Integer, default=0, nullable=False)
+  - `buy_count` (Integer, default=0, nullable=False)
+  - `sell_count` (Integer, default=0, nullable=False)
+  - `total_gain_loss` (Numeric(18,2), default=0, nullable=False)
+  - `created_at` (DateTime, inherited from Base)
+  - `updated_at` (DateTime, inherited from Base)
+  - Relationships:
+    - `user` (Many-to-One relationship to User)
+    - `stock` (Many-to-One relationship to Stock, optional)
+    - `transactions` (One-to-Many relationship to TradingTransaction, cascade="all, delete-orphan")
 
 - **Trading Transaction Model**  
   Tracks individual buy and sell actions for each service:
-  - `id` (integer, primary key, unique identifier for each transaction)
-  - `service_id` (integer, foreign key to the trading service)
-  - `stock_id` (integer, foreign key to the stock being traded)
-  - `stock_symbol` (string, the stock ticker symbol, max 10 characters, index)
-  - `shares` (decimal(18,2), number of shares bought and eventually sold)
-  - `state` (string, current state of the transaction, e.g., "OPEN", "CLOSED", "CANCELLED")
-  - `purchase_price` (decimal(18,2), price per share at purchase)
-  - `sale_price` (decimal(18,2), price per share at sale, null until sold)
-  - `gain_loss` (decimal(18,2), profit or loss, calculated as `(sale_price - purchase_price) * shares`, null until sold)
-  - `purchase_date` (datetime, timestamp of purchase)
-  - `sale_date` (datetime, timestamp of sale, null until sold)
-  - `notes` (text, optional notes about the transaction)
-  - `created_at` (datetime, when the record was created)
-  - `updated_at` (datetime, when the record was last updated)
-
-All models inherit from a common Base model that provides standard fields like `id`, `created_at`, and `updated_at` for consistent tracking of record creation and modification.
+  - `id` (Integer, primary key)
+  - `service_id` (Integer, ForeignKey to TradingService, nullable=False)
+  - `stock_id` (Integer, ForeignKey to Stock, nullable=True)
+  - `stock_symbol` (String(10), nullable=False, indexed)
+  - `shares` (Numeric(18,2), nullable=False)
+  - `state` (String(20), default=TransactionState.OPEN.value, nullable=False)
+  - `purchase_price` (Numeric(18,2), nullable=False)
+  - `sale_price` (Numeric(18,2), nullable=True)
+  - `gain_loss` (Numeric(18,2), nullable=True)
+  - `purchase_date` (DateTime, default=get_current_datetime, nullable=False)
+  - `sale_date` (DateTime, nullable=True)
+  - `notes` (Text, nullable=True)
+  - `created_at` (DateTime, inherited from Base)
+  - `updated_at` (DateTime, inherited from Base)
+  - Relationships:
+    - `service` (Many-to-One relationship to TradingService)
+    - `stock` (Many-to-One relationship to Stock, optional)
 
 The application uses the following Enumeration types to constrain field values:
 
-- **ServiceState**: Defines possible states for a trading service ("ACTIVE", "INACTIVE", "PAUSED", "ERROR")
-- **TradingMode**: Defines possible trading modes ("BUY", "SELL", "HOLD")
-- **TransactionState**: Defines possible transaction states ("OPEN", "CLOSED", "CANCELLED")
-- **PriceSource**: Defines sources of price data ("REAL_TIME", "DELAYED", "SIMULATED", "HISTORICAL")
-- **AnalysisTimeframe**: Defines standard timeframes for analysis ("INTRADAY", "DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY")
+- **ServiceState**: Defines possible states for a trading service
+  - `ACTIVE`: Service is running and can process transactions
+  - `INACTIVE`: Service is not running (either never started or explicitly stopped)
+  - `PAUSED`: Service is temporarily suspended but can be resumed
+  - `ERROR`: Service encountered an error and needs attention
 
-## API Schema
+- **TradingMode**: Defines possible trading modes
+  - `BUY`: Service is looking for opportunities to buy
+  - `SELL`: Service is looking for opportunities to sell
+  - `HOLD`: Service is holding current positions without buying or selling
+
+- **TransactionState**: Defines possible transaction states
+  - `OPEN`: Purchase executed, not yet sold
+  - `CLOSED`: Fully executed (purchased and sold)
+  - `CANCELLED`: Transaction cancelled before completion
+
+- **PriceSource**: Defines sources of price data
+  - `REAL_TIME`: Live price data from exchanges
+  - `DELAYED`: Delayed price data (typically 15-20 minutes)
+  - `SIMULATED`: Simulated or generated price data for testing
+  - `HISTORICAL`: Historical price data from past periods
+
+- **AnalysisTimeframe**: Defines standard timeframes for analysis
+  - `INTRADAY`: Within a single trading day
+  - `DAILY`: Day-to-day analysis
+  - `WEEKLY`: Week-to-week analysis
+  - `MONTHLY`: Month-to-month analysis
+  - `QUARTERLY`: Quarter-to-quarter analysis
+  - `YEARLY`: Year-to-year analysis
+
+## Service Layer
+The service layer provides core infrastructure and cross-cutting concerns that bridge the database models and API endpoints:
+
+### Key Services
+
+- **Database Service**: Manages database connections and schema management
+  - Provides connection pooling and session management
+  - Handles database initialization and schema migrations
+  - Generates SQL DDL statements from the ORM models
+  - Includes schema comparison and validation functionality
+  - Emits database events for schema changes and operations
+
+- **Session Manager**: Ensures proper database transaction handling
+  - Context manager for automatic session handling (`with SessionManager() as session`)
+  - Function decorator for wrapping database operations (`@with_session`)
+  - Automatic commit on success and rollback on exceptions
+
+- **Event Service**: Facilitates real-time WebSocket communication
+  - Standardizes event emission across the application
+  - Maps database model changes to WebSocket events
+  - Provides room-based targeting for efficient event delivery
+  - Handles stock, service, transaction, price, user, system, metrics, and database events
+  - Supports filtering sensitive data from user events
+
+- **User Service**: Manages user account operations
+  - User authentication and authorization
+  - Account creation, updates, and management
+  - Password handling and security
+  - Admin privilege management
+
+- **Stock Service**: Handles stock data operations
+  - Stock creation, updates, and retrieval
+  - Symbol-based lookups and validation
+  - Stock status management and toggling
+  - Stock search functionality
+
+- **Price Service**: Manages price data for stocks
+  - Daily and intraday price record management
+  - Price history retrieval and date-range filtering
+  - Technical analysis calculations (moving averages, RSI, Bollinger Bands)
+  - Price trend analysis and forecasting
+  - Bulk import capabilities for historical data
+
+- **Trading Service**: Core service for trading operations
+  - Trading service lifecycle management
+  - Trading strategy execution and decision making
+  - Buy/sell signal generation based on technical analysis
+  - Performance tracking and metrics calculation
+  - Backtesting capabilities for strategy evaluation
+
+- **Transaction Service**: Tracks trading transactions
+  - Buy/sell transaction creation and management
+  - Transaction completion and cancellation handling
+  - Profit/loss calculation and reporting
+  - Transaction metrics and analytics
+
+### Service Layer Architecture
+
+The service layer follows these architectural principles:
+
+1. **Separation of Concerns**: Each service focuses on a specific functionality domain
+2. **Database Abstraction**: Isolates the database implementation details from the API layer
+3. **Event-Driven Communication**: Enables real-time updates without polling
+4. **Transaction Management**: Ensures data consistency across operations
+5. **Stateless Operations**: Services do not maintain internal state between calls
+6. **Session-Based Data Access**: All database operations use managed sessions
+
+## API Layer
 The application's backend API follows RESTful principles with a well-structured layered architecture:
 
 ### Core API Structure
@@ -171,25 +296,61 @@ The application's backend API follows RESTful principles with a well-structured 
 ### Resources (Endpoints)
 The API organizes resources into logical namespaces:
 
-- **Authentication** (`/api/v1/auth`): User login, token management
-- **Users** (`/api/v1/users`): User account management
-- **Stocks** (`/api/v1/stocks`): Stock data management
-- **Stock Prices** (`/api/v1/prices`): Daily and intraday price data
-- **Trading Services** (`/api/v1/services`): Trading service configuration and control
-- **Trading Transactions** (`/api/v1/transactions`): Transaction tracking and management
-- **System** (`/api/v1/system`): System status and operations
+- **Authentication** (`/api/v1/auth`): 
+  - `POST /register`: Register a new user account
+  - `POST /login`: Authenticate and receive access tokens
+  - `POST /refresh`: Refresh an existing access token
 
-Each resource namespace provides standard CRUD operations and additional specialized endpoints like toggling service states or completing transactions.
+- **Users** (`/api/v1/users`): 
+  - Standard CRUD operations for user accounts
+  - Password management
+  - Administrative user controls
+
+- **Stocks** (`/api/v1/stocks`): 
+  - Standard CRUD operations for stock data
+  - Stock search and filtering capabilities
+  - Stock status management
+
+- **Stock Prices** (`/api/v1/prices`): 
+  - Daily and intraday price data retrieval
+  - Historical price data management
+  - Price data import and export
+
+- **Trading Services** (`/api/v1/services`): 
+  - Service configuration and control
+  - Service state management (activate, pause, stop)
+  - Performance metrics and statistics
+
+- **Trading Transactions** (`/api/v1/transactions`): 
+  - Transaction record management
+  - Transaction completion and cancellation
+  - Transaction filtering and reporting
+
+- **System** (`/api/v1/system`): 
+  - System status information
+  - Database management utilities
+  - Configuration and operational controls
 
 ### Data Validation and Serialization
 - **Schemas**: Marshmallow schemas validate request data and serialize responses
+  - Model-specific schemas for each resource type
+  - Custom field validation and transformation
+  - Standardized error reporting
 - **Model Mapping**: Direct mapping between API schemas and database models
 - **Validation Rules**: Comprehensive input validation for all endpoints
 
 ### API Features
 - **Pagination**: Consistent pagination for list endpoints with metadata
+  - Page number and page size parameters
+  - Total items and total pages information
+  - Previous/next page indicators
 - **Filtering**: Query parameter filtering across multiple fields
+  - Simple equality filters (e.g., `?status=active`)
+  - Range filters with suffix notation (e.g., `?price_min=10&price_max=20`)
+  - Text search filters with suffix notation (e.g., `?name_like=trading`)
 - **Sorting**: Flexible sorting on various fields
+  - Sort column selection (e.g., `?sort=created_at`)
+  - Sort direction control (e.g., `?order=desc`)
 - **Error Handling**: Standardized error responses with descriptive messages
 - **WebSocket Events**: Real-time updates for database changes
 
@@ -201,214 +362,97 @@ The API emits events for model changes through rooms:
 - `stock_{symbol}`: Updates for a specific stock
 - `transactions`: All transaction updates
 - `price_updates`: Real-time price changes
+- `users`: User account updates
+- `user_{id}`: Updates for a specific user
+- `metrics`: Analytics dashboard updates
+- `system`: System-wide notifications
+- `system_{severity}`: Filtered system notifications by severity
+- `errors`: Error events
+- `data_feeds`: Consolidated data feeds
+- `database_admin`: Database operation events
+
+### WebSocket Events
+- **Connection Management**:
+  - `connect`: Initial connection event
+  - `disconnect`: Connection termination event
+  - `join`: Join a specific notification room
+  - `leave`: Leave a notification room
+  
+- **Convenience Events**:
+  - `service_watch`: Watch a specific trading service
+  - `stock_watch`: Watch a specific stock
+  - `user_watch`: Watch a specific user
+  - `join_services`: Watch all service events
+  - `join_price_updates`: Watch all price updates
+  - `join_transactions`: Watch all transaction events
+  - `join_system`: Watch system events
+  
+- **Data Events**:
+  - `service:update`: Trading service update
+  - `service:state_change`: Service state change
+  - `transaction:new`: New transaction created
+  - `transaction:update`: Transaction updated
+  - `transaction:complete`: Transaction completed
+  - `price:update`: Price data update
 
 ### Security
-- JWT tokens for authentication
-- Role-based access control (admin/user permissions)
-- Input validation to prevent injection attacks
-- Protected admin-only endpoints
-
-## Service Layer
-The service layer provides core infrastructure and cross-cutting concerns that bridge the database models and API endpoints:
-
-### Key Services
-
-- **Database Service**: Manages database connections and schema management
-  - Provides connection pooling and session management
-  - Handles database initialization and schema migrations
-  - Generates SQL DDL statements from the ORM models
-
-- **Session Manager**: Ensures proper database transaction handling
-  - Context manager for automatic session handling (`with SessionManager() as session`)
-  - Function decorator for wrapping database operations (`@with_session`)
-  - Automatic commit on success and rollback on exceptions
-
-- **Event Service**: Facilitates real-time WebSocket communication
-  - Standardizes event emission across the application
-  - Maps database model changes to WebSocket events
-  - Provides room-based targeting for efficient event delivery
-  - Handles stock, service, transaction, price, and user events
-
-### Service Layer Architecture
-
-The service layer follows these architectural principles:
-
-1. **Separation of Concerns**: Each service focuses on a specific functionality domain
-2. **Database Abstraction**: Isolates the database implementation details from the API layer
-3. **Event-Driven Communication**: Enables real-time updates without polling
-4. **Transaction Management**: Ensures data consistency across operations
+- **Authentication**: JWT tokens for authentication
+  - Access tokens with short expiration
+  - Refresh tokens for extended sessions
+  - Token revocation capabilities
+- **Authorization**: Role-based access control
+  - User vs. Admin permissions
+  - Resource ownership validation
+  - Operation-specific permission checks
+- **Input Validation**: Prevents injection attacks
+- **Protected Endpoints**: Admin-only endpoints
+- **Error Handling**: Standardized security error responses
 
 ### Integration Points
 
-- **Database Schema Integration**: Services interact with the models defined in the Database Schema section
-  - Session Manager ensures consistent transaction handling for all model operations
-  - Database Service maintains the schema defined by the models
+- **Database-Service Integration**:
+  - Services interact with database models through SessionManager
+  - Database Service maintains schema definition, migrations, and connection pooling
+  - Service methods validate and enforce data integrity constraints before model operations
+  - Transaction-level consistency ensured by automatic commit/rollback mechanisms
+  - Each model has a dedicated service (`UserService`, `StockService`, etc.) implementing its business logic
 
-- **API Schema Integration**: Services support the API endpoints described in the API Schema section
-  - Event Service emits events for WebSocket notifications described in the API Schema
-  - Services provide the implementation for API resource operations
+- **Service-API Integration**:
+  - API resources call appropriate service methods based on endpoint requirements
+  - Services return model instances that API schemas transform into JSON responses
+  - API layer handles HTTP-specific concerns while services remain transport-agnostic
+  - Service exceptions are mapped to appropriate HTTP status codes
+  - API authentication/authorization verified before delegating to service methods
+  - Marshmallow schemas validate input data before it reaches service methods
 
-## User Input
-The user provides:
-- **Stock Symbol**: The ticker symbol of the stock to trade (e.g., "AAPL").
-- **Fund Amount**: The initial amount of money to allocate (recorded as `starting_balance`).
+- **Event-Driven Communication**:
+  - Service operations trigger WebSocket events via EventService after successful database updates
+  - EventService standardizes event formats and handles room-based targeting
+  - API layer establishes WebSocket connections and manages client subscriptions
+  - Model changes propagate to connected clients in real-time without polling
+  - Room-based event delivery ensures efficient notifications (e.g., `service_{id}`, `stock_{symbol}`)
 
-## Components
+- **Cross-Cutting Concerns**:
+  - Error handling follows a consistent pattern across layers
+  - Authentication and authorization enforced at both API and service layers
+  - Date/time operations use centralized utilities for consistency
+  - Logging implemented across all layers with appropriate context
 
-### #1 Stock Trading Service (Service Layer)
-Manages the trading cycle for a specific stock symbol, alternating between "BUY" and "SELL" modes based on API signals.
+- **Data Flow**:
+  1. Client sends request to API endpoint
+  2. API resource validates request data via schema
+  3. API resource calls appropriate service method(s)
+  4. Service executes business logic using database models
+  5. Service returns result to API resource
+  6. API resource serializes result via schema
+  7. API returns response to client
+  8. Service emits events for real-time updates
+  9. Connected clients receive updates via WebSocket
 
-- **Initialization**:
-  - Creates a new record in the Service Table:
-    - `service_id`: Auto-generated unique ID
-    - `stock_symbol`: User-provided stock symbol
-    - `starting_balance`: User-provided fund amount
-    - `fund_balance`: Set to `starting_balance`
-    - `total_gain_loss`: 0
-    - `current_number_of_shares`: 0
-    - `service_state`: "ACTIVE"
-    - `service_mode`: "BUY"
-    - `start_date`: Current timestamp
-    - `number_of_buy_transactions`: 0
-    - `number_of_sell_transactions`: 0
-
-- **Trading Cycle**:
-  - Runs continuously while `service_state` is "ACTIVE":
-    - **Buy Mode**:
-      - Calls the **Stock Buy API (#2)** with `stock_symbol`.
-      - If "YES" is returned:
-        - Calls the **Stock Purchase API (#4)** with `stock_symbol` and current `fund_balance`.
-        - Receives `number_of_shares`, `purchase_price`, and `date_time_of_purchase`.
-        - Inserts a new row into the Transaction Table:
-          - `service_id`: From the service
-          - `transaction_id`: Auto-generated unique ID
-          - `stock_symbol`: From the service
-          - `number_of_shares`: From the Stock Purchase API
-          - `purchase_price`: From the Stock Purchase API
-          - `date_time_of_purchase`: From the Stock Purchase API
-          - `sale_price`, `gain_loss`, `date_time_of_sale`: Null
-        - Updates the Service Table:
-          - `fund_balance` = `fund_balance` - (`number_of_shares` * `purchase_price`)
-          - `current_number_of_shares` = `current_number_of_shares` + `number_of_shares`
-          - `number_of_buy_transactions` = `number_of_buy_transactions` + 1
-        - Sets `service_mode` to "SELL".
-      - If "NO" is returned:
-        - Waits for a configurable interval (e.g., 10 seconds for demo, 5 minutes for production) before retrying.
-    - **Sell Mode**:
-      - Verifies `current_number_of_shares` > 0 (to ensure there are shares to sell).
-      - Calls the **Stock Sell API (#3)** with `stock_symbol` and `purchase_price` from the last open transaction.
-      - If "YES" is returned:
-        - Calls the **Stock Sale API (#5)** with `stock_symbol` and `current_number_of_shares`.
-        - Receives `sale_price` and `date_time_of_sale`.
-        - Updates the corresponding Transaction Table row (last row with null `sale_price`):
-          - `sale_price`: From the Stock Sale API
-          - `date_time_of_sale`: From the Stock Sale API
-          - `gain_loss` = (`sale_price - purchase_price`) * `number_of_shares`
-        - Updates the Service Table:
-          - `fund_balance` = `fund_balance` + (`number_of_shares` * `sale_price`)
-          - `total_gain_loss` = `total_gain_loss` + `gain_loss`
-          - `current_number_of_shares` = `current_number_of_shares` - `number_of_shares`
-          - `number_of_sell_transactions` = `number_of_sell_transactions` + 1
-        - Sets `service_mode` to "BUY".
-      - If "NO" is returned:
-        - Waits for a configurable interval before retrying.
-
-- **Termination**:
-  - User sets `service_state` to "INACTIVE", stopping the cycle. Open positions (unsold shares) remain until further user action.
-
-### #2 Stock Buy API (API Layer)
-- **Input**: `stock_symbol` (string)
-- **Output**: String ("YES" or "NO")
-- **Purpose**: Provides an interface for determining whether to buy a stock based on market analysis.
-- **Implementation**: Wraps the Stock Buy Logic with API-specific error handling and logging. Serves as an intermediary between the Service Layer and the Algorithm Layer.
-
-### #3 Stock Sell API (API Layer)
-- **Input**: `stock_symbol` (string), `purchase_price` (decimal)
-- **Output**: String ("YES" or "NO")
-- **Purpose**: Provides an interface for determining whether to sell a stock based on purchase price and current price.
-- **Implementation**: Wraps the Stock Sell Logic with API-specific error handling and logging. Serves as an intermediary between the Service Layer and the Algorithm Layer.
-
-### #4 Stock Purchase API (API Layer)
-- **Input**: `stock_symbol` (string), `fund_balance` (decimal, funds available)
-- **Output**: `number_of_shares` (integer), `purchase_price` (decimal), `date_time_of_purchase` (datetime)
-- **Purpose**: Simulates buying shares at the current market price with available funds.
-- **Implementation**: Uses mock prices and configurable price movement patterns to generate realistic purchase scenarios. Each stock has defined base prices and price volatility characteristics.
-
-### #5 Stock Sale API (API Layer)
-- **Input**: `stock_symbol` (string), `number_of_shares` (integer)
-- **Output**: `sale_price` (decimal), `date_time_of_sale` (datetime)
-- **Purpose**: Simulates selling the specified number of shares at the current market price.
-- **Implementation**: Calculates sale price based on mock market data with appropriate price movement relative to base prices. Each stock has defined price movement ranges to simulate different volatility profiles.
-
-### #6 Stock Buy Logic (Algorithm Layer)
-- **Input**: `stock_symbol` (string)
-- **Output**: String ("YES" or "NO")
-- **Purpose**: Contains the core decision-making logic for determining whether to buy a stock.
-- **Implementation**: Uses a sophisticated probability-based system that considers stock-specific characteristics. Different stocks have varying buy probabilities to simulate real-world market behavior. For example, growth stocks like AAPL and NVDA have higher buy probabilities, while others have more conservative probabilities.
-
-### #7 Stock Sell Logic (Algorithm Layer)
-- **Input**: `stock_symbol` (string), `purchase_price` (decimal)
-- **Output**: String ("YES" or "NO")
-- **Purpose**: Contains the core decision-making logic for determining whether to sell a stock.
-- **Implementation**: Evaluates sell probability based on price difference percentage between purchase and current price. The algorithm applies different strategies for profit scenarios (more likely to sell as profit increases) versus loss scenarios (more likely to hold for small losses, but may cut severe losses). Stock-specific adjustments further refine the sell probability, with some stocks being more likely to be held long-term (e.g., AAPL, MSFT, NVDA) while others are more likely to be sold quickly (e.g., TSLA, META).
-
-## Architecture
-
-The application follows a layered architecture pattern with clear separation of concerns:
-
-1. **Service Layer**
-   - Primary interface with the main application and user interface
-   - Manages the lifecycle of trading services and transaction workflows
-   - Coordinates between API layer, database operations, and state management
-   - Example: `StockTradingService` class that handles the trading cycle
-
-2. **API Layer**
-   - Provides standardized interfaces for stock operations
-   - Handles API-specific concerns like error wrapping and logging
-   - Acts as an intermediary between service and algorithm layers
-   - Examples: `should_buy_stock()`, `should_sell_stock()`, `purchase_stock()`, and `sell_stock()` functions
-
-3. **Algorithm Layer**
-   - Contains core decision-making logic and business rules
-   - Implements the specific algorithms for buy/sell decisions
-   - Isolated from API concerns to focus purely on decision logic
-   - Examples: `should_buy()` and `should_sell()` functions with their pricing models and probability calculations
-
-This layered design provides several benefits:
-- **Separation of Concerns**: Each layer has specific responsibilities
-- **Maintainability**: Logic can be modified in one layer without affecting others
-- **Testability**: Layers can be tested in isolation
-- **Flexibility**: Implementation can be changed without altering interfaces
-
-The typical data flow follows this pattern:
-1. Service Layer calls API Layer functions
-2. API Layer validates inputs and delegates to the Algorithm Layer
-3. Algorithm Layer performs calculations and returns decisions
-4. API Layer wraps results or errors and returns to Service Layer
-5. Service Layer acts on the results (database updates, state changes, etc.)
-
-## Web Dashboard
-The application provides a web-based dashboard that allows users to:
-- Create new trading services with specified stock symbol and starting balance
-- Monitor active services with real-time updates on balances, gains/losses, and share positions
-- View transaction history with purchase and sale details
-- Start and stop services with immediate visual feedback
-- Observe state transitions with clear visual indicators
-
-## Additional Considerations
-- **Centralized Constants**: Application-wide constants are centralized for consistency across components.
-- **Error Handling**: Comprehensive error handling with specific exception types for different error scenarios.
-- **Session Management**: Database session management with proper context handling to prevent leaks.
-- **Real-time Updates**: Automatic AJAX updates every 10 seconds to keep the dashboard current without page refreshes.
-- **Concurrency**: The system supports multiple stock services running simultaneously in separate threads.
-- **Responsive UI**: User-friendly interface with loading states and clear visual feedback on actions.
-- **Testing Framework**: Mock implementation of trading APIs allows for testing without connecting to real trading platforms.
-
-## Implementation Priorities
-
-1. **Model First** - Essential data models with proper schema design ✅
-2. **Service Development** - Main stock service with trading cycle logic ✅
-3. **API Development** - Mock implementations for buying and selling stocks ✅
-4. **Algorithm Development** - Sophisticated decision-making algorithms ✅
-5. **Frontend Implementation** - Web dashboard with real-time updates ✅
-6. **Refinement** - Enhanced UX and error handling ✅
+This integration architecture provides:
+- **Clean Separation of Concerns**: Each layer has distinct responsibilities
+- **Consistent Transaction Handling**: All database operations use managed sessions
+- **Real-Time Reactivity**: Model changes propagate immediately via WebSocket events
+- **API Independence**: Services can be used by different interfaces
+- **Testability**: Each layer can be tested in isolation
+- **Scalability**: Clear boundaries between layers enable independent scaling

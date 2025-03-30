@@ -89,7 +89,7 @@ class StockService:
         """
         stock = StockService.get_by_id(session, stock_id)
         if not stock:
-            raise ResourceNotFoundError(f"Stock with ID {stock_id} not found")
+            raise ResourceNotFoundError(f"Stock with ID {stock_id} not found", resource_id=stock_id)   
         return stock
     
     @staticmethod
@@ -148,7 +148,7 @@ class StockService:
             # Emit WebSocket event
             EventService.emit_stock_update(
                 action='created',
-                stock_data=stock_data,
+                stock_data=stock_data if isinstance(stock_data, dict) else stock_data[0],   
                 stock_symbol=stock.symbol
             )
             
@@ -193,7 +193,7 @@ class StockService:
             
             # Only emit event if something was updated
             if updated:
-                stock.updated_at = get_current_datetime()
+                setattr(stock, 'updated_at', get_current_datetime())   
                 session.commit()
                 
                 # Prepare response data
@@ -202,8 +202,8 @@ class StockService:
                 # Emit WebSocket event
                 EventService.emit_stock_update(
                     action='updated',
-                    stock_data=stock_data,
-                    stock_symbol=stock.symbol
+                    stock_data=stock_data if isinstance(stock_data, dict) else stock_data[0],   
+                    stock_symbol=str(stock.symbol)   
                 )
             
             return stock
@@ -246,9 +246,9 @@ class StockService:
         
         try:
             # Only update if status is changing
-            if stock.is_active != is_active:
-                stock.is_active = is_active
-                stock.updated_at = get_current_datetime()
+            if bool(stock.is_active != is_active):   
+                setattr(stock, 'is_active', is_active)   
+                setattr(stock, 'updated_at', get_current_datetime())   
                 session.commit()
                 
                 # Prepare response data
@@ -257,8 +257,8 @@ class StockService:
                 # Emit WebSocket event
                 EventService.emit_stock_update(
                     action='status_changed',
-                    stock_data=stock_data,
-                    stock_symbol=stock.symbol
+                    stock_data=stock_data if isinstance(stock_data, dict) else stock_data[0],   
+                    stock_symbol=str(stock.symbol)   
                 )
             
             return stock
@@ -279,7 +279,7 @@ class StockService:
         Returns:
             Updated stock instance
         """
-        return StockService.change_active_status(session, stock, not stock.is_active)
+        return StockService.change_active_status(session, stock, not bool(stock.is_active))   
     
     @staticmethod
     def delete_stock(session: Session, stock: Stock) -> bool:
@@ -316,7 +316,7 @@ class StockService:
             EventService.emit_stock_update(
                 action='deleted',
                 stock_data={'symbol': symbol},
-                stock_symbol=symbol
+                stock_symbol=str(symbol)   
             )
             
             return True
@@ -349,7 +349,7 @@ class StockService:
             .order_by(StockDailyPrice.price_date.desc())\
             .first()
             
-        return latest_price.close_price if latest_price else None
+        return float(str(latest_price.close_price)) if latest_price and latest_price.close_price is not None else None   
     
     @staticmethod
     def search_stocks(session: Session, query: str, limit: int = 10) -> List[Stock]:

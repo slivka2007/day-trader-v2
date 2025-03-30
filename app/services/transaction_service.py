@@ -58,7 +58,7 @@ class TransactionService:
         """
         transaction = TransactionService.get_by_id(session, transaction_id)
         if not transaction:
-            raise ResourceNotFoundError(f"Transaction with ID {transaction_id} not found")
+            raise ResourceNotFoundError(f"Transaction with ID {transaction_id} not found", resource_id=transaction_id)
         return transaction
     
     @staticmethod
@@ -165,10 +165,10 @@ class TransactionService:
         Returns:
             Number of days the transaction has been open, or None if no purchase date
         """
-        if not transaction.purchase_date:
+        if transaction.purchase_date is None:   
             return None
             
-        end_date = transaction.sale_date if transaction.sale_date else get_current_datetime()
+        end_date = transaction.sale_date if transaction.sale_date is not None else get_current_datetime()   
         return (end_date - transaction.purchase_date).days
     
     @staticmethod
@@ -182,8 +182,8 @@ class TransactionService:
         Returns:
             Total cost of the purchase
         """
-        if transaction.purchase_price and transaction.shares:
-            return transaction.purchase_price * transaction.shares
+        if transaction.purchase_price is not None and transaction.shares is not None:   
+            return Decimal(str(transaction.purchase_price * transaction.shares))   
         return Decimal('0')
     
     @staticmethod
@@ -197,8 +197,8 @@ class TransactionService:
         Returns:
             Total revenue from the sale, or 0 if not sold
         """
-        if transaction.sale_price and transaction.shares:
-            return transaction.sale_price * transaction.shares
+        if transaction.sale_price is not None and transaction.shares is not None:   
+            return Decimal(str(transaction.sale_price * transaction.shares))   
         return Decimal('0')
     
     @staticmethod
@@ -212,8 +212,10 @@ class TransactionService:
         Returns:
             Percentage profit or loss, or 0 if not applicable
         """
-        if transaction.purchase_price and transaction.sale_price and transaction.purchase_price > 0:
-            return float(((transaction.sale_price - transaction.purchase_price) / transaction.purchase_price) * 100)
+        if (transaction.purchase_price is not None and 
+            transaction.sale_price is not None and 
+            bool(transaction.purchase_price > 0)):   
+            return float(Decimal(str(((transaction.sale_price - transaction.purchase_price) / transaction.purchase_price) * 100)))   
         return 0.0
     
     @staticmethod
@@ -232,21 +234,21 @@ class TransactionService:
             'service_id': transaction.service_id,
             'stock_id': transaction.stock_id,
             'stock_symbol': transaction.stock_symbol,
-            'shares': float(transaction.shares) if transaction.shares else None,
+            'shares': float(str(transaction.shares)) if transaction.shares is not None else None,   
             'state': transaction.state,
-            'purchase_price': float(transaction.purchase_price) if transaction.purchase_price else None,
-            'sale_price': float(transaction.sale_price) if transaction.sale_price else None,
-            'gain_loss': float(transaction.gain_loss) if transaction.gain_loss else None,
-            'purchase_date': transaction.purchase_date.isoformat() if transaction.purchase_date else None,
-            'sale_date': transaction.sale_date.isoformat() if transaction.sale_date else None,
+            'purchase_price': float(str(transaction.purchase_price)) if transaction.purchase_price is not None else None,   
+            'sale_price': float(str(transaction.sale_price)) if transaction.sale_price is not None else None,   
+            'gain_loss': float(str(transaction.gain_loss)) if transaction.gain_loss is not None else None,   
+            'purchase_date': transaction.purchase_date.isoformat() if transaction.purchase_date is not None else None,   
+            'sale_date': transaction.sale_date.isoformat() if transaction.sale_date is not None else None,   
             'notes': transaction.notes,
-            'created_at': transaction.created_at.isoformat() if transaction.created_at else None,
-            'updated_at': transaction.updated_at.isoformat() if transaction.updated_at else None,
+            'created_at': transaction.created_at.isoformat() if transaction.created_at is not None else None,   
+            'updated_at': transaction.updated_at.isoformat() if transaction.updated_at is not None else None,   
             'is_complete': transaction.is_complete,
             'is_profitable': transaction.is_profitable,
             'duration_days': TransactionService.duration_days(transaction),
-            'total_cost': float(TransactionService.total_cost(transaction)) if TransactionService.total_cost(transaction) else 0.0,
-            'total_revenue': float(TransactionService.total_revenue(transaction)) if TransactionService.total_revenue(transaction) else 0.0,
+            'total_cost': float(str(TransactionService.total_cost(transaction))) if TransactionService.total_cost(transaction) is not None else 0.0,
+            'total_revenue': float(str(TransactionService.total_revenue(transaction))) if TransactionService.total_revenue(transaction) is not None else 0.0,
             'profit_loss_percent': TransactionService.profit_loss_percent(transaction)
         }
     
@@ -287,8 +289,10 @@ class TransactionService:
                     updated = True
         
         # Recalculate gain/loss if needed
-        if ('sale_price' in data) and transaction.sale_price and transaction.purchase_price:
-            transaction.gain_loss = transaction.calculate_gain_loss()
+        if ('sale_price' in data and 
+            transaction.sale_price is not None and 
+            transaction.purchase_price is not None):   
+            setattr(transaction, 'gain_loss', transaction.calculate_gain_loss())   
             updated = True
             
         return updated
@@ -328,11 +332,11 @@ class TransactionService:
             # Get the service
             service = session.query(TradingService).filter_by(id=service_id).first()
             if not service:
-                raise ResourceNotFoundError(f"Trading service with ID {service_id} not found")
+                raise ResourceNotFoundError(f"Trading service with ID {service_id} not found", resource_id=service_id)
             
             # Check if service can buy
             total_cost = shares * purchase_price
-            if total_cost > service.current_balance:
+            if bool(total_cost > service.current_balance):   
                 raise BusinessLogicError(f"Insufficient funds. Required: ${total_cost:.2f}, Available: ${service.current_balance:.2f}")
             
             if not service.can_buy:
@@ -357,8 +361,8 @@ class TransactionService:
             session.add(transaction)
             
             # Update service balance
-            service.current_balance -= Decimal(str(total_cost))
-            service.updated_at = get_current_datetime()
+            setattr(service, 'current_balance', service.current_balance - Decimal(str(total_cost)))   
+            setattr(service, 'updated_at', get_current_datetime())   
             
             session.commit()
             
@@ -369,13 +373,13 @@ class TransactionService:
             # Emit WebSocket events
             EventService.emit_transaction_update(
                 action='created',
-                transaction_data=transaction_data,
+                transaction_data=transaction_data if isinstance(transaction_data, dict) else transaction_data[0],   
                 service_id=service_id
             )
             
             EventService.emit_service_update(
                 action='balance_updated',
-                service_data=service_data,
+                service_data=service_data if isinstance(service_data, dict) else service_data[0],   
                 service_id=service_id
             )
             
@@ -416,32 +420,32 @@ class TransactionService:
             transaction = TransactionService.get_or_404(session, transaction_id)
             
             # Check if transaction can be completed
-            if transaction.state != TransactionState.OPEN.value:
+            if not bool(transaction.state == TransactionState.OPEN.value):   
                 raise BusinessLogicError(f"Transaction cannot be completed because it is not open (current state: {transaction.state})")
             
             # Get associated service
             service = session.query(TradingService).filter_by(id=transaction.service_id).first()
             if not service:
-                raise ResourceNotFoundError(f"Trading service with ID {transaction.service_id} not found")
+                raise ResourceNotFoundError(f"Trading service with ID {transaction.service_id} not found", resource_id=int(str(transaction.service_id)))   
             
             # Update transaction
-            transaction.sale_price = sale_price
-            transaction.sale_date = get_current_datetime()
-            transaction.state = TransactionState.CLOSED.value
+            setattr(transaction, 'sale_price', sale_price)   
+            setattr(transaction, 'sale_date', get_current_datetime())   
+            setattr(transaction, 'state', TransactionState.CLOSED.value)   
             
             # Calculate gain/loss
-            transaction.gain_loss = transaction.calculate_gain_loss()
+            setattr(transaction, 'gain_loss', transaction.calculate_gain_loss())   
             
             # Update service balance
             sale_amount = Decimal(str(sale_price)) * Decimal(str(transaction.shares))
-            service.current_balance += sale_amount
-            service.updated_at = get_current_datetime()
+            setattr(service, 'current_balance', service.current_balance + sale_amount)   
+            setattr(service, 'updated_at', get_current_datetime())   
             
             # Update profit/loss history
-            if transaction.gain_loss > 0:
-                service.total_profit += transaction.gain_loss
+            if bool(transaction.gain_loss > 0):   
+                setattr(service, 'total_profit', service.total_profit + transaction.gain_loss)   
             else:
-                service.total_loss += abs(transaction.gain_loss)
+                setattr(service, 'total_loss', service.total_loss + abs(Decimal(str(transaction.gain_loss))))   
             
             session.commit()
             
@@ -449,17 +453,20 @@ class TransactionService:
             transaction_data = transaction_schema.dump(transaction)
             service_data = service_schema.dump(service)
             
+            # Store service ID for event emission
+            service_id_val = service.id
+            
             # Emit WebSocket events
             EventService.emit_transaction_update(
                 action='completed',
-                transaction_data=transaction_data,
-                service_id=service.id
+                transaction_data=transaction_data if isinstance(transaction_data, dict) else transaction_data[0],   
+                service_id=int(str(service_id_val))
             )
             
             EventService.emit_service_update(
                 action='balance_updated',
-                service_data=service_data,
-                service_id=service.id
+                service_data=service_data if isinstance(service_data, dict) else service_data[0],   
+                service_id=int(str(service_id_val))
             )
             
             return transaction
@@ -500,17 +507,17 @@ class TransactionService:
             # Get associated service
             service = session.query(TradingService).filter_by(id=transaction.service_id).first()
             if not service:
-                raise ResourceNotFoundError(f"Trading service with ID {transaction.service_id} not found")
+                raise ResourceNotFoundError(f"Trading service with ID {transaction.service_id} not found", resource_id=int(str(transaction.service_id)))   
             
             # Update transaction
-            transaction.state = TransactionState.CANCELLED.value
-            transaction.notes = f"{transaction.notes or ''}\nCancelled: {reason}".strip()
-            transaction.updated_at = get_current_datetime()
+            setattr(transaction, 'state', TransactionState.CANCELLED.value)  
+            setattr(transaction, 'notes', f"{str(transaction.notes) or ''}\nCancelled: {reason}".strip())   
+            setattr(transaction, 'updated_at', get_current_datetime())
             
             # Refund service balance
             refund_amount = Decimal(str(transaction.purchase_price)) * Decimal(str(transaction.shares))
-            service.current_balance += refund_amount
-            service.updated_at = get_current_datetime()
+            setattr(service, 'current_balance', service.current_balance + refund_amount)   
+            setattr(service, 'updated_at', get_current_datetime())
             
             session.commit()
             
@@ -521,14 +528,14 @@ class TransactionService:
             # Emit WebSocket events
             EventService.emit_transaction_update(
                 action='cancelled',
-                transaction_data=transaction_data,
-                service_id=service.id
+                transaction_data=transaction_data if isinstance(transaction_data, dict) else transaction_data[0],   
+                service_id=int(str(service.id))   
             )
             
             EventService.emit_service_update(
                 action='balance_updated',
-                service_data=service_data,
-                service_id=service.id
+                service_data=service_data if isinstance(service_data, dict) else service_data[0],
+                service_id=int(str(service.id)) 
             )
             
             return transaction
@@ -562,12 +569,12 @@ class TransactionService:
             transaction = TransactionService.get_or_404(session, transaction_id)
             
             # Don't allow deletion of open transactions
-            if transaction.state == TransactionState.OPEN.value:
+            if bool(transaction.state == TransactionState.OPEN.value):   
                 raise BusinessLogicError("Cannot delete an open transaction. Cancel it first.")
             
             # Store service ID and transaction ID for event emission
             service_id = transaction.service_id
-            transaction_id = transaction.id
+            transaction_id = int(str(transaction.id))   
             
             # Delete transaction
             session.delete(transaction)
@@ -577,7 +584,7 @@ class TransactionService:
             EventService.emit_transaction_update(
                 action='deleted',
                 transaction_data={'id': transaction_id},
-                service_id=service_id
+                service_id=int(str(service_id))   
             )
             
             return True
@@ -611,8 +618,8 @@ class TransactionService:
             transaction = TransactionService.get_or_404(session, transaction_id)
             
             # Update notes
-            transaction.notes = notes
-            transaction.updated_at = get_current_datetime()
+            setattr(transaction, 'notes', notes)   
+            setattr(transaction, 'updated_at', get_current_datetime())   
             
             session.commit()
             
@@ -622,8 +629,8 @@ class TransactionService:
             # Emit WebSocket event
             EventService.emit_transaction_update(
                 action='updated',
-                transaction_data=transaction_data,
-                service_id=transaction.service_id
+                transaction_data=transaction_data if isinstance(transaction_data, dict) else transaction_data[0],   
+                service_id=int(str(transaction.service_id))   
             )
             
             return transaction
@@ -671,18 +678,18 @@ class TransactionService:
             
         # Count transactions by state
         for t in transactions:
-            if t.state == TransactionState.OPEN.value:
+            if bool(t.state == TransactionState.OPEN.value):   
                 metrics['open_transactions'] += 1
-            elif t.state == TransactionState.CLOSED.value:
+            elif bool(t.state == TransactionState.CLOSED.value):   
                 metrics['closed_transactions'] += 1
                 
                 if t.is_profitable:
                     metrics['profitable_transactions'] += 1
-                    metrics['total_profit'] += float(t.gain_loss or 0)
+                    metrics['total_profit'] += float(str(t.gain_loss)) if t.gain_loss is not None else 0   
                 else:
                     metrics['unprofitable_transactions'] += 1
-                    metrics['total_loss'] += abs(float(t.gain_loss or 0))
-            elif t.state == TransactionState.CANCELLED.value:
+                    metrics['total_loss'] += abs(float(str(t.gain_loss)) if t.gain_loss is not None else 0)   
+            elif bool(t.state == TransactionState.CANCELLED.value):   
                 metrics['cancelled_transactions'] += 1
                 
         metrics['total_transactions'] = len(transactions)
@@ -701,7 +708,7 @@ class TransactionService:
         # Emit metrics update event
         EventService.emit_metrics_update(
             metric_type='transaction_stats',
-            metric_data=metrics,
+            metric_data=metrics if isinstance(metrics, dict) else metrics[0],
             resource_id=service_id,
             resource_type='service'
         )

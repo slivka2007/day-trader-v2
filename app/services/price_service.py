@@ -5,7 +5,7 @@ This service encapsulates all database interactions for the price models,
 providing a clean API for stock price data management operations.
 """
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -64,7 +64,7 @@ class PriceService:
         """
         price = PriceService.get_daily_price_by_id(session, price_id)
         if not price:
-            raise ResourceNotFoundError(f"Daily price record with ID {price_id} not found")
+            raise ResourceNotFoundError(f"Daily price record with ID {price_id} not found", resource_id=price_id)
         return price
     
     @staticmethod
@@ -86,7 +86,7 @@ class PriceService:
     
     @staticmethod
     def get_daily_prices_by_date_range(session: Session, stock_id: int, 
-                             start_date: date, end_date: date = None) -> List[StockDailyPrice]:
+                             start_date: date, end_date: Optional[date] = None) -> List[StockDailyPrice]:
         """
         Get daily price records for a date range.
         
@@ -160,7 +160,7 @@ class PriceService:
             # Verify stock exists
             stock = session.query(Stock).get(stock_id)
             if not stock:
-                raise ResourceNotFoundError(f"Stock with ID {stock_id} not found")
+                raise ResourceNotFoundError(f"Stock with ID {stock_id} not found", resource_id=stock_id)
                 
             # Check if price already exists for this date
             existing = PriceService.get_daily_price_by_date(session, stock_id, price_date)
@@ -182,13 +182,13 @@ class PriceService:
             session.commit()
             
             # Prepare response data
-            price_data = daily_price_schema.dump(price_record)
+            price_data = daily_price_schema.dump(price_record)   
             
             # Emit WebSocket event
             EventService.emit_price_update(
                 action='created',
-                price_data=price_data,
-                stock_symbol=stock.symbol
+                price_data=price_data if isinstance(price_data, dict) else price_data[0],   
+                stock_symbol=str(stock.symbol)
             )
             
             return price_record
@@ -240,19 +240,19 @@ class PriceService:
             
             # Only commit if something was updated
             if updated:
-                price_record.updated_at = get_current_datetime()
+                setattr(price_record, 'updated_at', get_current_datetime())
                 session.commit()
                 
                 # Get stock symbol for event
-                stock_symbol = price_record.stock.symbol if price_record.stock else "unknown"
+                stock_symbol = str(price_record.stock.symbol) if price_record.stock else "unknown"
                 
                 # Prepare response data
-                price_data = daily_price_schema.dump(price_record)
+                price_data = daily_price_schema.dump(price_record)   
                 
                 # Emit WebSocket event
                 EventService.emit_price_update(
                     action='updated',
-                    price_data=price_data,
+                    price_data=price_data if isinstance(price_data, dict) else price_data[0],
                     stock_symbol=stock_symbol
                 )
             
@@ -287,7 +287,7 @@ class PriceService:
             price_record = PriceService.get_daily_price_or_404(session, price_id)
             
             # Get stock symbol for event
-            stock_symbol = price_record.stock.symbol if price_record.stock else "unknown"
+            stock_symbol = str(price_record.stock.symbol) if price_record.stock else "unknown"
             
             # Store price data for event
             price_data = {
@@ -351,7 +351,7 @@ class PriceService:
         """
         price = PriceService.get_intraday_price_by_id(session, price_id)
         if not price:
-            raise ResourceNotFoundError(f"Intraday price record with ID {price_id} not found")
+            raise ResourceNotFoundError(f"Intraday price record with ID {price_id} not found", resource_id=price_id)
         return price
     
     @staticmethod
@@ -379,7 +379,7 @@ class PriceService:
     
     @staticmethod
     def get_intraday_prices_by_time_range(session: Session, stock_id: int, 
-                           start_time: datetime, end_time: datetime = None, 
+                           start_time: datetime, end_time: Optional[datetime] = None, 
                            interval: int = 1) -> List[StockIntradayPrice]:
         """
         Get intraday price records for a time range.
@@ -461,7 +461,7 @@ class PriceService:
             # Verify stock exists
             stock = session.query(Stock).get(stock_id)
             if not stock:
-                raise ResourceNotFoundError(f"Stock with ID {stock_id} not found")
+                raise ResourceNotFoundError(f"Stock with ID {stock_id} not found", resource_id=stock_id)
                 
             # Check if price already exists for this timestamp & interval
             existing = PriceService.get_intraday_price_by_timestamp(session, stock_id, timestamp, interval)
@@ -487,14 +487,13 @@ class PriceService:
             session.commit()
             
             # Prepare response data
-            price_data = intraday_price_schema.dump(price_record)
+            price_data = intraday_price_schema.dump(price_record)   
             
             # Emit WebSocket event
             EventService.emit_price_update(
                 action='created',
-                price_data=price_data,
-                stock_symbol=stock.symbol,
-                is_intraday=True
+                price_data=price_data if isinstance(price_data, dict) else price_data[0],   
+                stock_symbol=str(stock.symbol)
             )
             
             return price_record
@@ -546,21 +545,20 @@ class PriceService:
             
             # Only commit if something was updated
             if updated:
-                price_record.updated_at = get_current_datetime()
+                setattr(price_record, 'updated_at', get_current_datetime())
                 session.commit()
                 
                 # Get stock symbol for event
-                stock_symbol = price_record.stock.symbol if price_record.stock else "unknown"
+                stock_symbol = str(price_record.stock.symbol) if price_record.stock else "unknown"
                 
                 # Prepare response data
-                price_data = intraday_price_schema.dump(price_record)
+                price_data = intraday_price_schema.dump(price_record)   
                 
                 # Emit WebSocket event
                 EventService.emit_price_update(
                     action='updated',
-                    price_data=price_data,
-                    stock_symbol=stock_symbol,
-                    is_intraday=True
+                    price_data=price_data if isinstance(price_data, dict) else price_data[0],
+                    stock_symbol=stock_symbol
                 )
             
             return price_record
@@ -594,7 +592,7 @@ class PriceService:
             price_record = PriceService.get_intraday_price_or_404(session, price_id)
             
             # Get stock symbol for event
-            stock_symbol = price_record.stock.symbol if price_record.stock else "unknown"
+            stock_symbol = str(price_record.stock.symbol) if price_record.stock else "unknown"
             
             # Store price data for event
             price_data = {
@@ -610,9 +608,8 @@ class PriceService:
             # Emit WebSocket event
             EventService.emit_price_update(
                 action='deleted',
-                price_data=price_data,
-                stock_symbol=stock_symbol,
-                is_intraday=True
+                price_data=price_data if isinstance(price_data, dict) else price_data[0],
+                stock_symbol=stock_symbol
             )
             
             return True
@@ -648,7 +645,7 @@ class PriceService:
             # Verify stock exists
             stock = session.query(Stock).get(stock_id)
             if not stock:
-                raise ResourceNotFoundError(f"Stock with ID {stock_id} not found")
+                raise ResourceNotFoundError(f"Stock with ID {stock_id} not found", resource_id=stock_id)
                 
             # Validate price data
             for item in price_data:
@@ -691,13 +688,14 @@ class PriceService:
             # Prepare response data and emit events
             if created_records:
                 for record in created_records:
-                    price_data = daily_price_schema.dump(record)
+                    dumped_data = daily_price_schema.dump(record)
+                    price_data_dict: Dict[str, Any] = dumped_data if isinstance(dumped_data, dict) else dumped_data[0]
                     
                     # Emit WebSocket event
                     EventService.emit_price_update(
                         action='created',
-                        price_data=price_data,
-                        stock_symbol=stock.symbol
+                        price_data=price_data_dict,
+                        stock_symbol=str(stock.symbol)
                     )
             
             return created_records
@@ -732,7 +730,7 @@ class PriceService:
             # Verify stock exists
             stock = session.query(Stock).get(stock_id)
             if not stock:
-                raise ResourceNotFoundError(f"Stock with ID {stock_id} not found")
+                raise ResourceNotFoundError(f"Stock with ID {stock_id} not found", resource_id=stock_id)
                 
             # Validate price data
             for item in price_data:
@@ -782,14 +780,14 @@ class PriceService:
             # Prepare response data and emit events
             if created_records:
                 for record in created_records:
-                    price_data = intraday_price_schema.dump(record)
+                    dumped_data = intraday_price_schema.dump(record)
+                    price_data_dict: Dict[str, Any] = dumped_data if isinstance(dumped_data, dict) else dumped_data[0]
                     
                     # Emit WebSocket event
                     EventService.emit_price_update(
                         action='created',
-                        price_data=price_data,
-                        stock_symbol=stock.symbol,
-                        is_intraday=True
+                        price_data=price_data_dict,
+                        stock_symbol=str(stock.symbol)
                     )
             
             return created_records
@@ -841,7 +839,7 @@ class PriceService:
         prices = PriceService.get_daily_prices_by_date_range(session, stock_id, start_date, end_date)
         
         # Extract closing prices
-        close_prices = [float(price.close_price) for price in prices if price.close_price is not None]
+        close_prices = [float(str(price.close_price)) for price in prices if price.close_price is not None]   
         
         # Calculate MAs for each period
         result = {}
@@ -903,9 +901,13 @@ class PriceService:
         # Calculate SMA
         sma = PriceService.calculate_simple_moving_average(prices, period)
         
+        # Early return if SMA is None
+        if sma is None:
+            return {'upper': None, 'middle': None, 'lower': None}
+        
         # Calculate standard deviation
         recent_prices = prices[-period:]
-        std_dev = (sum((price - sma) ** 2 for price in recent_prices) / period) ** 0.5
+        std_dev = (sum((price - sma) ** 2 for price in recent_prices) / period) ** 0.5  
         
         # Calculate bands
         upper_band = sma + (std_dev * num_std)
@@ -936,7 +938,7 @@ class PriceService:
             return False
             
         # Extract closing prices
-        close_prices = [float(price.close_price) for price in prices if price.close_price is not None]
+        close_prices = [float(str(price.close_price)) for price in prices if price.close_price is not None]   
         close_prices.reverse()  # Change to oldest to newest
         
         if len(close_prices) < 5:
@@ -948,10 +950,10 @@ class PriceService:
         if len(close_prices) >= 10:
             ma10 = PriceService.calculate_simple_moving_average(close_prices, 10)
             # 5-day MA above 10-day MA suggests uptrend
-            return ma5 > ma10
+            return ma5 is not None and ma10 is not None and ma5 > ma10
         else:
             # If not enough data for 10-day MA, check if recent prices are above 5-day MA
-            return close_prices[-1] > ma5
+            return ma5 is not None and close_prices[-1] > ma5  
     
     @staticmethod
     def get_price_analysis(session: Session, stock_id: int) -> Dict[str, Any]:
@@ -979,7 +981,7 @@ class PriceService:
             }
             
         # Extract closing prices
-        close_prices = [float(price.close_price) for price in prices if price.close_price is not None]
+        close_prices = [float(str(price.close_price)) for price in prices if price.close_price is not None]   
         if not close_prices:
             return {
                 'has_data': False,
@@ -1047,10 +1049,10 @@ class PriceService:
                 analysis['signals']['ma_crossover'] = 'bearish'
         
         # Bollinger Band signals
-        if bollinger_bands and bollinger_bands['upper'] and latest_price:
+        if bollinger_bands and bollinger_bands['upper'] is not None and latest_price is not None:
             if latest_price > bollinger_bands['upper']:
                 analysis['signals']['bollinger'] = 'overbought'
-            elif latest_price < bollinger_bands['lower']:
+            elif bollinger_bands['lower'] is not None and latest_price < bollinger_bands['lower']:  
                 analysis['signals']['bollinger'] = 'oversold'
             else:
                 analysis['signals']['bollinger'] = 'neutral'
