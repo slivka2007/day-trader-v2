@@ -105,10 +105,10 @@ class TradingServiceDeleteSchema(Schema):
             raise ValidationError("Must confirm deletion by setting 'confirm' to true")
             
         # Check if service has associated transactions
-        from app.services.database import get_db_session
+        from app.services.session_manager import SessionManager
         from app.models import TradingService, TradingTransaction
         
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Find the service
             service = session.query(TradingService).filter_by(id=data['service_id']).first()
             if not service:

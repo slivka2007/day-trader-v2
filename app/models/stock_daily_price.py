@@ -98,21 +98,30 @@ class StockDailyPrice(Base):
     @property
     def change(self) -> Optional[float]:
         """Calculate the change in price from open to close."""
-        if self.open_price is None or self.close_price is None:
+        attr = self.__dict__
+        open_price = attr.get('open_price')
+        close_price = attr.get('close_price')
+        if open_price is None or close_price is None:
             return None
-        return self.close_price - self.open_price
+        return float(close_price - open_price)
     
     @property
     def change_percent(self) -> Optional[float]:
         """Calculate the percentage change from open to close."""
-        if self.open_price is None or self.close_price is None or self.open_price == 0:
+        attr = self.__dict__
+        open_price = attr.get('open_price')
+        close_price = attr.get('close_price')
+        if open_price is None or close_price is None or float(open_price) == 0:
             return None
-        return (self.close_price - self.open_price) / self.open_price * 100
+        return float((close_price - open_price) / open_price * 100)
     
     @property
     def is_real_data(self) -> bool:
         """Check if the price data is from a real source (not simulated)."""
-        return PriceSource.is_real(self.source)
+        source = self.__dict__.get('source')
+        if source is None:
+            return False
+        return bool(PriceSource.is_real(str(source)))
     
     def update_from_dict(self, data: Dict[str, Any], allowed_fields: Optional[Set[str]] = None) -> bool:
         """

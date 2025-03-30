@@ -1,12 +1,13 @@
 """
 Trading Services API resources.
 """
+from http import HTTPStatus
 from flask import request, current_app
 from flask_restx import Namespace, Resource, fields
 from sqlalchemy.exc import IntegrityError
 from flask_jwt_extended import jwt_required
 
-from app.services.database import get_db_session
+from app.services.session_manager import SessionManager
 from app.models import TradingService
 from app.services.trading_service import TradingServiceService
 from app.api.schemas.trading_service import (
@@ -95,7 +96,7 @@ class ServiceList(Resource):
     @jwt_required()
     def get(self):
         """List all trading services for the authenticated user"""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
@@ -129,23 +130,22 @@ class ServiceList(Resource):
         'take_profit_percent': fields.Float(description='Take profit percentage'),
         'is_active': fields.Boolean(description='Whether the service is active')
     }))
-    @api.marshal_with(service_model, code=201)
+    @api.marshal_with(service_model)
     @api.response(201, 'Service created')
     @api.response(400, 'Validation error')
     @api.response(401, 'Unauthorized')
     @jwt_required()
     def post(self):
         """Create a new trading service"""
-        data = request.json
-        
-        # Validate input data
+        data = request.json or {}  # Use empty dict if request.json is None
         try:
             validated_data = service_create_schema.load(data)
         except ValidationError as err:
-            current_app.logger.warning(f"Validation error in service creation: {err.messages}")
-            raise ValidationError("Invalid service data", errors=err.messages)
+            error_messages = getattr(err, 'messages', {})
+            current_app.logger.warning(f"Validation error in service creation: {error_messages}")
+            raise ValidationError("Invalid service data", errors=error_messages)
             
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
@@ -192,7 +192,7 @@ class ServiceSearch(Resource):
         """Search trading services by name or stock symbol"""
         search_query = request.args.get('q', '')
         
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
@@ -245,7 +245,7 @@ class ServiceItem(Resource):
     @require_ownership('service')
     def get(self, id):
         """Get a trading service by ID"""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
@@ -277,16 +277,17 @@ class ServiceItem(Resource):
     @require_ownership('service')
     def put(self, id):
         """Update a trading service"""
-        data = request.json
+        data = request.json or {}  # Use empty dict if request.json is None
         
         # Validate input data
         try:
             validated_data = service_update_schema.load(data, partial=True)
         except ValidationError as err:
-            current_app.logger.warning(f"Validation error in service update: {err.messages}")
-            raise ValidationError("Invalid service data", errors=err.messages)
+            error_messages = getattr(err, 'messages', {})
+            current_app.logger.warning(f"Validation error in service update: {error_messages}")
+            raise ValidationError("Invalid service data", errors=error_messages)
             
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
@@ -319,7 +320,7 @@ class ServiceItem(Resource):
     @require_ownership('service')
     def delete(self, id):
         """Delete a trading service"""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
@@ -358,12 +359,12 @@ class ServiceStateResource(Resource):
     @require_ownership('service')
     def put(self, id):
         """Change the state of a trading service"""
-        data = request.json
+        data = request.json or {}
         
         if 'state' not in data:
             raise ValidationError("Missing required field", errors={'state': ['Field is required']})
             
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
@@ -405,12 +406,12 @@ class ServiceModeResource(Resource):
     @require_ownership('service')
     def put(self, id):
         """Change the trading mode of a service"""
-        data = request.json
+        data = request.json or {}
         
         if 'mode' not in data:
             raise ValidationError("Missing required field", errors={'mode': ['Field is required']})
             
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
@@ -448,7 +449,7 @@ class ServiceToggle(Resource):
     @require_ownership('service')
     def post(self, id):
         """Toggle the active status of a trading service"""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
@@ -485,7 +486,7 @@ class ServiceCheckBuy(Resource):
     @require_ownership('service')
     def get(self, id):
         """Check if a buy decision should be made"""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:
@@ -525,7 +526,7 @@ class ServiceCheckSell(Resource):
     @require_ownership('service')
     def get(self, id):
         """Check if a sell decision should be made"""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get current user
             user = get_current_user(session)
             if not user:

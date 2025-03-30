@@ -121,7 +121,7 @@ def register_handlers(socketio):
         room = data['room']
         logger.info(f'Client joining room: {room}')
         join_room(room)
-        emit('join_response', {'status': 'joined', 'room': room}, room=room)
+        emit('join_response', {'status': 'joined', 'room': room}, to=room)
     
     @socketio.on('leave')
     @socketio_handler('leave')
@@ -170,7 +170,7 @@ def register_handlers(socketio):
         room = "services"
         join_room(room)
         logger.debug(f"Client joined services room")
-        emit('joined', {'room': room}, room=room)
+        emit('joined', {'room': room}, to=room)
     
     # ========== STOCK EVENT HANDLERS ==========
     
@@ -206,7 +206,7 @@ def register_handlers(socketio):
         room = "price_updates"
         join_room(room)
         logger.debug(f"Client joined price updates room")
-        emit('joined', {'room': room}, room=room)
+        emit('joined', {'room': room}, to=room)
     
     # ========== TRANSACTION EVENT HANDLERS ==========
     
@@ -222,7 +222,7 @@ def register_handlers(socketio):
         room = "transactions"
         join_room(room)
         logger.debug(f"Client joined transactions room")
-        emit('joined', {'room': room}, room=room)
+        emit('joined', {'room': room}, to=room)
 
     # ========== USER EVENT HANDLERS ==========
     
@@ -238,7 +238,7 @@ def register_handlers(socketio):
         room = "users"
         join_room(room)
         logger.debug(f"Client joined users room")
-        emit('joined', {'room': room}, room=room)
+        emit('joined', {'room': room}, to=room)
     
     @socketio.on('user_watch')
     @socketio_handler('user_watch')
@@ -274,7 +274,7 @@ def register_handlers(socketio):
         room = "metrics"
         join_room(room)
         logger.debug(f"Client joined metrics room")
-        emit('joined', {'room': room}, room=room)
+        emit('joined', {'room': room}, to=room)
     
     # ========== SYSTEM NOTIFICATION HANDLERS ==========
     
@@ -301,7 +301,7 @@ def register_handlers(socketio):
         room = "system" if severity is None else f"system_{severity}"
         join_room(room)
         logger.debug(f"Client joined system notifications room: {room}")
-        emit('joined', {'room': room}, room=room)
+        emit('joined', {'room': room}, to=room)
     
     # ========== ERROR EVENT HANDLERS ==========
     
@@ -317,7 +317,7 @@ def register_handlers(socketio):
         room = "errors"
         join_room(room)
         logger.debug(f"Client joined errors room")
-        emit('joined', {'room': room}, room=room)
+        emit('joined', {'room': room}, to=room)
     
     # ========== DATA FEED HANDLERS ==========
     
@@ -333,7 +333,7 @@ def register_handlers(socketio):
         room = "data_feeds"
         join_room(room)
         logger.debug(f"Client joined data feeds room")
-        emit('joined', {'room': room}, room=room)
+        emit('joined', {'room': room}, to=room)
     
     # ========== DATABASE EVENT HANDLERS ==========
     
@@ -349,7 +349,7 @@ def register_handlers(socketio):
         room = "database_admin"
         join_room(room)
         logger.debug(f"Client joined database admin room")
-        emit('joined', {'room': room}, room=room)
+        emit('joined', {'room': room}, to=room)
 
     logger.info('WebSocket event handlers registered')
     return socketio 

@@ -5,8 +5,10 @@ from flask import request, current_app
 from flask_restx import Namespace, Resource, fields
 from sqlalchemy.exc import IntegrityError
 from flask_jwt_extended import jwt_required
+from http import HTTPStatus
+from typing import Dict, Any, cast
 
-from app.services.database import get_db_session
+from app.services.session_manager import SessionManager
 from app.models import Stock
 from app.services.stock_service import StockService
 from app.api.schemas.stock import stock_schema, stocks_schema, stock_input_schema
@@ -78,7 +80,7 @@ class StockList(Resource):
     @api.response(200, 'Success')
     def get(self):
         """Get all stocks with filtering and pagination."""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get base query
             query = session.query(Stock)
             
@@ -95,10 +97,10 @@ class StockList(Resource):
     
     @api.doc('create_stock')
     @api.expect(stock_input_model)
-    @api.marshal_with(stock_model, code=201)
-    @api.response(201, 'Stock created successfully')
-    @api.response(400, 'Invalid input')
-    @api.response(401, 'Unauthorized')
+    @api.marshal_with(stock_model)
+    @api.response(HTTPStatus.CREATED, 'Stock created successfully')
+    @api.response(HTTPStatus.BAD_REQUEST, 'Invalid input')
+    @api.response(HTTPStatus.UNAUTHORIZED, 'Unauthorized')
     @api.response(403, 'Admin privileges required')
     @api.response(409, 'Stock with this symbol already exists')
     @jwt_required()
@@ -109,16 +111,17 @@ class StockList(Resource):
         
         # Validate input data
         try:
-            validated_data = stock_input_schema.load(data)
+            validated_data = stock_input_schema.load(data or {})
         except ValidationError as err:
-            raise ValidationError("Invalid stock data", errors=err.messages)
+            error_messages = getattr(err, 'messages', {})
+            raise ValidationError("Invalid stock data", errors=error_messages)
         
-        with get_db_session() as session:
+        with SessionManager() as session:
             try:
                 # Create the stock using the StockService
                 stock = StockService.create_stock(
                     session=session,
-                    data=validated_data
+                    data=cast(Dict[str, Any], validated_data)
                 )
                 
                 return stock_schema.dump(stock), 201
@@ -127,7 +130,8 @@ class StockList(Resource):
                 current_app.logger.warning(f"Validation error creating stock: {str(e)}")
                 raise
             except IntegrityError:
-                current_app.logger.error(f"Stock with symbol {data.get('symbol')} already exists")
+                symbol = (data or {}).get('symbol', 'unknown')
+                current_app.logger.error(f"Stock with symbol {symbol} already exists")
                 raise BusinessLogicError("Stock with this symbol already exists")
             except Exception as e:
                 current_app.logger.error(f"Error creating stock: {str(e)}")
@@ -145,7 +149,7 @@ class StockResource(Resource):
     @api.response(404, 'Stock not found')
     def get(self, id):
         """Get a stock by ID."""
-        with get_db_session() as session:
+        with SessionManager() as session:
             stock = StockService.get_or_404(session, id)
             return stock_schema.dump(stock)
     
@@ -165,17 +169,22 @@ class StockResource(Resource):
         
         # Validate input data
         try:
-            validated_data = stock_input_schema.load(data, partial=True)
+            validated_data = stock_input_schema.load(data or {}, partial=True)
         except ValidationError as err:
-            raise ValidationError("Invalid stock data", errors=err.messages)
+            error_messages = getattr(err, 'messages', {})
+            raise ValidationError("Invalid stock data", errors=error_messages)
         
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get the stock
             stock = StockService.get_or_404(session, id)
             
             try:
                 # Update the stock using StockService
-                result = StockService.update_stock(session, stock, validated_data)
+                result = StockService.update_stock(
+                    session, 
+                    stock, 
+                    cast(Dict[str, Any], validated_data)
+                )
                 return stock_schema.dump(result)
                 
             except ValidationError as e:
@@ -195,7 +204,7 @@ class StockResource(Resource):
     @admin_required
     def delete(self, id):
         """Delete a stock. Requires admin privileges."""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get the stock
             stock = StockService.get_or_404(session, id)
             
@@ -223,7 +232,7 @@ class StockBySymbol(Resource):
     @api.response(404, 'Stock not found')
     def get(self, symbol):
         """Get a stock by symbol."""
-        with get_db_session() as session:
+        with SessionManager() as session:
             stock = StockService.find_by_symbol_or_404(session, symbol)
             return stock_schema.dump(stock)
 
@@ -243,7 +252,7 @@ class StockSearch(Resource):
         query = request.args.get('q', '')
         limit = min(int(request.args.get('limit', 10)), 50)  # Cap at 50 results
         
-        with get_db_session() as session:
+        with SessionManager() as session:
             stocks = StockService.search_stocks(session, query, limit)
             results = stocks_schema.dump(stocks)
             
@@ -268,7 +277,7 @@ class StockToggleActive(Resource):
     @admin_required
     def post(self, id):
         """Toggle the active status of a stock. Requires admin privileges."""
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Get the stock
             stock = StockService.get_or_404(session, id)
             

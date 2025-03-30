@@ -87,7 +87,7 @@ class WebSocketTest(Resource):
     @api.marshal_with(websocket_test_model)
     def post(self):
         """Test WebSocket functionality by emitting an event."""
-        message = request.json.get('message', 'Test WebSocket message')
+        message = (request.json or {}).get('message', 'Test WebSocket message')
         timestamp = get_current_datetime()
         
         # Use EventService to emit the test event

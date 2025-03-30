@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Dict, List, Optional, TypeVar, Set
+from typing import Any, Dict, List, Optional, Set, Type
 
 from sqlalchemy import Column, Integer, DateTime
 from sqlalchemy.ext.declarative import declarative_base
@@ -24,9 +24,6 @@ logger = logging.getLogger(__name__)
 
 # Create the base declarative class
 DeclarativeBase = declarative_base()
-
-# Type variable for models
-ModelType = TypeVar('ModelType', bound='Base')
 
 class Base(DeclarativeBase):
     """
@@ -60,7 +57,7 @@ class Base(DeclarativeBase):
         return f"<{self.__class__.__name__}(id={self.id})>"
     
     @classmethod
-    def get_by_id(cls, session: Session, id: int) -> Optional[ModelType]:
+    def get_by_id(cls, session: Session, id: int) -> Optional["Base"]:
         """
         Get a record by its ID.
         
@@ -74,7 +71,7 @@ class Base(DeclarativeBase):
         return session.query(cls).filter(cls.id == id).first()
     
     @classmethod
-    def get_or_404(cls, session: Session, id: int) -> ModelType:
+    def get_or_404(cls, session: Session, id: int) -> "Base":
         """
         Get a record by its ID or raise ResourceNotFoundError.
         
@@ -92,7 +89,7 @@ class Base(DeclarativeBase):
         
         record = cls.get_by_id(session, id)
         if not record:
-            raise ResourceNotFoundError(f"{cls.__name__} with ID {id} not found")
+            raise ResourceNotFoundError(resource_type=cls.__name__, resource_id=id)
         return record
         
     def to_dict(self, include_relationships: bool = False, exclude: Optional[Set[str]] = None) -> Dict[str, Any]:

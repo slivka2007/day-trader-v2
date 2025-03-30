@@ -1,12 +1,13 @@
 """
 Stock Price model schemas.
 """
+from datetime import timedelta
 from marshmallow import fields, post_load, validates, validates_schema, ValidationError, validate
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
 
 from app.models import StockDailyPrice, StockIntradayPrice, PriceSource
 from app.api.schemas import Schema
-from app.services.database import get_db_session
+from app.services.session_manager import SessionManager
 from app.utils.current_datetime import get_current_datetime, get_current_date
 
 # Base price schema with common validations
@@ -61,7 +62,7 @@ class StockDailyPriceSchema(SQLAlchemyAutoSchema):
     def validate_source(self, value):
         """Validate the source value."""
         if not PriceSource.is_valid(value):
-            valid_sources = [s.value for s in PriceSource]
+            valid_sources = [str(s.value) for s in PriceSource]
             raise ValidationError(f"Invalid price source. Must be one of: {', '.join(valid_sources)}")
 
 # Create instances for easy importing
@@ -104,15 +105,16 @@ class StockDailyPriceDeleteSchema(Schema):
             raise ValidationError("Must confirm deletion by setting 'confirm' to true")
         
         # Verify the price record exists and can be deleted
-        with get_db_session() as session:
+        with SessionManager() as session:
             price = session.query(StockDailyPrice).filter_by(id=data['price_id']).first()
             if not price:
                 raise ValidationError("Daily price record not found")
                 
             # Check if this is recent data (within last 30 days)
             # Recent data is often used for analysis and should be protected
-            thirty_days_ago = get_current_date() - 30
-            if price.price_date >= thirty_days_ago:
+            thirty_days_ago = get_current_date() - timedelta(days=30)
+            price_date = price.__dict__.get('price_date')
+            if price_date is not None and price_date >= thirty_days_ago:
                 raise ValidationError("Cannot delete recent price data (less than 30 days old). This data may be in use for active analyses.")
 
 # Intraday price schemas
@@ -146,7 +148,7 @@ class StockIntradayPriceSchema(SQLAlchemyAutoSchema):
     def validate_source(self, value):
         """Validate the source value."""
         if not PriceSource.is_valid(value):
-            valid_sources = [s.value for s in PriceSource]
+            valid_sources = [str(s.value) for s in PriceSource]
             raise ValidationError(f"Invalid price source. Must be one of: {', '.join(valid_sources)}")
 
 # Create instances for easy importing
@@ -189,15 +191,16 @@ class StockIntradayPriceDeleteSchema(Schema):
             raise ValidationError("Must confirm deletion by setting 'confirm' to true")
         
         # Verify the price record exists and can be deleted
-        with get_db_session() as session:
+        with SessionManager() as session:
             price = session.query(StockIntradayPrice).filter_by(id=data['price_id']).first()
             if not price:
                 raise ValidationError("Intraday price record not found")
                 
             # Check if this is recent data (within last 7 days)
             # Recent data is often used for analysis and should be protected
-            seven_days_ago = get_current_date() - 7
-            if price.timestamp.date() >= seven_days_ago:
+            seven_days_ago = get_current_date() - timedelta(days=7)
+            timestamp = price.__dict__.get('timestamp')
+            if timestamp is not None and timestamp.date() >= seven_days_ago:
                 raise ValidationError("Cannot delete recent price data (less than 7 days old). This data may be in use for active analyses.")
 
 # Create instances for easy importing

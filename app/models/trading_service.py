@@ -121,27 +121,30 @@ class TradingService(Base):
     @property
     def can_buy(self) -> bool:
         """Check if the service can buy stocks."""
-        return (
-            self.is_active and 
-            self.state == ServiceState.ACTIVE.value and
-            self.mode == TradingMode.BUY.value and
-            self.current_balance > self.minimum_balance
+        attr = self.__dict__
+        return bool(
+            attr.get('is_active', False) and 
+            attr.get('state') == ServiceState.ACTIVE.value and
+            attr.get('mode') == TradingMode.BUY.value and
+            attr.get('current_balance', 0) > attr.get('minimum_balance', 0)
         )
     
     @property
     def can_sell(self) -> bool:
         """Check if the service can sell stocks."""
-        return (
-            self.is_active and 
-            self.state == ServiceState.ACTIVE.value and
-            self.mode == TradingMode.SELL.value and
-            self.current_shares > 0
+        attr = self.__dict__
+        return bool(
+            attr.get('is_active', False) and 
+            attr.get('state') == ServiceState.ACTIVE.value and
+            attr.get('mode') == TradingMode.SELL.value and
+            attr.get('current_shares', 0) > 0
         )
     
     @property
     def is_profitable(self) -> bool:
         """Check if the service is profitable overall."""
-        return Decimal(str(self.total_gain_loss)) > 0
+        total_gain_loss = self.__dict__.get('total_gain_loss', 0)
+        return bool(Decimal(str(total_gain_loss)) > 0)
     
     def has_dependencies(self) -> bool:
         """

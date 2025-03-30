@@ -91,12 +91,13 @@ class User(Base):
         """Verify password."""
         if not password:
             return False
-        return check_password_hash(self.password_hash, password)
+        return check_password_hash(str(self.password_hash), password)
     
     @property
     def has_active_services(self) -> bool:
         """Check if user has any active trading services."""
-        return any(service.is_active for service in self.services)
+        services = getattr(self, 'services', [])
+        return bool(any(service.__dict__.get('is_active', False) for service in services))
     
     def __repr__(self) -> str:
         """String representation."""

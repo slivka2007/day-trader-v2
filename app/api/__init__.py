@@ -143,22 +143,8 @@ def apply_filters(query: Query, model, filter_args=None):
     return query
 
 # Import and register namespaces
-from app.api.resources.auth import api as auth_ns
-from app.api.resources.users import api as users_ns
-from app.api.resources.stocks import api as stocks_ns
-from app.api.resources.stock_prices import api as stock_prices_ns
-from app.api.resources.trading_services import api as trading_services_ns
-from app.api.resources.trading_transactions import api as trading_transactions_ns
-from app.api.resources.system import api as system_ns
-
-# Add namespaces to the API
-api.add_namespace(auth_ns)
-api.add_namespace(users_ns)
-api.add_namespace(stocks_ns)
-api.add_namespace(stock_prices_ns)
-api.add_namespace(trading_services_ns)
-api.add_namespace(trading_transactions_ns)
-api.add_namespace(system_ns)
+from app.api.resources import register_resources
+register_resources(api)
 
 # Register error handlers
 @api_bp.errorhandler(ValidationError)

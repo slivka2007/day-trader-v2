@@ -89,22 +89,27 @@ class TradingTransaction(Base):
     @property
     def is_complete(self) -> bool:
         """Check if the transaction is completed (sold)."""
-        return self.state == TransactionState.CLOSED.value  # type: ignore
+        state = self.__dict__.get('state')
+        return bool(state == TransactionState.CLOSED.value)   
 
     @property
     def is_profitable(self) -> bool:
         """Check if the transaction is profitable."""
-        if not self.is_complete or self.gain_loss is None:  # type: ignore
+        attr = self.__dict__
+        is_complete = attr.get('state') == TransactionState.CLOSED.value
+        gain_loss = attr.get('gain_loss')
+        if not is_complete or gain_loss is None:   
             return False
-        return Decimal(str(self.gain_loss)) > 0  # type: ignore
+        return bool(Decimal(str(gain_loss)) > 0)   
     
     @property
     def can_be_cancelled(self) -> bool:
         """Check if the transaction can be cancelled."""
-        return TransactionState.can_be_cancelled(self.state)  # type: ignore
+        state = self.__dict__.get('state')
+        return bool(TransactionState.can_be_cancelled(str(state)))   
     
     def calculate_gain_loss(self) -> Decimal:
         """Calculate the gain/loss amount based on current prices."""
-        if self.sale_price and self.purchase_price and self.shares:  # type: ignore
-            return (self.sale_price - self.purchase_price) * self.shares  # type: ignore
+        if self.sale_price is not None and self.purchase_price is not None and self.shares is not None:   
+            return Decimal(str(self.sale_price - self.purchase_price)) * Decimal(str(self.shares))   
         return Decimal('0')

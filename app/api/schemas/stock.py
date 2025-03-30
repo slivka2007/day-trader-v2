@@ -107,10 +107,10 @@ class StockDeleteSchema(Schema):
             raise ValidationError("Must confirm deletion by setting 'confirm' to true")
             
         # Check if stock has associated services or transactions
-        from app.services.database import get_db_session
+        from app.services.session_manager import SessionManager
         from app.models import Stock, TradingService, TradingTransaction
         
-        with get_db_session() as session:
+        with SessionManager() as session:
             # Find the stock by ID
             stock = session.query(Stock).filter_by(id=data['stock_id']).first()
             if not stock:
