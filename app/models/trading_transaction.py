@@ -3,27 +3,29 @@ Trading Transaction model.
 
 This model represents a stock trading transaction (buy and sell).
 """
-from typing import Optional, TYPE_CHECKING
-from decimal import Decimal
-from datetime import datetime
 
-from sqlalchemy import Column, ForeignKey, String, Integer, Numeric, DateTime, Text
-from sqlalchemy.orm import relationship, Mapped, validates
+from decimal import Decimal
+from typing import TYPE_CHECKING, Optional
+
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy.orm import Mapped, relationship, validates
 
 from app.models.base import Base
 from app.models.enums import TransactionState
 from app.utils.current_datetime import get_current_datetime
+
 if TYPE_CHECKING:
     from app.models.stock import Stock
     from app.models.trading_service import TradingService
 
+
 class TradingTransaction(Base):
     """
     Model representing a stock trading transaction.
-    
+
     Stores information about buy and sell transactions, including prices,
     shares, and profit/loss calculations.
-    
+
     Attributes:
         id: Unique identifier for the transaction
         service_id: Foreign key to the related trading service
@@ -39,11 +41,12 @@ class TradingTransaction(Base):
         service: Relationship to the trading service
         stock: Relationship to the stock
     """
-    __tablename__ = 'trading_transactions'
-    
+
+    __tablename__ = "trading_transactions"
+
     id = Column(Integer, primary_key=True)
-    service_id = Column(Integer, ForeignKey('trading_services.id'), nullable=False)
-    stock_id = Column(Integer, ForeignKey('stocks.id'), nullable=True)
+    service_id = Column(Integer, ForeignKey("trading_services.id"), nullable=False)
+    stock_id = Column(Integer, ForeignKey("stocks.id"), nullable=True)
     stock_symbol = Column(String(10), nullable=False, index=True)
     shares = Column(Numeric(precision=18, scale=2), nullable=False)
     state = Column(String(20), default=TransactionState.OPEN.value, nullable=False)
@@ -53,63 +56,79 @@ class TradingTransaction(Base):
     purchase_date = Column(DateTime, default=get_current_datetime, nullable=False)
     sale_date = Column(DateTime, nullable=True)
     notes = Column(Text, nullable=True)
-    
+
     # Relationships
-    service: Mapped["TradingService"] = relationship("TradingService", back_populates="transactions")
-    stock: Mapped[Optional["Stock"]] = relationship("Stock", back_populates="transactions")
-    
+    service: Mapped["TradingService"] = relationship(
+        "TradingService", back_populates="transactions"
+    )
+    stock: Mapped[Optional["Stock"]] = relationship(
+        "Stock", back_populates="transactions"
+    )
+
     # Validations
-    @validates('stock_symbol')
-    def validate_stock_symbol(self, key, symbol):
+    @validates("stock_symbol")
+    def validate_stock_symbol(self, _key, symbol) -> str:
         """Validate stock symbol."""
         if not symbol:
             raise ValueError("Stock symbol is required")
         return symbol.strip().upper()
-    
-    @validates('state')
-    def validate_state(self, key, state):
+
+    @validates("state")
+    def validate_state(self, _key, state) -> str:
         """Validate transaction state."""
         if state and not TransactionState.is_valid(state):
             valid_states = TransactionState.values()
-            raise ValueError(f"Invalid transaction state: {state}. Valid states are: {', '.join(valid_states)}")
+            raise ValueError(
+                f"Invalid transaction state: {state}. "
+                f"Valid states are: {', '.join(valid_states)}"
+            )
         return state
-    
-    @validates('shares')
-    def validate_shares(self, key, shares):
+
+    @validates("shares")
+    def validate_shares(self, _key, shares) -> float:
         """Validate shares amount."""
         if shares is not None and float(shares) <= 0:
             raise ValueError("Shares must be greater than zero")
         return shares
-    
+
     def __repr__(self) -> str:
         """String representation of the TradingTransaction object."""
-        return f"<TradingTransaction(id={self.id}, symbol='{self.stock_symbol}', shares={self.shares})>"
-    
+        return (
+            f"<TradingTransaction(id={self.id}, symbol='{self.stock_symbol}', "
+            f"shares={self.shares})>"
+        )
+
     # Simple, intrinsic properties
     @property
     def is_complete(self) -> bool:
         """Check if the transaction is completed (sold)."""
-        state = self.__dict__.get('state')
-        return bool(state == TransactionState.CLOSED.value)   
+        state = self.__dict__.get("state")
+        return bool(state == TransactionState.CLOSED.value)
 
     @property
     def is_profitable(self) -> bool:
         """Check if the transaction is profitable."""
         attr = self.__dict__
-        is_complete = attr.get('state') == TransactionState.CLOSED.value
-        gain_loss = attr.get('gain_loss')
-        if not is_complete or gain_loss is None:   
+        is_complete = attr.get("state") == TransactionState.CLOSED.value
+        gain_loss = attr.get("gain_loss")
+        if not is_complete or gain_loss is None:
             return False
-        return bool(Decimal(str(gain_loss)) > 0)   
-    
+        return bool(Decimal(str(gain_loss)) > 0)
+
     @property
     def can_be_cancelled(self) -> bool:
         """Check if the transaction can be cancelled."""
-        state = self.__dict__.get('state')
-        return bool(TransactionState.can_be_cancelled(str(state)))   
-    
+        state = self.__dict__.get("state")
+        return bool(TransactionState.can_be_cancelled(str(state)))
+
     def calculate_gain_loss(self) -> Decimal:
         """Calculate the gain/loss amount based on current prices."""
-        if self.sale_price is not None and self.purchase_price is not None and self.shares is not None:   
-            return Decimal(str(self.sale_price - self.purchase_price)) * Decimal(str(self.shares))   
-        return Decimal('0')
+        if (
+            self.sale_price is not None
+            and self.purchase_price is not None
+            and self.shares is not None
+        ):
+            return Decimal(str(self.sale_price - self.purchase_price)) * Decimal(
+                str(self.shares)
+            )
+        return Decimal("0")

@@ -1,0 +1,39 @@
+{
+  "cursorRules": [
+    {
+      "name": "backend",
+      "path": ".cursor/rules/backend.mdc",
+      "description": "Backend architecture guidelines for Flask REST API and Flask-SocketIO"
+    },
+    {
+      "name": "frontend",
+      "path": ".cursor/rules/frontend.mdc",
+      "description": "Frontend architecture guidelines for React SPA and Socket.IO integration"
+    },
+    {
+      "name": "websockets",
+      "path": ".cursor/rules/websockets.mdc",
+      "description": "WebSocket implementation guidelines for real-time updates"
+    },
+    {
+      "name": "schemas",
+      "path": ".cursor/rules/schemas.mdc",
+      "description": "Serialization schema patterns and best practices"
+    },
+    {
+      "name": "resources",
+      "path": ".cursor/rules/resources.mdc",
+      "description": "API resource structure and implementation guidelines"
+    },
+    {
+      "name": "database_services",
+      "path": ".cursor/rules/database_services.mdc",
+      "description": "Database service layer patterns and implementations"
+    },
+    {
+      "name": "models",
+      "path": ".cursor/rules/models.mdc",
+      "description": "Data model structure and relationship guidelines"
+    }
+  ]
+}

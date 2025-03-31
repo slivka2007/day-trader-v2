@@ -3,34 +3,36 @@ API resources for the Day Trader application.
 
 This package contains REST API resources using Flask-RESTX.
 """
+
 # Common imports for resources
-from flask import request, current_app
-from flask_restx import Namespace, Resource, fields, abort, Api
+from flask import current_app, request
+from flask_restx import Api, Namespace, Resource, abort, fields
 
 # Database session management
 from sqlalchemy.orm import Session
-from app.services.database import get_db_session
+
+from app.api.resources.auth import api as auth_api
+from app.api.resources.stock_prices import api as stock_prices_api
 
 # Import all resources
 from app.api.resources.stocks import api as stocks_api
-from app.api.resources.stock_prices import api as stock_prices_api
+from app.api.resources.system import api as system_api
 from app.api.resources.trading_services import api as trading_services_api
 from app.api.resources.trading_transactions import api as trading_transactions_api
-from app.api.resources.system import api as system_api
-from app.api.resources.auth import api as auth_api
 from app.api.resources.users import api as users_api
+from app.services.database import get_db_session
 
 # Make common imports available
 __all__ = [
-    'Namespace',
-    'Resource',
-    'fields',
-    'abort',
-    'request',
-    'current_app',
-    'get_db_session',
-    'register_resources',
-    'api_resources',
+    "Namespace",
+    "Resource",
+    "fields",
+    "abort",
+    "request",
+    "current_app",
+    "get_db_session",
+    "register_resources",
+    "api_resources",
 ]
 
 # Create an aggregated list of resources for easy importing
@@ -41,15 +43,16 @@ api_resources = [
     trading_transactions_api,
     system_api,
     auth_api,
-    users_api
+    users_api,
 ]
+
 
 def register_resources(api: Api):
     """
     Register all REST API resources with the provided API instance.
-    
+
     Args:
         api: The Flask-RESTX API instance
     """
     for resource in api_resources:
-        api.add_namespace(resource) 
+        api.add_namespace(resource)
