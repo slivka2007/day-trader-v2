@@ -10,9 +10,11 @@ import functools
 import logging
 from typing import Callable, TypeVar
 
+from sqlalchemy.orm import Session
+
 from app.services.database import get_session
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -30,14 +32,14 @@ class SessionManager:
             user.last_login = datetime.now()
     """
 
-    def __init__(self):
-        self.session = None
+    def __init__(self) -> None:
+        self.session: Session | None = None
 
-    def __enter__(self):
-        self.session = get_session()
+    def __enter__(self) -> Session:
+        self.session: Session = get_session()
         return self.session
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Exception | None, exc_val: Exception | None) -> None:
         if exc_type is not None:
             logger.error(f"Session rolled back due to exception: {exc_val}")
             if self.session:
@@ -74,7 +76,7 @@ def with_session(func: Callable[..., T]) -> Callable[..., T]:
     """
 
     @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self, *args: any, **kwargs: any) -> T:
         with SessionManager() as session:
             return func(self, session, *args, **kwargs)
 

@@ -11,7 +11,6 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
 
 from sqlalchemy import Column, DateTime, Integer
 from sqlalchemy.ext.declarative import declarative_base
@@ -21,10 +20,10 @@ from app.utils.current_datetime import get_current_datetime
 from app.utils.errors import ResourceNotFoundError
 
 # Set up logging
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 # Create the base declarative class
-DeclarativeBase = declarative_base()
+DeclarativeBase: any = declarative_base()
 
 
 class Base(DeclarativeBase):
@@ -65,7 +64,7 @@ class Base(DeclarativeBase):
         return f"<{self.__class__.__name__}(id={self.id})>"
 
     @classmethod
-    def get_by_id(cls, session: Session, record_id: int) -> Optional["Base"]:
+    def get_by_id(cls, session: Session, record_id: int) -> "Base | None":
         """
         Get a record by its ID.
 
@@ -93,7 +92,7 @@ class Base(DeclarativeBase):
         Raises:
             ResourceNotFoundError: If record not found
         """
-        record = cls.get_by_id(session, record_id)
+        record: Base | None = cls.get_by_id(session, record_id)
         if not record:
             raise ResourceNotFoundError(
                 resource_type=cls.__name__, resource_id=record_id
@@ -101,8 +100,8 @@ class Base(DeclarativeBase):
         return record
 
     def to_dict(
-        self, include_relationships: bool = False, exclude: Optional[Set[str]] = None
-    ) -> Dict[str, Any]:
+        self, include_relationships: bool = False, exclude: set[str] | None = None
+    ) -> dict[str, any]:
         """
         Convert the model instance to a dictionary.
 
@@ -116,15 +115,13 @@ class Base(DeclarativeBase):
         if exclude is None:
             exclude = set()
 
-        result = {}
+        result: dict[str, any] = {}
 
         # Add all column attributes
         for column in self.__table__.columns:
             if column.name in exclude:
                 continue
-
-            value = getattr(self, column.name)
-            result[column.name] = self._serialize_value(value)
+            result[column.name] = self._serialize_value(column.name)
 
         # Add relationships if requested
         if include_relationships:
@@ -137,7 +134,7 @@ class Base(DeclarativeBase):
                 if relationship.back_populates or relationship.backref:
                     continue
 
-                related_obj = getattr(self, relationship.key)
+                related_obj: any = self.relationship.key
 
                 if related_obj is None:
                     result[relationship.key] = None
@@ -154,7 +151,7 @@ class Base(DeclarativeBase):
         return result
 
     def to_json(
-        self, include_relationships: bool = False, exclude: Optional[Set[str]] = None
+        self, include_relationships: bool = False, exclude: set[str] | None = None
     ) -> str:
         """
         Convert the model instance to a JSON string.
@@ -179,7 +176,7 @@ class Base(DeclarativeBase):
             return json.dumps({"error": "Serialization error", "id": self.id})
 
     @staticmethod
-    def _serialize_value(value: Any) -> Any:
+    def _serialize_value(value: any) -> any:
         """
         Serialize a value for JSON compatibility.
 
@@ -195,7 +192,7 @@ class Base(DeclarativeBase):
         if isinstance(value, datetime):
             return value.isoformat()
 
-        if isinstance(value, Decimal):
+        if isinstance(value, Decimal | float):
             return float(value)
 
         if isinstance(value, Enum):
@@ -207,7 +204,7 @@ class Base(DeclarativeBase):
         return value
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], ignore_unknown: bool = True) -> Any:
+    def from_dict(cls, data: dict[str, any], ignore_unknown: bool = True) -> any:
         """
         Create a new instance from a dictionary.
 
@@ -223,10 +220,10 @@ class Base(DeclarativeBase):
             is False
         """
         # Get column names
-        columns = {c.key for c in class_mapper(cls).columns}
+        columns: set[str] = {c.key for c in class_mapper(cls).columns}
 
         # Filter data to only include valid columns
-        valid_data = {}
+        valid_data: dict[str, any] = {}
         for key, value in data.items():
             if key in columns:
                 valid_data[key] = value
@@ -242,7 +239,7 @@ class Base(DeclarativeBase):
             ) from e
 
     @classmethod
-    def get_columns(cls) -> List[str]:
+    def get_columns(cls) -> list[str]:
         """
         Get a list of column names for this model.
 
@@ -256,7 +253,7 @@ class Base(DeclarativeBase):
         ]
 
     def update_from_dict(
-        self, data: Dict[str, Any], allowed_fields: Optional[Set[str]] = None
+        self, data: dict[str, any], allowed_fields: set[str] | None = None
     ) -> bool:
         """
         Update model attributes from a dictionary.
@@ -273,17 +270,17 @@ class Base(DeclarativeBase):
             ValueError: If attempt to update a non-allowed field
         """
         # Default fields to exclude from updates
-        default_exclude = {"id", "created_at"}
+        default_exclude: set[str] = {"id", "created_at"}
 
         # Get column names
-        columns = set(self.get_columns())
+        columns: set[str] = set(self.get_columns())
 
         # Determine allowed fields
         if allowed_fields is None:
             allowed_fields = columns - default_exclude
 
         # Track if anything was updated
-        updated = False
+        updated: bool = False
 
         # Update fields
         for key, value in data.items():
@@ -296,9 +293,9 @@ class Base(DeclarativeBase):
                 raise ValueError(f"Cannot update field '{key}': not allowed")
 
             # Update if value is different
-            current_value = getattr(self, key)
+            current_value: any = self.key
             if current_value != value:
-                setattr(self, key, value)
+                self.key: any = value
                 updated = True
 
         return updated
@@ -322,7 +319,7 @@ class EnumBase(str, Enum):
     """
 
     @classmethod
-    def _generate_next_value_(cls, name, start, count, last_values) -> str:
+    def _generate_next_value_(cls, name: str) -> str:
         """Generate enum values as uppercase of the enum name."""
         return name.upper()
 
@@ -356,7 +353,7 @@ class EnumBase(str, Enum):
             raise ValueError(f"Invalid value '{value}' for {cls.__name__}") from e
 
     @classmethod
-    def values(cls) -> List[str]:
+    def values(cls) -> list[str]:
         """
         Get a list of all valid values for this enum.
 

@@ -8,6 +8,7 @@ from app.models.base import Base
 from app.models.enums import (
     AnalysisTimeframe,
     PriceSource,
+    ServiceAction,
     ServiceState,
     TradingMode,
     TransactionState,
@@ -22,7 +23,7 @@ from app.models.trading_transaction import TradingTransaction
 from app.models.user import User
 
 # Exposed for easier imports
-__all__ = [
+__all__: list[str] = [
     "Base",
     "Stock",
     "StockDailyPrice",
@@ -31,6 +32,7 @@ __all__ = [
     "TradingTransaction",
     "User",
     "ServiceState",
+    "ServiceAction",
     "TradingMode",
     "TransactionState",
     "PriceSource",

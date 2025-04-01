@@ -124,7 +124,8 @@ class WebSocketTest(Resource):
         from app.services.events import EventService
 
         EventService.emit_test(
-            message=message, room="test"  # Use a dedicated test room
+            message=message,
+            room="test",  # Use a dedicated test room
         )
 
         return {

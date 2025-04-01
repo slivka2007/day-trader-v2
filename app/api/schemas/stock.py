@@ -11,6 +11,7 @@ from marshmallow import (
     validates_schema,
 )
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
+from sqlalchemy import select
 
 from app.api.schemas import Schema
 from app.models import Stock
@@ -21,27 +22,29 @@ class StockSchema(SQLAlchemyAutoSchema):
 
     class Meta:
         model = Stock
-        include_relationships = False
-        load_instance = True
-        exclude = ("created_at", "updated_at")
+        include_relationships: bool = False
+        load_instance: bool = True
+        exclude: tuple[str, ...] = ("created_at", "updated_at")
 
     # Add calculated fields
-    has_services = fields.Method("check_has_services", dump_only=True)
-    has_transactions = fields.Method("check_has_transactions", dump_only=True)
-    price_count = fields.Method("count_prices", dump_only=True)
+    has_services: fields.Method = fields.Method("check_has_services", dump_only=True)
+    has_transactions: fields.Method = fields.Method(
+        "check_has_transactions", dump_only=True
+    )
+    price_count: fields.Method = fields.Method("count_prices", dump_only=True)
 
-    def check_has_services(self, obj):
+    def check_has_services(self, obj: Stock) -> bool:
         """Check if the stock has any associated services."""
         return len(obj.services) > 0 if obj.services else False
 
-    def check_has_transactions(self, obj):
+    def check_has_transactions(self, obj: Stock) -> bool:
         """Check if the stock has any associated transactions."""
         return len(obj.transactions) > 0 if obj.transactions else False
 
-    def count_prices(self, obj):
+    def count_prices(self, obj: Stock) -> dict[str, int]:
         """Count the number of price data points available."""
-        daily_count = len(obj.daily_prices) if obj.daily_prices else 0
-        intraday_count = len(obj.intraday_prices) if obj.intraday_prices else 0
+        daily_count: int = len(obj.daily_prices) if obj.daily_prices else 0
+        intraday_count: int = len(obj.intraday_prices) if obj.intraday_prices else 0
         return {
             "daily": daily_count,
             "intraday": intraday_count,
@@ -50,7 +53,7 @@ class StockSchema(SQLAlchemyAutoSchema):
 
     # Add validation for stock symbol
     @validates("symbol")
-    def validate_symbol(self, symbol):
+    def validate_symbol(self, symbol: str) -> None:
         """Validate stock symbol format."""
         if not symbol or len(symbol) > 10:
             raise ValidationError("Stock symbol must be 1-10 characters")
@@ -59,19 +62,19 @@ class StockSchema(SQLAlchemyAutoSchema):
             raise ValidationError("Stock symbol must contain only letters and numbers")
 
     @validates("name")
-    def validate_name(self, name):
+    def validate_name(self, name: str) -> None:
         """Validate stock name."""
         if name and len(name) > 200:
             raise ValidationError("Stock name must be 200 characters or less")
 
     @validates("sector")
-    def validate_sector(self, sector):
+    def validate_sector(self, sector: str) -> None:
         """Validate stock sector."""
         if sector and len(sector) > 100:
             raise ValidationError("Stock sector must be 100 characters or less")
 
     @validates("description")
-    def validate_description(self, description):
+    def validate_description(self, description: str) -> None:
         """Validate stock description."""
         if description and len(description) > 1000:
             raise ValidationError("Stock description must be 1000 characters or less")
@@ -86,25 +89,33 @@ stocks_schema = StockSchema(many=True)
 class StockInputSchema(Schema):
     """Schema for creating or updating a Stock."""
 
-    symbol = fields.String(required=True, validate=validate.Length(min=1, max=10))
-    name = fields.String(allow_none=True, validate=validate.Length(max=200))
-    is_active = fields.Boolean(default=True)
-    sector = fields.String(allow_none=True, validate=validate.Length(max=100))
-    description = fields.String(allow_none=True, validate=validate.Length(max=1000))
+    symbol: fields.String = fields.String(
+        required=True, validate=validate.Length(min=1, max=10)
+    )
+    name: fields.String = fields.String(
+        allow_none=True, validate=validate.Length(max=200)
+    )
+    is_active: fields.Boolean = fields.Boolean(default=True)
+    sector: fields.String = fields.String(
+        allow_none=True, validate=validate.Length(max=100)
+    )
+    description: fields.String = fields.String(
+        allow_none=True, validate=validate.Length(max=1000)
+    )
 
     @validates("symbol")
-    def validate_symbol(self, symbol):
+    def validate_symbol(self, symbol: str) -> None:
         """Validate stock symbol format."""
         if not symbol.isalnum():
             raise ValidationError("Stock symbol must contain only letters and numbers")
 
     @post_load
-    def make_stock(self, data, **kwargs):
+    def make_stock(self, data: dict) -> Stock:
         """Create a Stock instance from validated data."""
         # Ensure symbol is uppercase
         if "symbol" in data:
             data["symbol"] = data["symbol"].upper()
-        return data
+        return Stock.from_dict(data)
 
 
 # Schema for deleting a stock
@@ -115,8 +126,10 @@ class StockDeleteSchema(Schema):
     stock_id = fields.Integer(required=True)
 
     @validates_schema
-    def validate_deletion(self, data, **kwargs):
-        """Validate that deletion is properly confirmed and stock has no dependencies."""
+    def validate_deletion(self, data: dict) -> None:
+        """
+        Validate that deletion is properly confirmed and stock has no dependencies.
+        """
         if not data.get("confirm"):
             raise ValidationError("Must confirm deletion by setting 'confirm' to true")
 
@@ -126,26 +139,32 @@ class StockDeleteSchema(Schema):
 
         with SessionManager() as session:
             # Find the stock by ID
-            stock = session.query(Stock).filter_by(id=data["stock_id"]).first()
+            stock: Stock | None = session.execute(
+                select(Stock).where(Stock.id == data["stock_id"])
+            ).scalar_one_or_none()
             if not stock:
                 return  # Stock doesn't exist, let the resource handle this error
 
             # Check if any trading services use this stock
-            services_count = (
-                session.query(TradingService).filter_by(stock_id=stock.id).count()
-            )
+            services_count: int = session.execute(
+                select(TradingService).where(TradingService.stock_id == stock.id)
+            ).count()
             if services_count > 0:
                 raise ValidationError(
-                    f"Cannot delete stock '{stock.symbol}' because it is used by {services_count} trading service(s)"
+                    f"Cannot delete stock '{stock.symbol}' because it is used by "
+                    f"{services_count} trading service(s)"
                 )
 
             # Check if any transactions are associated with this stock
-            transactions_count = (
-                session.query(TradingTransaction).filter_by(stock_id=stock.id).count()
-            )
+            transactions_count: int = session.execute(
+                select(TradingTransaction).where(
+                    TradingTransaction.stock_id == stock.id
+                )
+            ).count()
             if transactions_count > 0:
                 raise ValidationError(
-                    f"Cannot delete stock '{stock.symbol}' because it has {transactions_count} associated transaction(s)"
+                    f"Cannot delete stock '{stock.symbol}' because it has "
+                    f"{transactions_count} associated transaction(s)"
                 )
 
 

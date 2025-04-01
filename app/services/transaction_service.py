@@ -8,14 +8,13 @@ providing a clean API for trading transaction management operations.
 import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Union, cast
 
-from sqlalchemy import and_
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas.trading_service import service_schema
-from app.api.schemas.trading_transaction import transaction_schema, transactions_schema
-from app.models.enums import TradingMode, TransactionState
+from app.api.schemas.trading_transaction import transaction_schema
+from app.models.enums import TransactionState
 from app.models.stock import Stock
 from app.models.trading_service import TradingService
 from app.models.trading_transaction import TradingTransaction
@@ -28,7 +27,7 @@ from app.utils.errors import (
 )
 
 # Set up logging
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class TransactionService:
@@ -36,9 +35,7 @@ class TransactionService:
 
     # Read operations
     @staticmethod
-    def get_by_id(
-        session: Session, transaction_id: int
-    ) -> Optional[TradingTransaction]:
+    def get_by_id(session: Session, transaction_id: int) -> TradingTransaction | None:
         """
         Get a transaction by ID.
 
@@ -49,7 +46,9 @@ class TransactionService:
         Returns:
             TradingTransaction instance if found, None otherwise
         """
-        return session.query(TradingTransaction).get(transaction_id)
+        return session.execute(
+            select(TradingTransaction).where(TradingTransaction.id == transaction_id)
+        ).scalar_one_or_none()
 
     @staticmethod
     def get_or_404(session: Session, transaction_id: int) -> TradingTransaction:
@@ -66,7 +65,9 @@ class TransactionService:
         Raises:
             ResourceNotFoundError: If transaction not found
         """
-        transaction = TransactionService.get_by_id(session, transaction_id)
+        transaction: TradingTransaction | None = TransactionService.get_by_id(
+            session, transaction_id
+        )
         if not transaction:
             raise ResourceNotFoundError(
                 f"Transaction with ID {transaction_id} not found",
@@ -76,8 +77,8 @@ class TransactionService:
 
     @staticmethod
     def get_by_service(
-        session: Session, service_id: int, state: Optional[str] = None
-    ) -> List[TradingTransaction]:
+        session: Session, service_id: int, state: str | None = None
+    ) -> list[TradingTransaction]:
         """
         Get transactions for a service, optionally filtered by state.
 
@@ -93,24 +94,25 @@ class TransactionService:
             ValidationError: If state is invalid
         """
         try:
-            query = session.query(TradingTransaction).filter(
+            query: select[tuple[TradingTransaction]] = select(TradingTransaction).where(
                 TradingTransaction.service_id == service_id
             )
 
+            if state and not TransactionState.is_valid(state):
+                raise ValueError(f"Invalid transaction state: {state}")
+
             if state:
-                if not TransactionState.is_valid(state):
-                    raise ValueError(f"Invalid transaction state: {state}")
                 query = query.filter(TradingTransaction.state == state)
 
             return query.order_by(TradingTransaction.purchase_date.desc()).all()
         except ValueError as e:
             # Convert ValueError from model to ValidationError for API consistency
-            raise ValidationError(str(e))
+            raise ValidationError(str(e)) from e
 
     @staticmethod
     def get_open_transactions(
-        session: Session, service_id: Optional[int] = None
-    ) -> List[TradingTransaction]:
+        session: Session, service_id: int | None = None
+    ) -> list[TradingTransaction]:
         """
         Get all open transactions, optionally filtered by service ID.
 
@@ -121,7 +123,7 @@ class TransactionService:
         Returns:
             List of open transactions
         """
-        query = session.query(TradingTransaction).filter(
+        query: select[tuple[TradingTransaction]] = select(TradingTransaction).where(
             TradingTransaction.state == TransactionState.OPEN.value
         )
 
@@ -143,15 +145,18 @@ class TransactionService:
         Returns:
             True if the user owns the service that owns the transaction, False otherwise
         """
-        transaction = TransactionService.get_by_id(session, transaction_id)
+        transaction: TradingTransaction | None = TransactionService.get_by_id(
+            session, transaction_id
+        )
         if not transaction:
             return False
 
-        service = (
-            session.query(TradingService)
-            .filter_by(id=transaction.service_id.scalar(), user_id=user_id)
-            .first()
-        )
+        service: TradingService | None = session.execute(
+            select(TradingService).where(
+                TradingService.id == transaction.service_id,
+                TradingService.user_id == user_id,
+            )
+        ).scalar_one_or_none()
         return service is not None
 
     @staticmethod
@@ -159,7 +164,8 @@ class TransactionService:
         session: Session, transaction_id: int, user_id: int
     ) -> TradingTransaction:
         """
-        Verify a user owns a transaction (through service ownership), and return the transaction if they do.
+        Verify a user owns a transaction (through service ownership), and return the
+        transaction if they do.
 
         Args:
             session: Database session
@@ -173,22 +179,26 @@ class TransactionService:
             ResourceNotFoundError: If transaction not found
             AuthorizationError: If user does not own the transaction
         """
-        transaction = TransactionService.get_or_404(session, transaction_id)
-
-        service = (
-            session.query(TradingService)
-            .filter_by(id=transaction.service_id.scalar(), user_id=user_id)
-            .first()
+        transaction: TradingTransaction = TransactionService.get_or_404(
+            session, transaction_id
         )
+
+        service: TradingService | None = session.execute(
+            select(TradingService).where(
+                TradingService.id == transaction.service_id,
+                TradingService.user_id == user_id,
+            )
+        ).scalar_one_or_none()
         if not service:
             raise AuthorizationError(
-                f"User {user_id} does not own the service for transaction {transaction_id}"
+                f"User {user_id} does not own the service for transaction "
+                f"{transaction_id}"
             )
 
         return transaction
 
     @staticmethod
-    def duration_days(transaction: TradingTransaction) -> Optional[int]:
+    def duration_days(transaction: TradingTransaction) -> int | None:
         """
         Get the duration of the transaction in days.
 
@@ -201,7 +211,7 @@ class TransactionService:
         if transaction.purchase_date is None:
             return None
 
-        end_date = (
+        end_date: datetime | None = (
             transaction.sale_date
             if transaction.sale_date is not None
             else get_current_datetime()
@@ -220,7 +230,7 @@ class TransactionService:
             Total cost of the purchase
         """
         if transaction.purchase_price is not None and transaction.shares is not None:
-            return Decimal(str(transaction.purchase_price * transaction.shares))
+            return transaction.purchase_price * transaction.shares
         return Decimal("0")
 
     @staticmethod
@@ -235,7 +245,7 @@ class TransactionService:
             Total revenue from the sale, or 0 if not sold
         """
         if transaction.sale_price is not None and transaction.shares is not None:
-            return Decimal(str(transaction.sale_price * transaction.shares))
+            return transaction.sale_price * transaction.shares
         return Decimal("0")
 
     @staticmethod
@@ -252,23 +262,17 @@ class TransactionService:
         if (
             transaction.purchase_price is not None
             and transaction.sale_price is not None
-            and transaction.purchase_price.scalar() > 0
+            and transaction.purchase_price > 0
         ):
             return float(
-                Decimal(
-                    str(
-                        (
-                            (transaction.sale_price - transaction.purchase_price)
-                            / transaction.purchase_price
-                        )
-                        * 100
-                    )
-                )
+                (transaction.sale_price - transaction.purchase_price)
+                / transaction.purchase_price
+                * 100
             )
         return 0.0
 
     @staticmethod
-    def transaction_to_dict(transaction: TradingTransaction) -> Dict[str, Any]:
+    def transaction_to_dict(transaction: TradingTransaction) -> dict[str, any]:
         """
         Convert a transaction to a dictionary for API responses.
 
@@ -279,12 +283,10 @@ class TransactionService:
             Dictionary representation of the transaction
         """
         return {
-            "id": transaction.id.scalar(),
-            "service_id": transaction.service_id.scalar(),
+            "id": transaction.id,
+            "service_id": transaction.service_id,
             "stock_id": (
-                transaction.stock_id.scalar()
-                if transaction.stock_id is not None
-                else None
+                transaction.stock_id if transaction.stock_id is not None else None
             ),
             "stock_symbol": transaction.stock_symbol,
             "shares": (
@@ -354,7 +356,7 @@ class TransactionService:
         }
 
     @staticmethod
-    def transaction_from_dict(data: Dict[str, Any]) -> TradingTransaction:
+    def transaction_from_dict(data: dict[str, any]) -> TradingTransaction:
         """
         Create a new transaction instance from a dictionary.
 
@@ -364,7 +366,7 @@ class TransactionService:
         Returns:
             New TradingTransaction instance
         """
-        data_dict = data if isinstance(data, dict) else {}
+        data_dict: dict[str, any] = data if isinstance(data, dict) else {}
 
         return TradingTransaction(
             **{
@@ -389,7 +391,7 @@ class TransactionService:
 
     @staticmethod
     def update_transaction_from_dict(
-        transaction: TradingTransaction, data: Dict[str, Any]
+        transaction: TradingTransaction, data: dict[str, any]
     ) -> bool:
         """
         Update transaction attributes from a dictionary.
@@ -401,18 +403,17 @@ class TransactionService:
         Returns:
             True if any fields were updated, False otherwise
         """
-        data_dict = data if isinstance(data, dict) else {}
+        data_dict: dict[str, any] = data if isinstance(data, dict) else {}
 
         updated = False
         for key, value in data_dict.items():
-            if hasattr(transaction, key) and key not in [
-                "id",
-                "created_at",
-                "updated_at",
-            ]:
-                if getattr(transaction, key) != value:
-                    setattr(transaction, key, value)
-                    updated = True
+            if (
+                transaction.get(key)
+                and key not in ["id", "created_at", "updated_at"]
+                and transaction.get(key) != value
+            ):
+                transaction[key] = value
+                updated = True
 
         # Recalculate gain/loss if needed
         if (
@@ -420,7 +421,7 @@ class TransactionService:
             and transaction.sale_price is not None
             and transaction.purchase_price is not None
         ):
-            setattr(transaction, "gain_loss", transaction.calculate_gain_loss())
+            transaction.gain_loss = transaction.calculate_gain_loss()
             updated = True
 
         return updated
@@ -450,7 +451,8 @@ class TransactionService:
         Raises:
             ValidationError: If the input data is invalid
             ResourceNotFoundError: If the service doesn't exist
-            BusinessLogicError: If the service doesn't have enough funds or is not in BUY mode
+            BusinessLogicError: If the service doesn't have enough funds or is not in
+            BUY mode
         """
         from app.services.events import EventService
 
@@ -463,7 +465,9 @@ class TransactionService:
                 raise ValidationError("Purchase price must be greater than zero")
 
             # Get the service
-            service = session.query(TradingService).filter_by(id=service_id).first()
+            service: TradingService | None = session.execute(
+                select(TradingService).where(TradingService.id == service_id)
+            ).scalar_one_or_none()
             if not service:
                 raise ResourceNotFoundError(
                     f"Trading service with ID {service_id} not found",
@@ -471,29 +475,30 @@ class TransactionService:
                 )
 
             # Check if service can buy
-            total_cost = shares * purchase_price
-            current_balance = service.current_balance.scalar()
+            total_cost: Decimal = shares * purchase_price
+            current_balance: Decimal = service.current_balance
             if total_cost > current_balance:
                 raise BusinessLogicError(
-                    f"Insufficient funds. Required: ${total_cost:.2f}, Available: ${current_balance:.2f}"
+                    f"Insufficient funds. Required: ${total_cost:.2f}, Available: "
+                    f"${current_balance:.2f}"
                 )
 
-            # Check if service is in buy mode - avoid direct boolean comparison and just use the property
+            # Check if service is in buy mode - avoid direct boolean comparison and just
+            # use the property
             if not service.can_buy:
                 raise BusinessLogicError(
-                    f"Service is not in a state that allows buying (current state: {service.state}, mode: {service.mode})"
+                    f"Service is not in a state that allows buying (current state: "
+                    f"{service.state}, mode: {service.mode})"
                 )
 
             # Find stock if it exists
-            stock = (
-                session.query(Stock)
-                .filter(Stock.symbol == stock_symbol.upper())
-                .first()
-            )
-            stock_id = stock.id.scalar() if stock else None
+            stock: Stock | None = session.execute(
+                select(Stock).where(Stock.symbol == stock_symbol.upper())
+            ).scalar_one_or_none()
+            stock_id: int | None = stock.id if stock else None
 
             # Create transaction
-            transaction_data = {
+            transaction_data: dict[str, any] = {
                 "service_id": service_id,
                 "stock_id": stock_id,
                 "stock_symbol": stock_symbol.upper(),
@@ -503,34 +508,28 @@ class TransactionService:
                 "purchase_date": get_current_datetime(),
             }
 
-            transaction = TradingTransaction.from_dict(transaction_data)
+            transaction: TradingTransaction = TradingTransaction.from_dict(
+                transaction_data
+            )
             session.add(transaction)
 
             # Update service balance
-            setattr(
-                service,
-                "current_balance",
-                service.current_balance - Decimal(str(total_cost)),
-            )
-            setattr(service, "updated_at", get_current_datetime())
+            service.current_balance = service.current_balance - total_cost
+            service.updated_at = get_current_datetime()
 
             session.commit()
 
             # Prepare response data
-            transaction_data = transaction_schema.dump(transaction)
-            transaction_data_dict = cast(
-                Dict[str, Any],
-                (
-                    transaction_data
-                    if isinstance(transaction_data, dict)
-                    else transaction_data[0]
-                ),
+            transaction_data: dict[str, any] = transaction_schema.dump(transaction)
+            transaction_data_dict: dict[str, any] = (
+                transaction_data
+                if isinstance(transaction_data, dict)
+                else transaction_data[0]
             )
 
-            service_data = service_schema.dump(service)
-            service_data_dict = cast(
-                Dict[str, Any],
-                service_data if isinstance(service_data, dict) else service_data[0],
+            service_data: dict[str, any] = service_schema.dump(service)
+            service_data_dict: dict[str, any] = (
+                service_data if isinstance(service_data, dict) else service_data[0]
             )
 
             # Emit WebSocket events
@@ -554,7 +553,7 @@ class TransactionService:
                 e, (ValidationError, ResourceNotFoundError, BusinessLogicError)
             ):
                 raise
-            raise ValidationError(f"Could not create buy transaction: {str(e)}")
+            raise ValidationError(f"Could not create buy transaction: {str(e)}") from e
 
     @staticmethod
     def complete_transaction(
@@ -574,7 +573,8 @@ class TransactionService:
         Raises:
             ValidationError: If the sale price is invalid
             ResourceNotFoundError: If the transaction doesn't exist
-            BusinessLogicError: If the transaction can't be completed (already completed/cancelled)
+            BusinessLogicError: If the transaction can't be completed (already
+            completed/cancelled)
         """
         from app.services.events import EventService
 
@@ -584,74 +584,65 @@ class TransactionService:
                 raise ValidationError("Sale price must be greater than zero")
 
             # Get transaction
-            transaction = TransactionService.get_or_404(session, transaction_id)
+            transaction: TradingTransaction = TransactionService.get_or_404(
+                session, transaction_id
+            )
 
             # Check if transaction can be completed
-            if transaction.state.scalar() != TransactionState.OPEN.value:
+            if transaction.state != TransactionState.OPEN.value:
                 raise BusinessLogicError(
-                    f"Transaction cannot be completed because it is not open (current state: {transaction.state})"
+                    f"Transaction cannot be completed because it is not open "
+                    f"(current state: {transaction.state})"
                 )
 
             # Get associated service
-            service = (
-                session.query(TradingService)
-                .filter_by(id=transaction.service_id.scalar())
-                .first()
-            )
+            service: TradingService | None = session.execute(
+                select(TradingService).where(
+                    TradingService.id == transaction.service_id
+                )
+            ).scalar_one_or_none()
             if not service:
                 raise ResourceNotFoundError(
-                    f"Trading service with ID {transaction.service_id.scalar()} not found",
-                    resource_id=transaction.service_id.scalar(),
+                    f"Trading service with ID {transaction.service_id} not found",
+                    resource_id=transaction.service_id,
                 )
 
             # Update transaction
-            setattr(transaction, "sale_price", sale_price)
-            setattr(transaction, "sale_date", get_current_datetime())
-            setattr(transaction, "state", TransactionState.CLOSED.value)
+            transaction.sale_price = sale_price
+            transaction.sale_date = get_current_datetime()
+            transaction.state = TransactionState.CLOSED.value
 
             # Calculate gain/loss
-            setattr(transaction, "gain_loss", transaction.calculate_gain_loss())
+            transaction.gain_loss = transaction.calculate_gain_loss()
 
             # Update service balance
-            sale_amount = Decimal(str(sale_price)) * Decimal(str(transaction.shares))
-            setattr(service, "current_balance", service.current_balance + sale_amount)
-            setattr(service, "updated_at", get_current_datetime())
+            sale_amount: Decimal = sale_price * transaction.shares
+            service.current_balance = service.current_balance + sale_amount
+            service.updated_at = get_current_datetime()
 
             # Update profit/loss history - avoid direct boolean comparison
-            if transaction.gain_loss.scalar() > 0:
-                setattr(
-                    service,
-                    "total_profit",
-                    service.total_profit + transaction.gain_loss,
-                )
+            if transaction.gain_loss > 0:
+                service.total_profit = service.total_profit + transaction.gain_loss
             else:
-                setattr(
-                    service,
-                    "total_loss",
-                    service.total_loss + abs(Decimal(str(transaction.gain_loss))),
-                )
+                service.total_loss = service.total_loss + abs(transaction.gain_loss)
 
             session.commit()
 
             # Prepare response data
-            transaction_data = transaction_schema.dump(transaction)
-            transaction_data_dict = cast(
-                Dict[str, Any],
-                (
-                    transaction_data
-                    if isinstance(transaction_data, dict)
-                    else transaction_data[0]
-                ),
+            transaction_data: dict[str, any] = transaction_schema.dump(transaction)
+            transaction_data_dict: dict[str, any] = (
+                transaction_data
+                if isinstance(transaction_data, dict)
+                else transaction_data[0]
             )
 
-            service_data = service_schema.dump(service)
-            service_data_dict = cast(
-                Dict[str, Any],
-                service_data if isinstance(service_data, dict) else service_data[0],
+            service_data: dict[str, any] = service_schema.dump(service)
+            service_data_dict: dict[str, any] = (
+                service_data if isinstance(service_data, dict) else service_data[0]
             )
 
             # Store service ID for event emission
-            service_id_val = service.id.scalar()
+            service_id_val: int = service.id
 
             # Emit WebSocket events
             EventService.emit_transaction_update(
@@ -674,7 +665,7 @@ class TransactionService:
                 e, (ValidationError, ResourceNotFoundError, BusinessLogicError)
             ):
                 raise
-            raise ValidationError(f"Could not complete transaction: {str(e)}")
+            raise ValidationError(f"Could not complete transaction: {str(e)}") from e
 
     @staticmethod
     def cancel_transaction(
@@ -693,78 +684,74 @@ class TransactionService:
 
         Raises:
             ResourceNotFoundError: If the transaction doesn't exist
-            BusinessLogicError: If the transaction can't be cancelled (already completed/cancelled)
+            BusinessLogicError: If the transaction can't be cancelled (already
+            completed/cancelled)
         """
         from app.services.events import EventService
 
         try:
             # Get transaction
-            transaction = TransactionService.get_or_404(session, transaction_id)
+            transaction: TradingTransaction = TransactionService.get_or_404(
+                session, transaction_id
+            )
 
             # Check if transaction can be cancelled - avoid direct boolean comparison
             if not transaction.can_be_cancelled:
                 raise BusinessLogicError(
-                    f"Transaction cannot be cancelled because it is in state: {transaction.state}"
+                    f"Transaction cannot be cancelled because it is in state: "
+                    f"{transaction.state}"
                 )
 
             # Get associated service
-            service = (
-                session.query(TradingService)
-                .filter_by(id=transaction.service_id.scalar())
-                .first()
-            )
+            service: TradingService | None = session.execute(
+                select(TradingService).where(
+                    TradingService.id == transaction.service_id
+                )
+            ).scalar_one_or_none()
             if not service:
                 raise ResourceNotFoundError(
-                    f"Trading service with ID {transaction.service_id.scalar()} not found",
-                    resource_id=transaction.service_id.scalar(),
+                    f"Trading service with ID {transaction.service_id} not found",
+                    resource_id=transaction.service_id,
                 )
 
             # Update transaction
-            setattr(transaction, "state", TransactionState.CANCELLED.value)
-            setattr(
-                transaction,
-                "notes",
-                f"{str(transaction.notes) or ''}\nCancelled: {reason}".strip(),
+            transaction.state = TransactionState.CANCELLED.value
+            transaction.notes = (
+                f"{str(transaction.notes) or ''}\nCancelled: {reason}".strip()
             )
-            setattr(transaction, "updated_at", get_current_datetime())
+            transaction.updated_at = get_current_datetime()
 
             # Refund service balance
-            refund_amount = Decimal(str(transaction.purchase_price)) * Decimal(
-                str(transaction.shares)
-            )
-            setattr(service, "current_balance", service.current_balance + refund_amount)
-            setattr(service, "updated_at", get_current_datetime())
+            refund_amount: Decimal = transaction.purchase_price * transaction.shares
+            service.current_balance = service.current_balance + refund_amount
+            service.updated_at = get_current_datetime()
 
             session.commit()
 
             # Prepare response data
-            transaction_data = transaction_schema.dump(transaction)
-            transaction_data_dict = cast(
-                Dict[str, Any],
-                (
-                    transaction_data
-                    if isinstance(transaction_data, dict)
-                    else transaction_data[0]
-                ),
+            transaction_data: dict[str, any] = transaction_schema.dump(transaction)
+            transaction_data_dict: dict[str, any] = (
+                transaction_data
+                if isinstance(transaction_data, dict)
+                else transaction_data[0]
             )
 
-            service_data = service_schema.dump(service)
-            service_data_dict = cast(
-                Dict[str, Any],
-                service_data if isinstance(service_data, dict) else service_data[0],
+            service_data: dict[str, any] = service_schema.dump(service)
+            service_data_dict: dict[str, any] = (
+                service_data if isinstance(service_data, dict) else service_data[0]
             )
 
             # Emit WebSocket events
             EventService.emit_transaction_update(
                 action="cancelled",
                 transaction_data=transaction_data_dict,
-                service_id=service.id.scalar(),
+                service_id=service.id,
             )
 
             EventService.emit_service_update(
                 action="balance_updated",
                 service_data=service_data_dict,
-                service_id=service.id.scalar(),
+                service_id=service.id,
             )
 
             return transaction
@@ -773,7 +760,7 @@ class TransactionService:
             session.rollback()
             if isinstance(e, (ResourceNotFoundError, BusinessLogicError)):
                 raise
-            raise BusinessLogicError(f"Could not cancel transaction: {str(e)}")
+            raise BusinessLogicError(f"Could not cancel transaction: {str(e)}") from e
 
     @staticmethod
     def delete_transaction(session: Session, transaction_id: int) -> bool:
@@ -795,17 +782,19 @@ class TransactionService:
 
         try:
             # Get transaction
-            transaction = TransactionService.get_or_404(session, transaction_id)
+            transaction: TradingTransaction = TransactionService.get_or_404(
+                session, transaction_id
+            )
 
             # Don't allow deletion of open transactions
-            if transaction.state.scalar() == TransactionState.OPEN.value:
+            if transaction.state == TransactionState.OPEN.value:
                 raise BusinessLogicError(
                     "Cannot delete an open transaction. Cancel it first."
                 )
 
             # Store service ID and transaction ID for event emission
-            service_id = transaction.service_id.scalar()
-            transaction_id_val = transaction.id.scalar()
+            service_id: int = transaction.service_id
+            transaction_id_val: int = transaction.id
 
             # Delete transaction
             session.delete(transaction)
@@ -824,7 +813,7 @@ class TransactionService:
             session.rollback()
             if isinstance(e, (ResourceNotFoundError, BusinessLogicError)):
                 raise
-            raise BusinessLogicError(f"Could not delete transaction: {str(e)}")
+            raise BusinessLogicError(f"Could not delete transaction: {str(e)}") from e
 
     @staticmethod
     def update_transaction_notes(
@@ -848,30 +837,29 @@ class TransactionService:
 
         try:
             # Get transaction
-            transaction = TransactionService.get_or_404(session, transaction_id)
+            transaction: TradingTransaction = TransactionService.get_or_404(
+                session, transaction_id
+            )
 
             # Update notes
-            setattr(transaction, "notes", notes)
-            setattr(transaction, "updated_at", get_current_datetime())
+            transaction.notes = notes
+            transaction.updated_at = get_current_datetime()
 
             session.commit()
 
             # Prepare response data
-            transaction_data = transaction_schema.dump(transaction)
-            transaction_data_dict = cast(
-                Dict[str, Any],
-                (
-                    transaction_data
-                    if isinstance(transaction_data, dict)
-                    else transaction_data[0]
-                ),
+            transaction_data: dict[str, any] = transaction_schema.dump(transaction)
+            transaction_data_dict: dict[str, any] = (
+                transaction_data
+                if isinstance(transaction_data, dict)
+                else transaction_data[0]
             )
 
             # Emit WebSocket event
             EventService.emit_transaction_update(
                 action="updated",
                 transaction_data=transaction_data_dict,
-                service_id=transaction.service_id.scalar(),
+                service_id=transaction.service_id,
             )
 
             return transaction
@@ -880,12 +868,14 @@ class TransactionService:
             session.rollback()
             if isinstance(e, ResourceNotFoundError):
                 raise
-            raise ValidationError(f"Could not update transaction notes: {str(e)}")
+            raise ValidationError(
+                f"Could not update transaction notes: {str(e)}"
+            ) from e
 
     @staticmethod
     def calculate_transaction_metrics(
         session: Session, service_id: int
-    ) -> Dict[str, Any]:
+    ) -> dict[str, any]:
         """
         Calculate metrics for a service's transactions.
 
@@ -898,7 +888,7 @@ class TransactionService:
         """
         from app.services.events import EventService
 
-        metrics = {
+        metrics: dict[str, any] = {
             "total_transactions": 0,
             "open_transactions": 0,
             "closed_transactions": 0,
@@ -914,19 +904,19 @@ class TransactionService:
         }
 
         # Get all transactions for the service
-        transactions = TransactionService.get_by_service(session, service_id)
+        transactions: list[TradingTransaction] = TransactionService.get_by_service(
+            session, service_id
+        )
 
         if not transactions:
             return metrics
 
         # Count transactions by state
         for t in transactions:
-            if t.state.scalar() == TransactionState.OPEN.value:
+            if t.state == TransactionState.OPEN.value:
                 metrics["open_transactions"] += 1
-            elif t.state.scalar() == TransactionState.CLOSED.value:
+            elif t.state == TransactionState.CLOSED.value:
                 metrics["closed_transactions"] += 1
-
-                # Use direct property access for boolean value - avoid scalar() and query
                 if t.is_profitable:
                     metrics["profitable_transactions"] += 1
                     metrics["total_profit"] += (
@@ -937,7 +927,7 @@ class TransactionService:
                     metrics["total_loss"] += abs(
                         float(str(t.gain_loss)) if t.gain_loss is not None else 0
                     )
-            elif t.state.scalar() == TransactionState.CANCELLED.value:
+            elif t.state == TransactionState.CANCELLED.value:
                 metrics["cancelled_transactions"] += 1
 
         metrics["total_transactions"] = len(transactions)
@@ -960,7 +950,7 @@ class TransactionService:
             ) * 100
 
         # Emit metrics update event
-        metrics_data_dict = cast(Dict[str, Any], metrics)
+        metrics_data_dict: dict[str, any] = metrics
         EventService.emit_metrics_update(
             metric_type="transaction_stats",
             metric_data=metrics_data_dict,

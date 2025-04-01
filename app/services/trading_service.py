@@ -6,19 +6,20 @@ providing a clean API for trading service management operations.
 """
 
 import logging
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Set
 
-from sqlalchemy import and_, or_
-from sqlalchemy.orm import Session, object_session
+from sqlalchemy import and_, or_, select
+from sqlalchemy.orm import Session
 
-from app.api.schemas.trading_service import service_schema, services_schema
-from app.models.enums import ServiceState, TradingMode, TransactionState
+from app.api.schemas.trading_service import service_schema
+from app.models.enums import ServiceState, TradingMode
 from app.models.stock import Stock
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.trading_service import TradingService
 from app.models.trading_transaction import TradingTransaction
+from app.services.price_service import PriceService
+from app.services.transaction_service import TransactionService
 from app.utils.current_datetime import get_current_date, get_current_datetime
 from app.utils.errors import (
     AuthorizationError,
@@ -36,7 +37,7 @@ class TradingServiceService:
 
     # Read operations
     @staticmethod
-    def get_by_id(session: Session, service_id: int) -> Optional[TradingService]:
+    def get_by_id(session: Session, service_id: int) -> TradingService | None:
         """
         Get a trading service by ID.
 
@@ -47,7 +48,9 @@ class TradingServiceService:
         Returns:
             TradingService instance if found, None otherwise
         """
-        return session.query(TradingService).get(service_id)
+        return session.execute(
+            select(TradingService).filter(TradingService.id == service_id)
+        ).scalar_one_or_none()
 
     @staticmethod
     def get_or_404(session: Session, service_id: int) -> TradingService:
@@ -64,7 +67,9 @@ class TradingServiceService:
         Raises:
             ResourceNotFoundError: If trading service not found
         """
-        service = TradingServiceService.get_by_id(session, service_id)
+        service: TradingService | None = TradingServiceService.get_by_id(
+            session, service_id
+        )
         if not service:
             raise ResourceNotFoundError(
                 f"TradingService with ID {service_id} not found", resource_id=service_id
@@ -72,7 +77,7 @@ class TradingServiceService:
         return service
 
     @staticmethod
-    def get_by_user(session: Session, user_id: int) -> List[TradingService]:
+    def get_by_user(session: Session, user_id: int) -> list[TradingService]:
         """
         Get all trading services for a user.
 
@@ -84,13 +89,15 @@ class TradingServiceService:
             List of trading services
         """
         return (
-            session.query(TradingService)
-            .filter(TradingService.user_id == user_id)
+            session.execute(
+                select(TradingService).filter(TradingService.user_id == user_id)
+            )
+            .scalars()
             .all()
         )
 
     @staticmethod
-    def get_by_stock(session: Session, stock_symbol: str) -> List[TradingService]:
+    def get_by_stock(session: Session, stock_symbol: str) -> list[TradingService]:
         """
         Get all trading services for a stock.
 
@@ -102,13 +109,17 @@ class TradingServiceService:
             List of trading services
         """
         return (
-            session.query(TradingService)
-            .filter(TradingService.stock_symbol == stock_symbol.upper())
+            session.execute(
+                select(TradingService).filter(
+                    TradingService.stock_symbol == stock_symbol.upper()
+                )
+            )
+            .scalars()
             .all()
         )
 
     @staticmethod
-    def get_all(session: Session) -> List[TradingService]:
+    def get_all(session: Session) -> list[TradingService]:
         """
         Get all trading services.
 
@@ -118,7 +129,7 @@ class TradingServiceService:
         Returns:
             List of TradingService instances
         """
-        return session.query(TradingService).all()
+        return session.execute(select(TradingService)).scalars().all()
 
     @staticmethod
     def check_ownership(session: Session, service_id: int, user_id: int) -> bool:
@@ -133,7 +144,9 @@ class TradingServiceService:
         Returns:
             True if the user owns the service, False otherwise
         """
-        service = TradingServiceService.get_by_id(session, service_id)
+        service: TradingService | None = TradingServiceService.get_by_id(
+            session, service_id
+        )
         if not service:
             return False
 
@@ -158,7 +171,7 @@ class TradingServiceService:
             ResourceNotFoundError: If trading service not found
             AuthorizationError: If user does not own the service
         """
-        service = TradingServiceService.get_or_404(session, service_id)
+        service: TradingService = TradingServiceService.get_or_404(session, service_id)
 
         if not bool(service.user_id == user_id):
             raise AuthorizationError(
@@ -170,7 +183,7 @@ class TradingServiceService:
     @staticmethod
     def search_services(
         session: Session, user_id: int, query: str
-    ) -> List[TradingService]:
+    ) -> list[TradingService]:
         """
         Search trading services by name or stock symbol.
 
@@ -186,18 +199,20 @@ class TradingServiceService:
             return TradingServiceService.get_by_user(session, user_id)
 
         # Convert query to uppercase for case-insensitive matching on symbol
-        query_upper = query.upper()
+        query_upper: str = query.upper()
 
         # Search for services matching the query by name or stock symbol
-        services = (
-            session.query(TradingService)
-            .filter(
-                TradingService.user_id == user_id,
-                or_(
-                    TradingService.name.ilike(f"%{query}%"),
-                    TradingService.stock_symbol == query_upper,
-                ),
+        services: list[TradingService] = (
+            session.execute(
+                select(TradingService).filter(
+                    TradingService.user_id == user_id,
+                    or_(
+                        TradingService.name.ilike(f"%{query}%"),
+                        TradingService.stock_symbol == query_upper,
+                    ),
+                )
             )
+            .scalars()
             .all()
         )
 
@@ -226,14 +241,15 @@ class TradingServiceService:
 
         # If no stock relationship, try to find by symbol
         return (
-            TradingServiceService.get_current_price(session, str(service.stock_symbol))
+            TradingServiceService.get_current_price(session, service.stock_symbol)
             or 0.0
         )
 
     @staticmethod
     def calculate_performance_pct(session: Session, service: TradingService) -> float:
         """
-        Calculate the performance of a trading service as a percentage of initial balance.
+        Calculate the performance of a trading service as a percentage of initial
+        balance.
 
         Args:
             session: Database session
@@ -242,16 +258,18 @@ class TradingServiceService:
         Returns:
             Performance percentage
         """
-        if service.initial_balance is None or float(str(service.initial_balance)) == 0:
+        if service.initial_balance is None or service.initial_balance == 0.0:
             return 0.0
 
         # Get current price of the stock
-        current_price = TradingServiceService.get_current_price_for_service(
+        current_price: float = TradingServiceService.get_current_price_for_service(
             session, service
         )
 
         # Calculate total value (balance + shares)
-        total_value = service.current_balance + (service.current_shares * current_price)
+        total_value: float = service.current_balance + (
+            service.current_shares * current_price
+        )
 
         # Calculate performance as percentage
         return float(
@@ -264,8 +282,8 @@ class TradingServiceService:
     @staticmethod
     def update_service_attributes(
         service: TradingService,
-        data: Dict[str, Any],
-        allowed_fields: Optional[Set[str]] = None,
+        data: dict[str, any],
+        allowed_fields: set[str] | None = None,
     ) -> bool:
         """
         Update service attributes from data dictionary.
@@ -293,17 +311,16 @@ class TradingServiceService:
 
         updated = False
         for key, value in data.items():
-            if key in allowed_fields and hasattr(service, key):
-                if getattr(service, key) != value:
-                    setattr(service, key, value)
-                    updated = True
+            if key in allowed_fields and service[key] != value:
+                service[key] = value
+                updated = True
 
         return updated
 
     # Write operations
     @staticmethod
     def create_service(
-        session: Session, user_id: int, data: Dict[str, Any]
+        session: Session, user_id: int, data: dict[str, any]
     ) -> TradingService:
         """
         Create a new trading service.
@@ -324,23 +341,25 @@ class TradingServiceService:
 
         try:
             # Validate required fields
-            required_fields = ["name", "stock_symbol", "initial_balance"]
+            required_fields: list[str] = ["name", "stock_symbol", "initial_balance"]
             for field in required_fields:
                 if field not in data or not data[field]:
                     raise ValidationError(f"Field '{field}' is required")
 
             # Validate initial balance
-            initial_balance = float(data["initial_balance"])
+            initial_balance: float = data["initial_balance"]
             if initial_balance <= 0:
                 raise ValidationError("Initial balance must be greater than zero")
 
             # Find stock if it exists
-            stock_symbol = data["stock_symbol"].upper()
-            stock = session.query(Stock).filter(Stock.symbol == stock_symbol).first()
-            stock_id = stock.id if stock else None
+            stock_symbol: str = data["stock_symbol"].upper()
+            stock: Stock | None = session.execute(
+                select(Stock).filter(Stock.symbol == stock_symbol)
+            ).scalar_one_or_none()
+            stock_id: int | None = stock.id if stock else None
 
             # Set up service data
-            service_data = {
+            service_data: dict[str, any] = {
                 "user_id": user_id,
                 "stock_id": stock_id,
                 "stock_symbol": stock_symbol,
@@ -360,12 +379,12 @@ class TradingServiceService:
             }
 
             # Create service
-            service = TradingService(**service_data)
+            service: TradingService = TradingService(**service_data)
             session.add(service)
             session.commit()
 
             # Prepare response data
-            service_data = service_schema.dump(service)
+            service_data: dict[str, any] = service_schema.dump(service)
 
             # Emit WebSocket events
             EventService.emit_service_update(
@@ -373,7 +392,7 @@ class TradingServiceService:
                 service_data=(
                     service_data if isinstance(service_data, dict) else service_data[0]
                 ),
-                service_id=int(str(service.id)),
+                service_id=service.id,
             )
 
             return service
@@ -382,11 +401,11 @@ class TradingServiceService:
             session.rollback()
             if isinstance(e, ValidationError):
                 raise
-            raise ValidationError(f"Could not create trading service: {str(e)}")
+            raise ValidationError(f"Could not create trading service: {str(e)}") from e
 
     @staticmethod
     def update_service(
-        session: Session, service: TradingService, data: Dict[str, Any]
+        session: Session, service: TradingService, data: dict[str, any]
     ) -> TradingService:
         """
         Update trading service attributes.
@@ -406,7 +425,7 @@ class TradingServiceService:
 
         try:
             # Define which fields can be updated
-            allowed_fields = {
+            allowed_fields: set[str] = {
                 "name",
                 "description",
                 "is_active",
@@ -430,17 +449,17 @@ class TradingServiceService:
                     del data[field]
 
             # Update the service attributes
-            updated = TradingServiceService.update_service_attributes(
+            updated: bool = TradingServiceService.update_service_attributes(
                 service, data, allowed_fields
             )
 
             # Only commit if something was updated
             if updated:
-                setattr(service, "updated_at", get_current_datetime())
+                service.updated_at = get_current_datetime()
                 session.commit()
 
                 # Prepare response data
-                service_data = service_schema.dump(service)
+                service_data: dict[str, any] = service_schema.dump(service)
 
                 # Emit WebSocket event
                 EventService.emit_service_update(
@@ -450,7 +469,7 @@ class TradingServiceService:
                         if isinstance(service_data, dict)
                         else service_data[0]
                     ),
-                    service_id=int(str(service.id)),
+                    service_id=service.id,
                 )
 
             return service
@@ -459,7 +478,7 @@ class TradingServiceService:
             session.rollback()
             if isinstance(e, ValidationError):
                 raise
-            raise ValidationError(f"Could not update trading service: {str(e)}")
+            raise ValidationError(f"Could not update trading service: {str(e)}") from e
 
     @staticmethod
     def toggle_active(session: Session, service: TradingService) -> TradingService:
@@ -477,13 +496,13 @@ class TradingServiceService:
 
         try:
             # Toggle active status
-            setattr(service, "is_active", not bool(service.is_active))
-            setattr(service, "updated_at", get_current_datetime())
+            service.is_active = not bool(service.is_active)
+            service.updated_at = get_current_datetime()
             session.commit()
 
             # Prepare response data
-            service_data = service_schema.dump(service)
-            action = "activated" if bool(service.is_active) else "deactivated"
+            service_data: dict[str, any] = service_schema.dump(service)
+            action: str = "activated" if bool(service.is_active) else "deactivated"
 
             # Emit WebSocket event
             EventService.emit_service_update(
@@ -491,7 +510,7 @@ class TradingServiceService:
                 service_data=(
                     service_data if isinstance(service_data, dict) else service_data[0]
                 ),
-                service_id=int(str(service.id)),
+                service_id=service.id,
             )
 
             return service
@@ -500,7 +519,7 @@ class TradingServiceService:
             session.rollback()
             raise ValidationError(
                 f"Could not toggle trading service active status: {str(e)}"
-            )
+            ) from e
 
     @staticmethod
     def change_state(
@@ -525,9 +544,10 @@ class TradingServiceService:
         try:
             # Validate state
             if not ServiceState.is_valid(new_state):
-                valid_states = ServiceState.values()
+                valid_states: list[str] = ServiceState.values()
                 raise ValidationError(
-                    f"Invalid service state: {new_state}. Valid states are: {', '.join(valid_states)}"
+                    f"Invalid service state: {new_state}. Valid states are: "
+                    f"{', '.join(valid_states)}"
                 )
 
             # Check if state is changing
@@ -535,12 +555,12 @@ class TradingServiceService:
                 return service
 
             # Update state
-            setattr(service, "state", new_state)
-            setattr(service, "updated_at", get_current_datetime())
+            service.state = new_state
+            service.updated_at = get_current_datetime()
             session.commit()
 
             # Prepare response data
-            service_data = service_schema.dump(service)
+            service_data: dict[str, any] = service_schema.dump(service)
 
             # Emit WebSocket event
             EventService.emit_service_update(
@@ -548,7 +568,7 @@ class TradingServiceService:
                 service_data=(
                     service_data if isinstance(service_data, dict) else service_data[0]
                 ),
-                service_id=int(str(service.id)),
+                service_id=service.id,
             )
 
             return service
@@ -557,7 +577,9 @@ class TradingServiceService:
             session.rollback()
             if isinstance(e, ValidationError):
                 raise
-            raise ValidationError(f"Could not change trading service state: {str(e)}")
+            raise ValidationError(
+                f"Could not change trading service state: {str(e)}"
+            ) from e
 
     @staticmethod
     def change_mode(
@@ -583,9 +605,10 @@ class TradingServiceService:
         try:
             # Validate mode
             if not TradingMode.is_valid(new_mode):
-                valid_modes = TradingMode.values()
+                valid_modes: list[str] = TradingMode.values()
                 raise ValidationError(
-                    f"Invalid trading mode: {new_mode}. Valid modes are: {', '.join(valid_modes)}"
+                    f"Invalid trading mode: {new_mode}. Valid modes are: "
+                    f"{', '.join(valid_modes)}"
                 )
 
             # Check if mode is changing
@@ -606,12 +629,12 @@ class TradingServiceService:
                 )
 
             # Update mode
-            setattr(service, "mode", new_mode)
-            setattr(service, "updated_at", get_current_datetime())
+            service.mode = new_mode
+            service.updated_at = get_current_datetime()
             session.commit()
 
             # Prepare response data
-            service_data = service_schema.dump(service)
+            service_data: dict[str, any] = service_schema.dump(service)
 
             # Emit WebSocket event
             EventService.emit_service_update(
@@ -619,7 +642,7 @@ class TradingServiceService:
                 service_data=(
                     service_data if isinstance(service_data, dict) else service_data[0]
                 ),
-                service_id=int(str(service.id)),
+                service_id=service.id,
             )
 
             return service
@@ -628,7 +651,9 @@ class TradingServiceService:
             session.rollback()
             if isinstance(e, (ValidationError, BusinessLogicError)):
                 raise
-            raise ValidationError(f"Could not change trading service mode: {str(e)}")
+            raise ValidationError(
+                f"Could not change trading service mode: {str(e)}"
+            ) from e
 
     @staticmethod
     def delete_service(session: Session, service: TradingService) -> bool:
@@ -651,12 +676,12 @@ class TradingServiceService:
             # Check if service has dependencies
             if service.has_dependencies():
                 raise BusinessLogicError(
-                    "Cannot delete trading service with active transactions. Cancel or complete them first."
+                    "Cannot delete trading service with active transactions. Cancel or "
+                    "complete them first."
                 )
 
             # Store service ID for event emission
-            service_id = service.id
-            user_id = service.user_id
+            service_id: int = service.id
 
             # Delete service
             session.delete(service)
@@ -666,7 +691,7 @@ class TradingServiceService:
             EventService.emit_service_update(
                 action="deleted",
                 service_data={"id": service_id},
-                service_id=int(str(service_id)),
+                service_id=service_id,
             )
 
             return True
@@ -675,15 +700,16 @@ class TradingServiceService:
             session.rollback()
             if isinstance(e, BusinessLogicError):
                 raise
-            raise BusinessLogicError(f"Could not delete trading service: {str(e)}")
+            raise BusinessLogicError(
+                f"Could not delete trading service: {str(e)}"
+            ) from e
 
     @staticmethod
     def check_buy_condition(
-        session: Session,
         service: TradingService,
         current_price: float,
-        historical_prices: Optional[List[float]] = None,
-    ) -> Dict[str, Any]:
+        historical_prices: list[float] | None = None,
+    ) -> dict[str, any]:
         """
         Check if the conditions for buying are met.
 
@@ -709,11 +735,10 @@ class TradingServiceService:
 
     @staticmethod
     def check_sell_condition(
-        session: Session,
         service: TradingService,
         current_price: float,
-        historical_prices: Optional[List[float]] = None,
-    ) -> Dict[str, Any]:
+        historical_prices: list[float] | None = None,
+    ) -> dict[str, any]:
         """
         Check if the conditions for selling are met.
 
@@ -749,15 +774,12 @@ class TradingServiceService:
         Returns:
             Current price or 0.0 if not available
         """
-        from app.services.price_service import PriceService
 
         try:
             # Get the stock
-            stock = (
-                session.query(Stock)
-                .filter(Stock.symbol == stock_symbol.upper())
-                .first()
-            )
+            stock: Stock | None = session.execute(
+                select(Stock).filter(Stock.symbol == stock_symbol.upper())
+            ).scalar_one_or_none()
 
             if not stock:
                 return 0.0
@@ -769,11 +791,13 @@ class TradingServiceService:
             return 0.0
 
     @staticmethod
-    def execute_trading_strategy(session: Session, service_id: int) -> Dict[str, Any]:
+    def execute_trading_strategy(session: Session, service_id: int) -> dict[str, any]:
         """
-        Execute trading strategy for a service based on current market conditions and service settings.
+        Execute trading strategy for a service based on current market conditions and
+        service settings.
 
-        This method coordinates the decision-making process for buying or selling stocks based on:
+        This method coordinates the decision-making process for buying or selling
+        stocks based on:
         1. Current price trends (using PriceService for analysis)
         2. Service configuration (thresholds, modes, etc.)
         3. Available funds and current positions
@@ -787,10 +811,9 @@ class TradingServiceService:
 
         Raises:
             ResourceNotFoundError: If service not found
-            BusinessLogicError: If service is not active or other business rule violations
+            BusinessLogicError: If service is not active or other business rule
+            violations
         """
-        from app.services.price_service import PriceService
-        from app.services.transaction_service import TransactionService
 
         # Get the service
         service = TradingServiceService.get_or_404(session, service_id)
@@ -801,16 +824,17 @@ class TradingServiceService:
         ):
             return {
                 "success": False,
-                "message": f"Service is not active (state: {service.state}, is_active: {service.is_active})",
+                "message": f"Service is not active (state: {service.state}, "
+                f"is_active: {service.is_active})",
                 "action": "none",
             }
 
         # Get price analysis for the stock
-        price_analysis = PriceService.get_price_analysis(
-            session, int(str(service.stock_id))
+        price_analysis: dict[str, any] = PriceService.get_price_analysis(
+            session, service.stock_id
         )
 
-        if not price_analysis.get("has_data", False):
+        if not bool(price_analysis.get("has_data", False)):
             return {
                 "success": False,
                 "message": "Insufficient price data for analysis",
@@ -818,7 +842,7 @@ class TradingServiceService:
             }
 
         # Get current price
-        current_price = price_analysis.get("latest_price")
+        current_price: float | None = price_analysis.get("latest_price")
         if not current_price:
             return {
                 "success": False,
@@ -827,12 +851,12 @@ class TradingServiceService:
             }
 
         # Trading decision
-        result = {
+        result: dict[str, any] = {
             "success": True,
             "service_id": service_id,
             "stock_symbol": service.stock_symbol,
             "current_price": current_price,
-            "current_balance": float(str(service.current_balance)),
+            "current_balance": service.current_balance,
             "current_shares": service.current_shares,
             "mode": service.mode,
             "signals": price_analysis.get("signals", {}),
@@ -841,53 +865,49 @@ class TradingServiceService:
         # Execute strategy based on mode
         if bool(service.mode == TradingMode.BUY.value):
             # Check buy conditions using technical analysis
-            should_buy = TradingServiceService._should_buy(
+            should_buy: bool = TradingServiceService._should_buy(
                 service, price_analysis, current_price
             )
             result["should_buy"] = should_buy
 
             if should_buy:
                 # Calculate how many shares to buy
-                max_shares_affordable = (
-                    int(float(str(service.current_balance)) / current_price)
+                max_shares_affordable: int = (
+                    int(service.current_balance / current_price)
                     if current_price > 0
                     else 0
                 )
-                allocation_amount = (
+                allocation_amount: float = (
                     service.current_balance * service.allocation_percent
                 ) / 100
-                shares_to_buy = int(allocation_amount / current_price)
-                shares_to_buy = max(
-                    1, min(shares_to_buy, max_shares_affordable)
-                )  # At least 1, at most affordable
+                shares_to_buy: int = int(allocation_amount / current_price)
+                shares_to_buy = max(1, min(shares_to_buy, max_shares_affordable))
 
                 if shares_to_buy > 0:
                     try:
                         # Execute buy transaction
-                        transaction = TransactionService.create_buy_transaction(
-                            session=session,
-                            service_id=service_id,
-                            stock_symbol=str(service.stock_symbol),
-                            shares=shares_to_buy,
-                            purchase_price=current_price,
+                        transaction: TradingTransaction = (
+                            TransactionService.create_buy_transaction(
+                                session=session,
+                                service_id=service_id,
+                                stock_symbol=service.stock_symbol,
+                                shares=shares_to_buy,
+                                purchase_price=current_price,
+                            )
                         )
 
                         result["action"] = "buy"
                         result["shares_bought"] = shares_to_buy
                         result["transaction_id"] = transaction.id
-                        result["total_cost"] = float(shares_to_buy * current_price)
+                        result["total_cost"] = shares_to_buy * current_price
                         result["message"] = (
                             f"Bought {shares_to_buy} shares at ${current_price:.2f}"
                         )
 
                         # Update service statistics
-                        setattr(service, "buy_count", service.buy_count + 1)
-                        setattr(
-                            service,
-                            "current_shares",
-                            service.current_shares + shares_to_buy,
-                        )
-                        setattr(service, "updated_at", get_current_datetime())
+                        service.buy_count = service.buy_count + 1
+                        service.current_shares = service.current_shares + shares_to_buy
+                        service.updated_at = get_current_datetime()
                         session.commit()
                     except Exception as e:
                         logger.error(f"Error executing buy transaction: {str(e)}")
@@ -903,15 +923,15 @@ class TradingServiceService:
 
         elif bool(service.mode == TradingMode.SELL.value):
             # Check sell conditions using technical analysis
-            should_sell = TradingServiceService._should_sell(
+            should_sell: bool = TradingServiceService._should_sell(
                 service, price_analysis, current_price
             )
             result["should_sell"] = should_sell
 
             if should_sell:
                 # Get open transactions to sell
-                open_transactions = TransactionService.get_open_transactions(
-                    session, service_id
+                open_transactions: list[TradingTransaction] = (
+                    TransactionService.get_open_transactions(session, service_id)
                 )
 
                 if open_transactions:
@@ -920,58 +940,55 @@ class TradingServiceService:
                     # Sell all open transactions
                     for transaction in open_transactions:
                         try:
-                            completed = TransactionService.complete_transaction(
-                                session=session,
-                                transaction_id=int(str(transaction.id)),
-                                sale_price=current_price,
+                            completed: TradingTransaction = (
+                                TransactionService.complete_transaction(
+                                    session=session,
+                                    transaction_id=transaction.id,
+                                    sale_price=current_price,
+                                )
                             )
                             completed_transactions.append(completed)
                         except Exception as e:
                             logger.error(
-                                f"Error completing transaction {transaction.id}: {str(e)}"
+                                f"Error completing transaction {transaction.id}: "
+                                f"{str(e)}"
                             )
 
                     if completed_transactions:
-                        total_shares_sold = sum(
-                            float(str(tx.shares))
+                        total_shares_sold: float = sum(
+                            tx.shares
                             for tx in completed_transactions
                             if tx.shares is not None
                         )
-                        total_revenue = total_shares_sold * current_price
+                        total_revenue: float = total_shares_sold * current_price
 
                         result["action"] = "sell"
                         result["transactions_completed"] = len(completed_transactions)
                         result["shares_sold"] = total_shares_sold
-                        result["total_revenue"] = float(total_revenue)
+                        result["total_revenue"] = total_revenue
                         result["message"] = (
                             f"Sold {total_shares_sold} shares at ${current_price:.2f}"
                         )
 
                         # Update service statistics
-                        setattr(
-                            service,
-                            "sell_count",
-                            service.sell_count + len(completed_transactions),
+                        service.sell_count = service.sell_count + len(
+                            completed_transactions
                         )
-                        setattr(
-                            service,
-                            "current_shares",
-                            service.current_shares - int(total_shares_sold),
+                        service.current_shares = service.current_shares - int(
+                            total_shares_sold
                         )
 
                         # Update gain/loss
-                        total_gain_loss = sum(
-                            float(str(tx.gain_loss))
+                        total_gain_loss: float = sum(
+                            tx.gain_loss
                             for tx in completed_transactions
                             if tx.gain_loss is not None
                         )
-                        setattr(
-                            service,
-                            "total_gain_loss",
-                            service.total_gain_loss + total_gain_loss,
+                        service.total_gain_loss = (
+                            service.total_gain_loss + total_gain_loss
                         )
 
-                        setattr(service, "updated_at", get_current_datetime())
+                        service.updated_at = get_current_datetime()
                         session.commit()
                     else:
                         result["action"] = "none"
@@ -995,7 +1012,9 @@ class TradingServiceService:
 
     @staticmethod
     def _should_buy(
-        service: TradingService, price_analysis: Dict[str, Any], current_price: float
+        service: TradingService,
+        price_analysis: dict[str, any],
+        current_price: float,
     ) -> bool:
         """
         Determine if conditions for buying are met based on technical analysis.
@@ -1014,10 +1033,8 @@ class TradingServiceService:
         signals = price_analysis.get("signals", {})
 
         # Check available funds
-        max_shares_affordable = (
-            int(float(str(service.current_balance)) / current_price)
-            if current_price > 0
-            else 0
+        max_shares_affordable: int = (
+            int(service.current_balance / current_price) if current_price > 0 else 0
         )
         if max_shares_affordable <= 0:
             return False
@@ -1038,25 +1055,14 @@ class TradingServiceService:
             return True
 
         # Check price trends
-        is_uptrend = price_analysis.get("is_uptrend")
-        if is_uptrend and signals.get("rsi") == "neutral":
-            # Price is trending up with neutral RSI
-            return True
-
-        # Check recent price changes
-        price_changes = price_analysis.get("price_changes", {})
-        # Buy after a recent dip followed by recovery
-        if (
-            price_changes.get("1_day", 0) > 0
-            and price_changes.get("5_day", 0) < -service.buy_threshold
-        ):
-            return True
-
-        return False
+        is_uptrend: bool = price_analysis.get("is_uptrend")
+        return is_uptrend and signals.get("rsi") == "neutral"
 
     @staticmethod
     def _should_sell(
-        service: TradingService, price_analysis: Dict[str, Any], current_price: float
+        service: TradingService,
+        price_analysis: dict[str, any],
+        current_price: float,
     ) -> bool:
         """
         Determine if conditions for selling are met based on technical analysis.
@@ -1072,7 +1078,7 @@ class TradingServiceService:
         if not service.can_sell:
             return False
 
-        signals = price_analysis.get("signals", {})
+        signals: dict[str, any] = price_analysis.get("signals", {})
 
         # No shares to sell
         if bool(service.current_shares <= 0):
@@ -1094,62 +1100,13 @@ class TradingServiceService:
             return True
 
         # Check price trends
-        is_uptrend = price_analysis.get("is_uptrend")
-        if not is_uptrend and signals.get("rsi", "") != "oversold":
-            # Price is trending down and not oversold
-            return True
-
-        # Check for take profit or stop loss
-        # Get average purchase price from open transactions
-        session = object_session(service)
-        if session:
-            open_transactions = (
-                session.query(TradingTransaction)
-                .filter(
-                    and_(
-                        TradingTransaction.service_id == service.id,
-                        TradingTransaction.state == TransactionState.OPEN.value,
-                    )
-                )
-                .all()
-            )
-
-            if open_transactions:
-                # Calculate average purchase price
-                total_shares = sum(
-                    float(str(tx.shares))
-                    for tx in open_transactions
-                    if tx.shares is not None
-                )
-                total_cost = sum(
-                    float(str(tx.purchase_price)) * float(str(tx.shares))
-                    for tx in open_transactions
-                    if tx.purchase_price is not None and tx.shares is not None
-                )
-                avg_purchase_price = (
-                    total_cost / total_shares if total_shares > 0 else 0
-                )
-
-                if avg_purchase_price > 0:
-                    # Calculate price change percentage
-                    price_change_pct = (
-                        (current_price - avg_purchase_price) / avg_purchase_price
-                    ) * 100
-
-                    # Take profit
-                    if price_change_pct >= float(str(service.take_profit_percent)):
-                        return True
-
-                    # Stop loss
-                    if price_change_pct <= -float(str(service.stop_loss_percent)):
-                        return True
-
-        return False
+        is_uptrend: bool = price_analysis.get("is_uptrend")
+        return not is_uptrend and signals.get("rsi", "") != "oversold"
 
     @staticmethod
     def backtest_strategy(
         session: Session, service_id: int, days: int = 90
-    ) -> Dict[str, Any]:
+    ) -> dict[str, any]:
         """
         Backtest a trading strategy using historical price data.
 
@@ -1166,11 +1123,12 @@ class TradingServiceService:
             BusinessLogicError: If backtest cannot be performed
         """
         from app.services.events import EventService
-        from app.services.price_service import PriceService
 
         try:
             # Get the service
-            service = session.query(TradingService).get(service_id)
+            service: TradingService | None = session.execute(
+                select(TradingService).filter(TradingService.id == service_id)
+            ).scalar_one_or_none()
             if not service:
                 raise ResourceNotFoundError(
                     f"Trading service with ID {service_id} not found",
@@ -1178,7 +1136,9 @@ class TradingServiceService:
                 )
 
             # Get the stock
-            stock = session.query(Stock).filter_by(symbol=service.stock_symbol).first()
+            stock: Stock | None = session.execute(
+                select(Stock).filter(Stock.symbol == service.stock_symbol)
+            ).scalar_one_or_none()
             if not stock:
                 raise ResourceNotFoundError(
                     f"Stock with symbol {service.stock_symbol} not found",
@@ -1188,18 +1148,19 @@ class TradingServiceService:
             # Create a backtest event for tracking
             EventService.emit_system_notification(
                 notification_type="backtest",
-                message=f"Starting backtest for service {service_id} ({service.name}) on {service.stock_symbol}",
+                message=f"Starting backtest for service {service_id} ({service.name}) "
+                f"on {service.stock_symbol}",
                 severity="info",
                 details={"service_id": service_id, "days": days},
             )
 
             # Get historical price data
-            end_date = get_current_date()
-            start_date = end_date - timedelta(days=days)
+            end_date: date = get_current_date()
+            start_date: date = end_date - timedelta(days=days)
 
             # Get daily prices
-            prices = (
-                session.query(StockDailyPrice)
+            prices: list[StockDailyPrice] = session.execute(
+                select(StockDailyPrice)
                 .filter(
                     and_(
                         StockDailyPrice.stock_id == stock.id,
@@ -1208,34 +1169,36 @@ class TradingServiceService:
                     )
                 )
                 .order_by(StockDailyPrice.price_date)
+                .scalars()
                 .all()
             )
 
             if not prices:
                 raise BusinessLogicError(
-                    f"Not enough price data for stock {service.stock_symbol} to backtest"
+                    f"Not enough price data for stock {service.stock_symbol} to "
+                    f"backtest"
                 )
 
             # Initialize backtest variables
-            initial_balance = 10000.0  # Start with $10k
-            current_balance = initial_balance
-            shares_held = 0
-            transactions = []
-            buy_threshold = service.buy_threshold
-            sell_threshold = service.sell_threshold
-            allocation_percent = service.allocation_percent
+            initial_balance: float = 10000.0  # Start with $10k
+            current_balance: float = initial_balance
+            shares_held: int = 0
+            transactions: list[dict[str, any]] = []
+            buy_threshold: float = service.buy_threshold
+            sell_threshold: float = service.sell_threshold
+            allocation_percent: float = service.allocation_percent
 
             # Backtest parameters
-            price_history = []
-            portfolio_values = []
-            last_buy_price = None
+            price_history: list[float] = []
+            portfolio_values: list[float] = []
+            last_buy_price: float | None = None
 
             # Run through the historical data
             for i, price in enumerate(prices):
                 # Skip first 20 days to allow for SMA calculations
                 if i < 20:
                     price_history.append(
-                        float(str(price.close_price))
+                        float(price.close_price)
                         if price.close_price is not None
                         else 0.0
                     )
@@ -1244,23 +1207,19 @@ class TradingServiceService:
 
                 # Add price to history
                 price_history.append(
-                    float(str(price.close_price))
-                    if price.close_price is not None
-                    else 0.0
+                    float(price.close_price) if price.close_price is not None else 0.0
                 )
-                current_price = (
-                    float(str(price.close_price))
-                    if price.close_price is not None
-                    else 0.0
+                current_price: float = (
+                    float(price.close_price) if price.close_price is not None else 0.0
                 )
 
                 # Calculate metrics for this day
                 if i >= 20:
                     # Get price history for analysis
-                    recent_prices = price_history[max(0, i - 50) : i + 1]
+                    recent_prices: list[float] = price_history[max(0, i - 50) : i + 1]
 
                     # Calculate basic price analysis
-                    price_analysis = {
+                    price_analysis: dict[str, any] = {
                         "close_price": current_price,
                         "sma_5": sum(price_history[i - 4 : i + 1]) / 5,
                         "sma_10": sum(price_history[i - 9 : i + 1]) / 10,
@@ -1269,7 +1228,7 @@ class TradingServiceService:
 
                     # Check if we should buy
                     if shares_held == 0:
-                        should_buy = TradingServiceService._should_buy_backtest(
+                        should_buy: bool = TradingServiceService._should_buy_backtest(
                             price_analysis,
                             current_price,
                             current_balance,
@@ -1279,17 +1238,17 @@ class TradingServiceService:
 
                         if should_buy:
                             # Calculate shares to buy
-                            amount_to_spend = current_balance * (
+                            amount_to_spend: float = current_balance * (
                                 allocation_percent / 100.0
                             )
-                            shares_to_buy = amount_to_spend / current_price
-                            shares_to_buy = (
+                            shares_to_buy: float = amount_to_spend / current_price
+                            shares_to_buy: float = (
                                 int(shares_to_buy * 100) / 100.0
                             )  # Round to 2 decimal places
 
                             # Execute buy
                             if shares_to_buy > 0:
-                                cost = shares_to_buy * current_price
+                                cost: float = shares_to_buy * current_price
                                 if cost <= current_balance:
                                     current_balance -= cost
                                     shares_held = shares_to_buy
@@ -1315,14 +1274,14 @@ class TradingServiceService:
                                 (current_price - last_buy_price) / last_buy_price
                             ) * 100
 
-                        should_sell = TradingServiceService._should_sell_backtest(
+                        should_sell: bool = TradingServiceService._should_sell_backtest(
                             price_analysis
                         )
 
                         if should_sell:
                             # Execute sell
-                            revenue = shares_held * current_price
-                            gain_loss = revenue - (shares_held * last_buy_price)
+                            revenue: float = shares_held * current_price
+                            gain_loss: float = revenue - (shares_held * last_buy_price)
                             current_balance += revenue
 
                             # Log transaction
@@ -1349,62 +1308,64 @@ class TradingServiceService:
                             last_buy_price = None
 
                 # Calculate portfolio value for this day
-                portfolio_value = current_balance + (shares_held * current_price)
+                portfolio_value: float = current_balance + (shares_held * current_price)
                 portfolio_values.append(portfolio_value)
 
             # Calculate backtest results
-            start_value = initial_balance
-            end_value = portfolio_values[-1] if portfolio_values else initial_balance
+            start_value: float = initial_balance
+            end_value: float = (
+                portfolio_values[-1] if portfolio_values else initial_balance
+            )
 
-            total_return = end_value - start_value
-            percent_return = (
+            total_return: float = end_value - start_value
+            percent_return: float = (
                 (total_return / start_value) * 100 if start_value > 0 else 0
             )
 
             # Calculate annualized return
-            days_elapsed = min(days, len(portfolio_values))
+            days_elapsed: int = min(days, len(portfolio_values))
             if days_elapsed > 0:
-                annualized_return = (
+                annualized_return: float = (
                     (1 + (percent_return / 100)) ** (365 / days_elapsed) - 1
                 ) * 100
             else:
-                annualized_return = 0
+                annualized_return: float = 0
 
             # Calculate drawdown
-            max_drawdown = 0
-            peak = portfolio_values[0] if portfolio_values else 0
+            max_drawdown: float = 0
+            peak: float = portfolio_values[0] if portfolio_values else 0
 
             for value in portfolio_values:
                 if value > peak:
                     peak = value
                 else:
-                    drawdown = (peak - value) / peak * 100 if peak > 0 else 0
-                    max_drawdown = max(max_drawdown, drawdown)
+                    drawdown: float = (peak - value) / peak * 100 if peak > 0 else 0
+                    max_drawdown: float = max(max_drawdown, drawdown)
 
             # Calculate sharpe ratio (simplified)
             if len(portfolio_values) > 1:
                 # Calculate daily returns
-                daily_returns = [
+                daily_returns: list[float] = [
                     (portfolio_values[i] / portfolio_values[i - 1]) - 1
                     for i in range(1, len(portfolio_values))
                 ]
 
                 # Calculate mean and standard deviation
-                mean_return = sum(daily_returns) / len(daily_returns)
-                std_dev = (
+                mean_return: float = sum(daily_returns) / len(daily_returns)
+                std_dev: float = (
                     sum((r - mean_return) ** 2 for r in daily_returns)
                     / len(daily_returns)
                 ) ** 0.5
 
                 # Annualize
-                sharpe_ratio = (
+                sharpe_ratio: float = (
                     (mean_return * 252) / (std_dev * (252**0.5)) if std_dev > 0 else 0
                 )
             else:
-                sharpe_ratio = 0
+                sharpe_ratio: float = 0
 
             # Compile results
-            results = {
+            results: dict[str, any] = {
                 "service_id": service_id,
                 "service_name": service.name,
                 "stock_symbol": service.stock_symbol,
@@ -1436,7 +1397,8 @@ class TradingServiceService:
             # Emit completion notification
             EventService.emit_system_notification(
                 notification_type="backtest",
-                message=f"Backtest completed for service {service_id} with {percent_return:.2f}% return",
+                message=f"Backtest completed for service {service_id} with "
+                f"{percent_return:.2f}% return",
                 severity="info",
                 details={
                     "service_id": service_id,
@@ -1459,11 +1421,11 @@ class TradingServiceService:
 
             if isinstance(e, (ResourceNotFoundError, BusinessLogicError)):
                 raise
-            raise BusinessLogicError(f"Backtest failed: {str(e)}")
+            raise BusinessLogicError(f"Backtest failed: {str(e)}") from e
 
     @staticmethod
     def _should_buy_backtest(
-        price_analysis: Dict[str, Any],
+        price_analysis: dict[str, any],
         current_price: float,
         current_balance: float,
         buy_threshold: float,
@@ -1482,37 +1444,22 @@ class TradingServiceService:
         Returns:
             True if buy conditions are met, False otherwise
         """
-        signals = price_analysis.get("signals", {})
-
         # Check available funds
-        max_shares_affordable = (
-            int(float(str(current_balance)) / current_price) if current_price > 0 else 0
+        max_shares_affordable: int = (
+            int(current_balance / current_price) if current_price > 0 else 0
         )
-        if max_shares_affordable <= 0:
-            return False
+        signals: dict[str, any] = price_analysis.get("signals", {})
+        is_uptrend: bool = price_analysis.get("is_uptrend")
 
-        # RSI oversold signal (strongest buy indicator)
-        if signals.get("rsi") == "oversold":
-            return True
-
-        # Bullish MA crossover
-        if signals.get("ma_crossover") == "bullish":
-            return True
-
-        # Price near lower Bollinger Band (potential reversal)
-        if signals.get("bollinger") == "oversold":
-            return True
-
-        # Check price trends
-        is_uptrend = price_analysis.get("is_uptrend")
-        if is_uptrend and signals.get("rsi") == "neutral":
-            # Price is trending up with neutral RSI
-            return True
-
-        return False
+        return max_shares_affordable > 0 and (
+            signals.get("rsi") == "oversold"
+            or signals.get("ma_crossover") == "bullish"
+            or signals.get("bollinger") == "oversold"
+            or (not is_uptrend and signals.get("rsi", "") != "oversold")
+        )
 
     @staticmethod
-    def _should_sell_backtest(price_analysis: Dict[str, Any]) -> bool:
+    def _should_sell_backtest(price_analysis: dict[str, any]) -> bool:
         """
         Simplified version of _should_sell for backtesting.
 
@@ -1522,24 +1469,12 @@ class TradingServiceService:
         Returns:
             True if sell conditions are met, False otherwise
         """
-        signals = price_analysis.get("signals", {})
+        signals: dict[str, any] = price_analysis.get("signals", {})
+        is_uptrend: bool = price_analysis.get("is_uptrend")
 
-        # RSI overbought signal (strongest sell indicator)
-        if signals.get("rsi") == "overbought":
-            return True
-
-        # Bearish MA crossover
-        if signals.get("ma_crossover") == "bearish":
-            return True
-
-        # Price near upper Bollinger Band (potential reversal)
-        if signals.get("bollinger") == "overbought":
-            return True
-
-        # Check price trends
-        is_uptrend = price_analysis.get("is_uptrend")
-        if not is_uptrend and signals.get("rsi", "") != "oversold":
-            # Price is trending down and not oversold
-            return True
-
-        return False
+        return (
+            signals.get("rsi") == "overbought"
+            or signals.get("ma_crossover") == "bearish"
+            or signals.get("bollinger") == "overbought"
+            or (not is_uptrend and signals.get("rsi", "") != "oversold")
+        )

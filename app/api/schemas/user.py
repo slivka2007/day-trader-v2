@@ -3,6 +3,8 @@ User model schemas.
 """
 
 import re
+from datetime import timedelta
+from typing import Literal
 
 from marshmallow import (
     ValidationError,
@@ -13,6 +15,7 @@ from marshmallow import (
     validates_schema,
 )
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
+from sqlalchemy import select
 
 from app.api.schemas import Schema
 from app.models import User
@@ -27,28 +30,36 @@ class UserSchema(SQLAlchemyAutoSchema):
         model = User
         include_relationships = False
         load_instance = True
-        exclude = ("created_at", "updated_at", "password_hash")
+        exclude: tuple[
+            Literal["created_at"], Literal["updated_at"], Literal["password_hash"]
+        ] = (
+            "created_at",
+            "updated_at",
+            "password_hash",
+        )
 
     # Don't expose the password hash
     password = fields.String(load_only=True, required=False)
 
     # Add computed properties
-    has_services = fields.Method("check_has_services", dump_only=True)
-    last_login_days_ago = fields.Method("get_last_login_days", dump_only=True)
-    service_count = fields.Method("count_services", dump_only=True)
+    has_services: fields.Method = fields.Method("check_has_services", dump_only=True)
+    last_login_days_ago: fields.Method = fields.Method(
+        "get_last_login_days", dump_only=True
+    )
+    service_count: fields.Method = fields.Method("count_services", dump_only=True)
 
-    def check_has_services(self, obj):
+    def check_has_services(self, obj: User) -> bool:
         """Check if the user has any trading services."""
         return len(obj.services) > 0 if obj.services else False
 
-    def get_last_login_days(self, obj):
+    def get_last_login_days(self, obj: User) -> int | None:
         """Get the number of days since last login."""
         if not obj.last_login:
             return None
-        delta = get_current_datetime() - obj.last_login
+        delta: timedelta = get_current_datetime() - obj.last_login
         return delta.days
 
-    def count_services(self, obj):
+    def count_services(self, obj: User) -> int:
         """Count the number of trading services the user has."""
         return len(obj.services) if obj.services else 0
 
@@ -62,15 +73,19 @@ users_schema = UserSchema(many=True)
 class UserCreateSchema(Schema):
     """Schema for creating a new User."""
 
-    username = fields.String(required=True, validate=validate.Length(min=3, max=50))
-    email = fields.Email(required=True)
-    password = fields.String(required=True, validate=validate.Length(min=8))
-    password_confirm = fields.String(required=True)
-    is_active = fields.Boolean(default=True)
-    is_admin = fields.Boolean(default=False)
+    username: fields.String = fields.String(
+        required=True, validate=validate.Length(min=3, max=50)
+    )
+    email: fields.Email = fields.Email(required=True)
+    password: fields.String = fields.String(
+        required=True, validate=validate.Length(min=8)
+    )
+    password_confirm: fields.String = fields.String(required=True)
+    is_active: fields.Boolean = fields.Boolean(default=True)
+    is_admin: fields.Boolean = fields.Boolean(default=False)
 
     @validates("username")
-    def validate_username(self, username):
+    def validate_username(self, username: str) -> None:
         """Validate username format."""
         if not re.match(r"^[a-zA-Z0-9_]+$", username):
             raise ValidationError(
@@ -79,21 +94,25 @@ class UserCreateSchema(Schema):
 
         # Check if username already exists
         with SessionManager() as session:
-            existing_user = session.query(User).filter_by(username=username).first()
+            existing_user: User | None = session.execute(
+                select(User).where(User.username == username)
+            ).scalar_one_or_none()
             if existing_user:
                 raise ValidationError("Username already exists")
 
     @validates("email")
-    def validate_email(self, email):
+    def validate_email(self, email: str) -> None:
         """Validate email format and uniqueness."""
         # Check if email already exists
         with SessionManager() as session:
-            existing_user = session.query(User).filter_by(email=email).first()
+            existing_user: User | None = session.execute(
+                select(User).where(User.email == email)
+            ).scalar_one_or_none()
             if existing_user:
                 raise ValidationError("Email address already exists")
 
     @validates("password")
-    def validate_password(self, password):
+    def validate_password(self, password: str) -> None:
         """Validate password strength."""
         if not any(char.isdigit() for char in password):
             raise ValidationError("Password must contain at least one number")
@@ -107,19 +126,19 @@ class UserCreateSchema(Schema):
             )
 
     @validates_schema
-    def validate_passwords_match(self, data, **kwargs):
+    def validate_passwords_match(self, data: dict) -> None:
         """Validate password and confirmation match."""
         if data.get("password") != data.get("password_confirm"):
             raise ValidationError("Passwords do not match")
 
     @post_load
-    def make_user(self, data, **kwargs):
+    def make_user(self, data: dict) -> User:
         """Create a User instance from validated data."""
         # Remove password_confirm as it's not needed for user creation
         if "password_confirm" in data:
             del data["password_confirm"]
 
-        user = User(
+        user: User = User(
             username=data["username"],
             email=data["email"],
             is_active=data.get("is_active", True),
@@ -133,15 +152,15 @@ class UserCreateSchema(Schema):
 class UserUpdateSchema(Schema):
     """Schema for updating an existing User."""
 
-    username = fields.String(validate=validate.Length(min=3, max=50))
-    email = fields.Email()
-    password = fields.String(validate=validate.Length(min=8))
-    password_confirm = fields.String()
-    is_active = fields.Boolean()
-    is_admin = fields.Boolean()
+    username: fields.String = fields.String(validate=validate.Length(min=3, max=50))
+    email: fields.Email = fields.Email()
+    password: fields.String = fields.String(validate=validate.Length(min=8))
+    password_confirm: fields.String = fields.String()
+    is_active: fields.Boolean = fields.Boolean()
+    is_admin: fields.Boolean = fields.Boolean()
 
     @validates("username")
-    def validate_username(self, username):
+    def validate_username(self, username: str) -> None:
         """Validate username format."""
         if not re.match(r"^[a-zA-Z0-9_]+$", username):
             raise ValidationError(
@@ -149,7 +168,7 @@ class UserUpdateSchema(Schema):
             )
 
     @validates("password")
-    def validate_password(self, password):
+    def validate_password(self, password: str) -> None:
         """Validate password strength."""
         if not any(char.isdigit() for char in password):
             raise ValidationError("Password must contain at least one number")
@@ -163,30 +182,37 @@ class UserUpdateSchema(Schema):
             )
 
     @validates_schema
-    def validate_passwords_match(self, data, **kwargs):
+    def validate_passwords_match(self, data: dict) -> None:
         """Validate password and confirmation match."""
-        if "password" in data and "password_confirm" in data:
-            if data.get("password") != data.get("password_confirm"):
-                raise ValidationError("Passwords do not match")
+        if (
+            "password" in data
+            and "password_confirm" in data
+            and data.get("password") != data.get("password_confirm")
+        ):
+            raise ValidationError("Passwords do not match")
 
 
 # Schema for deleting a user
 class UserDeleteSchema(Schema):
     """Schema for confirming user deletion."""
 
-    confirm = fields.Boolean(required=True)
-    user_id = fields.Integer(required=True)
-    password = fields.String(required=True)  # Require password for security
+    confirm: fields.Boolean = fields.Boolean(required=True)
+    user_id: fields.Integer = fields.Integer(required=True)
+    password: fields.String = fields.String(
+        required=True
+    )  # Require password for security
 
     @validates_schema
-    def validate_deletion(self, data, **kwargs):
+    def validate_deletion(self, data: dict) -> None:
         """Validate deletion confirmation and password."""
         if not data.get("confirm"):
             raise ValidationError("Must confirm deletion by setting 'confirm' to true")
 
         # Verify the user exists and password is correct
         with SessionManager() as session:
-            user = session.query(User).filter_by(id=data["user_id"]).first()
+            user: User | None = session.execute(
+                select(User).where(User.id == data["user_id"])
+            ).scalar_one_or_none()
             if not user:
                 raise ValidationError("User not found")
 
@@ -202,14 +228,16 @@ class UserDeleteSchema(Schema):
 class UserLoginSchema(Schema):
     """Schema for user login."""
 
-    username = fields.String(required=True)
-    password = fields.String(required=True)
+    username: fields.String = fields.String(required=True)
+    password: fields.String = fields.String(required=True)
 
     @validates_schema
-    def validate_credentials(self, data, **kwargs):
+    def validate_credentials(self, data: dict) -> None:
         """Validate username exists."""
         with SessionManager() as session:
-            user = session.query(User).filter_by(username=data.get("username")).first()
+            user: User | None = session.execute(
+                select(User).where(User.username == data.get("username"))
+            ).scalar_one_or_none()
             if not user:
                 raise ValidationError("Invalid username or password")
 
@@ -222,12 +250,14 @@ class UserLoginSchema(Schema):
 class PasswordChangeSchema(Schema):
     """Schema for changing a user's password."""
 
-    current_password = fields.String(required=True)
-    new_password = fields.String(required=True, validate=validate.Length(min=8))
-    confirm_password = fields.String(required=True)
+    current_password: fields.String = fields.String(required=True)
+    new_password: fields.String = fields.String(
+        required=True, validate=validate.Length(min=8)
+    )
+    confirm_password: fields.String = fields.String(required=True)
 
     @validates("new_password")
-    def validate_password(self, password):
+    def validate_password(self, password: str) -> None:
         """Validate password strength."""
         if not any(char.isdigit() for char in password):
             raise ValidationError("Password must contain at least one number")
@@ -241,7 +271,7 @@ class PasswordChangeSchema(Schema):
             )
 
     @validates_schema
-    def validate_passwords_match(self, data, **kwargs):
+    def validate_passwords_match(self, data: dict) -> None:
         """Validate new password and confirmation match."""
         if data.get("new_password") != data.get("confirm_password"):
             raise ValidationError("New passwords do not match")

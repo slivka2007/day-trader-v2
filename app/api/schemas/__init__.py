@@ -8,27 +8,6 @@ data between the API and the database models.
 from marshmallow import Schema, ValidationError, fields, validate
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema, auto_field
 
-
-# Define a pagination schema for consistent pagination response
-class PaginationSchema(Schema):
-    """Schema for pagination metadata."""
-
-    page = fields.Integer(required=True)
-    page_size = fields.Integer(required=True)
-    total_items = fields.Integer(required=True)
-    total_pages = fields.Integer(required=True)
-    has_next = fields.Boolean(required=True)
-    has_prev = fields.Boolean(required=True)
-
-
-# Define a paginated response schema
-class PaginatedResponseSchema(Schema):
-    """Schema for paginated response containing items and pagination metadata."""
-
-    items = fields.List(fields.Raw(), required=True)
-    pagination = fields.Nested(PaginationSchema, required=True)
-
-
 # Import all schemas for easy access
 from app.api.schemas.stock import (
     stock_delete_schema,
@@ -74,7 +53,30 @@ from app.api.schemas.user import (
     users_schema,
 )
 
-__all__ = [
+
+# Define a pagination schema for consistent pagination response
+class PaginationSchema(Schema):
+    """Schema for pagination metadata."""
+
+    page: fields.Integer = fields.Integer(required=True)
+    page_size: fields.Integer = fields.Integer(required=True)
+    total_items: fields.Integer = fields.Integer(required=True)
+    total_pages: fields.Integer = fields.Integer(required=True)
+    has_next: fields.Boolean = fields.Boolean(required=True)
+    has_prev: fields.Boolean = fields.Boolean(required=True)
+
+
+# Define a paginated response schema
+class PaginatedResponseSchema(Schema):
+    """Schema for paginated response containing items and pagination metadata."""
+
+    items: fields.List[fields.Raw] = fields.List(fields.Raw(), required=True)
+    pagination: fields.Nested[PaginationSchema] = fields.Nested(
+        PaginationSchema, required=True
+    )
+
+
+__all__: list[str] = [
     "Schema",
     "fields",
     "validate",

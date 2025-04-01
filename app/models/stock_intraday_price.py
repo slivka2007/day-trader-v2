@@ -5,7 +5,7 @@ This model represents intraday (e.g., hourly or minute-by-minute) stock price da
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Column,
@@ -48,28 +48,30 @@ class StockIntradayPrice(Base):
         stock: Relationship to the parent Stock
     """
 
-    __tablename__ = "stock_intraday_prices"
+    __tablename__: str = "stock_intraday_prices"
 
     # Foreign keys and timestamp
-    stock_id = Column(Integer, ForeignKey("stocks.id"), nullable=False)
-    timestamp = Column(DateTime, nullable=False)
-    interval = Column(Integer, default=1, nullable=False)
+    stock_id: Mapped[int] = Column(Integer, ForeignKey("stocks.id"), nullable=False)
+    timestamp: Mapped[datetime] = Column(DateTime, nullable=False)
+    interval: Mapped[int] = Column(Integer, default=1, nullable=False)
 
     # Price data
-    open_price = Column(Float, nullable=True)
-    high_price = Column(Float, nullable=True)
-    low_price = Column(Float, nullable=True)
-    close_price = Column(Float, nullable=True)
-    volume = Column(Integer, nullable=True)
+    open_price: Mapped[float | None] = Column(Float, nullable=True)
+    high_price: Mapped[float | None] = Column(Float, nullable=True)
+    low_price: Mapped[float | None] = Column(Float, nullable=True)
+    close_price: Mapped[float | None] = Column(Float, nullable=True)
+    volume: Mapped[int | None] = Column(Integer, nullable=True)
 
     # Metadata
-    source = Column(String(20), default=PriceSource.DELAYED.value, nullable=False)
+    source: Mapped[str] = Column(
+        String(20), default=PriceSource.DELAYED.value, nullable=False
+    )
 
     # Relationship
     stock: Mapped["Stock"] = relationship("Stock", back_populates="intraday_prices")
 
     # Constraints
-    __table_args__ = (
+    __table_args__: tuple[UniqueConstraint] = (
         UniqueConstraint(
             "stock_id", "timestamp", "interval", name="uix_stock_intraday_time"
         ),
@@ -77,10 +79,10 @@ class StockIntradayPrice(Base):
 
     # Validations
     @validates("source")
-    def validate_source(self, _key, source) -> str:
+    def validate_source(source: str) -> str:
         """Validate price source."""
         if source and not PriceSource.is_valid(source):
-            valid_sources = PriceSource.values()
+            valid_sources: list[str] = PriceSource.values()
             raise ValueError(
                 f"Invalid price source: {source}. "
                 f"Valid sources are: {', '.join(valid_sources)}"
@@ -88,14 +90,14 @@ class StockIntradayPrice(Base):
         return source
 
     @validates("timestamp")
-    def validate_timestamp(self, _key, timestamp) -> datetime:
+    def validate_timestamp(timestamp: datetime) -> datetime:
         """Validate timestamp is not in the future."""
         if timestamp and timestamp > get_current_datetime():
             raise ValueError(f"Timestamp cannot be in the future: {timestamp}")
         return timestamp
 
     @validates("interval")
-    def validate_interval(self, _key, interval) -> int:
+    def validate_interval(interval: int) -> int:
         """Validate interval is one of the valid values."""
         if interval not in [1, 5, 15, 30, 60]:
             raise ValueError(
@@ -111,29 +113,26 @@ class StockIntradayPrice(Base):
         )
 
     @property
-    def change(self) -> Optional[float]:
+    def change(self) -> float | None:
         """Calculate the change in price from open to close."""
-        attr = self.__dict__
-        open_price = attr.get("open_price")
-        close_price = attr.get("close_price")
-        if open_price is None or close_price is None:
-            return None
-        return float(close_price - open_price)
+        return (
+            None
+            if self.open_price is None or self.close_price is None
+            else self.close_price - self.open_price
+        )
 
     @property
-    def change_percent(self) -> Optional[float]:
+    def change_percent(self) -> float | None:
         """Calculate the percentage change from open to close."""
-        attr = self.__dict__
-        open_price = attr.get("open_price")
-        close_price = attr.get("close_price")
-        if open_price is None or close_price is None or float(open_price) == 0:
-            return None
-        return float((close_price - open_price) / open_price * 100)
+        return (
+            None
+            if self.open_price is None
+            or self.close_price is None
+            or self.open_price == 0
+            else (self.close_price - self.open_price) / self.open_price * 100
+        )
 
     @property
     def is_real_data(self) -> bool:
         """Check if the price data is from a real source (not simulated)."""
-        source = self.__dict__.get("source")
-        if source is None:
-            return False
-        return bool(PriceSource.is_real(str(source)))
+        return PriceSource.is_real(self.source)

@@ -4,8 +4,7 @@ Trading Service model.
 This model represents a trading service that can buy and sell stocks.
 """
 
-from decimal import Decimal
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, relationship, validates
@@ -44,17 +43,23 @@ class TradingService(Base):
         transactions: Relationship to trading transactions
     """
 
-    __tablename__ = "trading_services"
+    __tablename__: str = "trading_services"
 
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    stock_id = Column(Integer, ForeignKey("stocks.id"), nullable=True)
-    name = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True)
-    stock_symbol = Column(String(10), nullable=False)
-    state = Column(String(20), default=ServiceState.INACTIVE.value, nullable=False)
-    mode = Column(String(20), default=TradingMode.BUY.value, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
+    id: Mapped[int] = Column(Integer, primary_key=True)
+    user_id: Mapped[int] = Column(Integer, ForeignKey("users.id"), nullable=False)
+    stock_id: Mapped[int | None] = Column(
+        Integer, ForeignKey("stocks.id"), nullable=True
+    )
+    name: Mapped[str] = Column(String(100), nullable=False)
+    description: Mapped[str | None] = Column(Text, nullable=True)
+    stock_symbol: Mapped[str] = Column(String(10), nullable=False)
+    state: Mapped[str] = Column(
+        String(20), default=ServiceState.INACTIVE.value, nullable=False
+    )
+    mode: Mapped[str] = Column(
+        String(20), default=TradingMode.BUY.value, nullable=False
+    )
+    is_active: Mapped[bool] = Column(Boolean, default=True, nullable=False)
 
     # Financial configuration
     initial_balance = Column(Numeric(precision=18, scale=2), nullable=False)
@@ -82,24 +87,24 @@ class TradingService(Base):
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="services")
-    stock: Mapped[Optional["Stock"]] = relationship("Stock", back_populates="services")
-    transactions: Mapped[List["TradingTransaction"]] = relationship(
+    stock: Mapped[Stock | None] = relationship("Stock", back_populates="services")
+    transactions: Mapped[list["TradingTransaction"]] = relationship(
         "TradingTransaction", back_populates="service", cascade="all, delete-orphan"
     )
 
     # Validations
     @validates("stock_symbol")
-    def validate_stock_symbol(self, _key, symbol) -> str:
+    def validate_stock_symbol(symbol: str) -> str:
         """Validate stock symbol."""
         if not symbol:
             raise ValueError("Stock symbol is required")
         return symbol.strip().upper()
 
     @validates("state")
-    def validate_state(self, _key, state) -> str:
+    def validate_state(state: str) -> str:
         """Validate service state."""
         if state and not ServiceState.is_valid(state):
-            valid_states = ServiceState.values()
+            valid_states: list[str] = ServiceState.values()
             raise ValueError(
                 f"Invalid service state: {state}. "
                 f"Valid states are: {', '.join(valid_states)}"
@@ -107,10 +112,10 @@ class TradingService(Base):
         return state
 
     @validates("mode")
-    def validate_mode(self, _key, mode) -> str:
+    def validate_mode(mode: str) -> str:
         """Validate trading mode."""
         if mode and not TradingMode.is_valid(mode):
-            valid_modes = TradingMode.values()
+            valid_modes: list[str] = TradingMode.values()
             raise ValueError(
                 f"Invalid trading mode: {mode}. "
                 f"Valid modes are: {', '.join(valid_modes)}"
@@ -118,16 +123,16 @@ class TradingService(Base):
         return mode
 
     @validates("initial_balance")
-    def validate_initial_balance(self, _key, value) -> float:
+    def validate_initial_balance(value: float) -> float:
         """Validate initial balance is positive."""
-        if value is not None and float(value) <= 0:
+        if value is not None and value <= 0:
             raise ValueError("Initial balance must be greater than 0")
         return value
 
     @validates("allocation_percent")
-    def validate_allocation_percent(self, _key, value) -> float:
+    def validate_allocation_percent(value: float) -> float:
         """Validate allocation percent is between 0 and 100."""
-        if value is not None and (float(value) < 0 or float(value) > 100):
+        if value is not None and (value < 0 or value > 100):
             raise ValueError("Allocation percent must be between 0 and 100")
         return value
 
@@ -142,30 +147,27 @@ class TradingService(Base):
     @property
     def can_buy(self) -> bool:
         """Check if the service can buy stocks."""
-        attr = self.__dict__
-        return bool(
-            attr.get("is_active", False)
-            and attr.get("state") == ServiceState.ACTIVE.value
-            and attr.get("mode") == TradingMode.BUY.value
-            and attr.get("current_balance", 0) > attr.get("minimum_balance", 0)
+        return (
+            self.is_active
+            and self.state == ServiceState.ACTIVE.value
+            and self.mode == TradingMode.BUY.value
+            and self.current_balance > self.minimum_balance
         )
 
     @property
     def can_sell(self) -> bool:
         """Check if the service can sell stocks."""
-        attr = self.__dict__
-        return bool(
-            attr.get("is_active", False)
-            and attr.get("state") == ServiceState.ACTIVE.value
-            and attr.get("mode") == TradingMode.SELL.value
-            and attr.get("current_shares", 0) > 0
+        return (
+            self.is_active
+            and self.state == ServiceState.ACTIVE.value
+            and self.mode == TradingMode.SELL.value
+            and self.current_shares > 0
         )
 
     @property
     def is_profitable(self) -> bool:
         """Check if the service is profitable overall."""
-        total_gain_loss = self.__dict__.get("total_gain_loss", 0)
-        return bool(Decimal(str(total_gain_loss)) > 0)
+        return self.total_gain_loss > 0
 
     def has_dependencies(self) -> bool:
         """
@@ -174,4 +176,4 @@ class TradingService(Base):
         Returns:
             True if there are dependencies, False otherwise
         """
-        return bool(self.transactions and len(self.transactions) > 0)
+        return self.transactions and len(self.transactions) > 0

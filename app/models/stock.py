@@ -4,7 +4,7 @@ Stock model.
 This model represents basic information about stocks, including symbols and names.
 """
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, String
 from sqlalchemy.orm import Mapped, relationship, validates
@@ -38,31 +38,31 @@ class Stock(Base):
         transactions: Transactions for this stock
     """
 
-    __tablename__ = "stocks"
+    __tablename__: str = "stocks"
 
     # Basic information
-    symbol = Column(String(10), unique=True, nullable=False, index=True)
-    name = Column(String(200), nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
-    sector = Column(String(100), nullable=True)
-    description = Column(String(1000), nullable=True)
+    symbol: Mapped[str] = Column(String(10), unique=True, nullable=False, index=True)
+    name: Mapped[str | None] = Column(String(200), nullable=True)
+    is_active: Mapped[bool] = Column(Boolean, default=True, nullable=False)
+    sector: Mapped[str | None] = Column(String(100), nullable=True)
+    description: Mapped[str | None] = Column(String(1000), nullable=True)
 
     # Relationships
-    daily_prices: Mapped[List["StockDailyPrice"]] = relationship(
+    daily_prices: Mapped[list["StockDailyPrice"]] = relationship(
         "StockDailyPrice", back_populates="stock", cascade="all, delete-orphan"
     )
 
-    intraday_prices: Mapped[List["StockIntradayPrice"]] = relationship(
+    intraday_prices: Mapped[list["StockIntradayPrice"]] = relationship(
         "StockIntradayPrice", back_populates="stock", cascade="all, delete-orphan"
     )
 
-    services: Mapped[List["TradingService"]] = relationship(
+    services: Mapped[list["TradingService"]] = relationship(
         "TradingService",
         primaryjoin="Stock.id == TradingService.stock_id",
         back_populates="stock",
     )
 
-    transactions: Mapped[List["TradingTransaction"]] = relationship(
+    transactions: Mapped[list["TradingTransaction"]] = relationship(
         "TradingTransaction",
         primaryjoin="Stock.id == TradingTransaction.stock_id",
         back_populates="stock",
@@ -70,13 +70,13 @@ class Stock(Base):
 
     # Validations
     @validates("symbol")
-    def validate_symbol(self, _key, symbol) -> str:
+    def validate_symbol(symbol: str) -> str:
         """Validate stock symbol."""
         if not symbol:
             raise ValueError("Stock symbol is required")
 
         # Convert to uppercase
-        symbol = symbol.strip().upper()
+        symbol: str = symbol.strip().upper()
 
         if len(symbol) > 10:
             raise ValueError("Stock symbol must be 10 characters or less")
@@ -85,10 +85,7 @@ class Stock(Base):
 
     def __repr__(self) -> str:
         """String representation of the Stock object."""
-        return (
-            f"<Stock(id={self.id}, symbol='{self.symbol}', "
-            f"name='{self.name}')>"
-        )
+        return f"<Stock(id={self.id}, symbol='{self.symbol}', name='{self.name}')>"
 
     # Simple intrinsic business logic
     def has_dependencies(self) -> bool:
@@ -98,7 +95,6 @@ class Stock(Base):
         Returns:
             True if stock has dependencies, False otherwise
         """
-        return bool(
-            (self.services is not None and len(self.services) > 0)
-            or (self.transactions is not None and len(self.transactions) > 0)
+        return (self.services is not None and len(self.services) > 0) or (
+            self.transactions is not None and len(self.transactions) > 0
         )

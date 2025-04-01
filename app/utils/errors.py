@@ -6,7 +6,7 @@ uniform error responses and logging.
 """
 
 import logging
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Union
 
 from flask import Flask, Response, current_app, jsonify, make_response
 from werkzeug.exceptions import HTTPException
@@ -21,16 +21,16 @@ class APIError(Exception):
         self,
         message: str,
         status_code: int = 400,
-        payload: Optional[Dict[str, Any]] = None,
+        payload: dict[str, any] | None = None,
     ) -> None:
         super().__init__(message)
         self.message: str = message
         self.status_code: int = status_code
-        self.payload: Dict[str, Any] = payload or {}
+        self.payload: dict[str, any] = payload or {}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, any]:
         """Convert error to dictionary representation."""
-        result: Dict[str, Any] = {
+        result: dict[str, any] = {
             "error": True,
             "message": self.message,
             "status_code": self.status_code,
@@ -48,7 +48,7 @@ class ValidationError(APIError):
     def __init__(
         self,
         message: str,
-        errors: Optional[Dict[str, Any]] = None,
+        errors: dict[str, any] | None = None,
         status_code: int = 400,
     ) -> None:
         super().__init__(message, status_code, {"validation_errors": errors or {}})
@@ -61,7 +61,7 @@ class AuthorizationError(APIError):
         self,
         message: str = "Unauthorized access",
         status_code: int = 401,
-        payload: Optional[Dict[str, Any]] = None,
+        payload: dict[str, any] | None = None,
     ) -> None:
         super().__init__(message, status_code, payload)
 
@@ -74,10 +74,10 @@ class ResourceNotFoundError(APIError):
         resource_type: str,
         resource_id: Union[str, int],
         status_code: int = 404,
-        payload: Optional[Dict[str, Any]] = None,
+        payload: dict[str, any] | None = None,
     ) -> None:
         message: str = f"{resource_type} with ID {resource_id} not found"
-        payload_data: Dict[str, Any] = {
+        payload_data: dict[str, any] = {
             "resource_type": resource_type,
             "resource_id": resource_id,
         }
@@ -93,7 +93,7 @@ class BusinessLogicError(APIError):
         self,
         message: str,
         status_code: int = 400,
-        payload: Optional[Dict[str, Any]] = None,
+        payload: dict[str, any] | None = None,
     ) -> None:
         super().__init__(message, status_code, payload)
 
@@ -154,7 +154,7 @@ def register_error_handlers(app: Flask) -> None:
     logger.info("Registered API error handlers")
 
 
-def handle_validation_error(errors: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+def handle_validation_error(errors: dict[str, any]) -> tuple[dict[str, any], int]:
     """
     Handle validation errors from marshmallow schemas.
 

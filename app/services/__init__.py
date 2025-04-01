@@ -14,7 +14,7 @@ from app.services.trading_service import TradingServiceService
 from app.services.transaction_service import TransactionService
 from app.services.user_service import UserService
 
-__all__ = [
+__all__: list[str] = [
     "EventService",
     "PriceService",
     "SessionManager",

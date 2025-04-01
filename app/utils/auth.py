@@ -7,10 +7,11 @@ that can be used across the application.
 
 import logging
 from functools import wraps
-from typing import Callable, Optional, TypeVar, Union
+from typing import Callable, TypeVar, Union
 
 from flask import abort
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import TradingService, TradingTransaction, User
@@ -45,37 +46,37 @@ def verify_resource_ownership(
 
     Raises:
         ResourceNotFoundError: If the resource doesn't exist
-        AuthorizationError: If the user doesn't own the resource and raise_exception is True
+        AuthorizationError: If the user doesn't own the resource and raise_exception is
+        True
     """
-    resource: Optional[Union[TradingService, TradingTransaction, User]] = None
+    resource: Union[TradingService, TradingTransaction, User] | None = None
     ownership_verified: bool = False
 
     # Handle different resource types
     if resource_type == "service":
-        resource: Optional[TradingService] = (
-            session.query(TradingService).filter_by(id=resource_id).first()
-        )
+        resource: TradingService | None = session.execute(
+            select(TradingService).where(TradingService.id == resource_id)
+        ).scalar_one_or_none()
         if resource:
             ownership_verified = resource.user_id == user_id
 
     elif resource_type == "transaction":
-        resource: Optional[TradingTransaction] = (
-            session.query(TradingTransaction).filter_by(id=resource_id).first()
-        )
+        resource: TradingTransaction | None = session.execute(
+            select(TradingTransaction).where(TradingTransaction.id == resource_id)
+        ).scalar_one_or_none()
         if resource:
             # Get the service associated with the transaction
-            service: Optional[TradingService] = (
-                session.query(TradingService).filter_by(id=resource.service_id).first()
-            )
-            if service:
-                ownership_verified = bool(service.user_id == user_id)
-            else:
-                ownership_verified = False
+            service: TradingService | None = session.execute(
+                select(TradingService).where(TradingService.id == resource.service_id)
+            ).scalar_one_or_none()
+            ownership_verified = bool(service.user_id == user_id) if service else False
 
     elif resource_type == "user":
         # Users can only access their own user data
         ownership_verified = str(resource_id) == str(user_id)
-        resource = session.query(User).filter_by(id=resource_id).first()
+        resource = session.execute(
+            select(User).where(User.id == resource_id)
+        ).scalar_one_or_none()
 
     # Resource not found
     if not resource:
@@ -106,7 +107,7 @@ def require_ownership(resource_type: str, id_parameter: str = "id") -> Callable[
         @wraps(func)
         def wrapper(*args, **kwargs) -> T:
             # Get resource_id from kwargs
-            resource_id: Optional[Union[str, int]] = kwargs.get(id_parameter)
+            resource_id: Union[str, int] | None = kwargs.get(id_parameter)
             if not resource_id:
                 logger.error(f"ID parameter '{id_parameter}' not found in request")
                 raise AuthorizationError("Resource ID not provided")
@@ -114,10 +115,10 @@ def require_ownership(resource_type: str, id_parameter: str = "id") -> Callable[
             # Get user_id from JWT token
             try:
                 verify_jwt_in_request()
-                user_id: Optional[int] = get_jwt_identity()
+                user_id: int | None = get_jwt_identity()
             except Exception as e:
                 logger.error(f"JWT verification failed: {str(e)}")
-                raise AuthorizationError("Authentication required")
+                raise AuthorizationError("Authentication required") from e
 
             # Verify ownership
             with SessionManager() as session:
@@ -146,11 +147,13 @@ def admin_required(fn: Callable[..., T]) -> Callable[..., T]:
     @wraps(fn)
     def wrapper(*args, **kwargs) -> T:
         # Get user ID from token
-        user_id: Optional[int] = get_jwt_identity()
+        user_id: int | None = get_jwt_identity()
 
         # Check if user is admin
         with SessionManager() as session:
-            user: Optional[User] = session.query(User).filter_by(id=user_id).first()
+            user: User | None = session.execute(
+                select(User).where(User.id == user_id)
+            ).scalar_one_or_none()
             if not user or user.is_admin is not True:
                 abort(403, "Admin privileges required")
 
@@ -159,7 +162,7 @@ def admin_required(fn: Callable[..., T]) -> Callable[..., T]:
     return wrapper
 
 
-def get_current_user(session: Optional[Session] = None) -> Optional[User]:
+def get_current_user(session: Session | None = None) -> User | None:
     """
     Get the current authenticated user.
 
@@ -171,7 +174,7 @@ def get_current_user(session: Optional[Session] = None) -> Optional[User]:
     """
     try:
         verify_jwt_in_request()
-        user_id: Optional[int] = get_jwt_identity()
+        user_id: int | None = get_jwt_identity()
 
         # Use provided session or create a new one
         session_manager = None
@@ -183,7 +186,9 @@ def get_current_user(session: Optional[Session] = None) -> Optional[User]:
             logger.error("Failed to create database session")
             return None
 
-        user: Optional[User] = session.query(User).filter_by(id=user_id).first()
+        user: User | None = session.execute(
+            select(User).where(User.id == user_id)
+        ).scalar_one_or_none()
 
         if session_manager is not None and session_manager.session is not None:
             session_manager.session.close()

@@ -5,7 +5,8 @@ This model represents user accounts for authentication and authorization.
 """
 
 import re
-from typing import TYPE_CHECKING, List
+from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, relationship, validates
@@ -35,27 +36,27 @@ class User(Base):
         services: Trading services owned by this user
     """
 
-    __tablename__ = "users"
+    __tablename__: str = "users"
 
-    id = Column(Integer, primary_key=True)
-    username = Column(String(50), unique=True, nullable=False)
-    email = Column(String(120), unique=True, nullable=False)
-    password_hash = Column(String(128), nullable=False)
-    is_active = Column(Boolean, default=True)
-    is_admin = Column(Boolean, default=False)
-    last_login = Column(DateTime)
-    created_at = Column(DateTime, default=get_current_datetime)
-    updated_at = Column(
+    id: Mapped[int] = Column(Integer, primary_key=True)
+    username: Mapped[str] = Column(String(50), unique=True, nullable=False)
+    email: Mapped[str] = Column(String(120), unique=True, nullable=False)
+    password_hash: Mapped[str] = Column(String(128), nullable=False)
+    is_active: Mapped[bool] = Column(Boolean, default=True)
+    is_admin: Mapped[bool] = Column(Boolean, default=False)
+    last_login: Mapped[datetime] = Column(DateTime)
+    created_at: Mapped[datetime] = Column(DateTime, default=get_current_datetime)
+    updated_at: Mapped[datetime] = Column(
         DateTime, default=get_current_datetime, onupdate=get_current_datetime
     )
 
     # Relationships
-    services: Mapped[List["TradingService"]] = relationship(
+    services: Mapped[list["TradingService"]] = relationship(
         "TradingService", back_populates="user", cascade="all, delete-orphan"
     )
 
     @validates("username")
-    def validate_username(self, _key, username) -> str:
+    def validate_username(username: str) -> str:
         """Validate username."""
         if not username:
             raise ValueError("Username is required")
@@ -69,7 +70,7 @@ class User(Base):
         return username
 
     @validates("email")
-    def validate_email(self, _key, email) -> str:
+    def validate_email(email: str) -> str:
         """Validate email."""
         if not email:
             raise ValueError("Email is required")
@@ -104,17 +105,12 @@ class User(Base):
 
     def verify_password(self, password: str) -> bool:
         """Verify password."""
-        if not password:
-            return False
-        return check_password_hash(str(self.password_hash), password)
+        return check_password_hash(self.password_hash, password)
 
     @property
     def has_active_services(self) -> bool:
         """Check if user has any active trading services."""
-        services = getattr(self, "services", [])
-        return bool(
-            any(service.__dict__.get("is_active", False) for service in services)
-        )
+        return any(service.is_active for service in self.services)
 
     def __repr__(self) -> str:
         """String representation."""

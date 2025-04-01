@@ -5,8 +5,6 @@ This package contains utility modules that provide helper functions,
 decorators, and other utilities that are used across the application.
 """
 
-from typing import List
-
 from app.utils.auth import (
     admin_required,
     get_current_user,
@@ -29,7 +27,7 @@ from app.utils.errors import (
     register_error_handlers,
 )
 
-__all__: List[str] = [
+__all__: list[str] = [
     # Error utilities
     "APIError",
     "ValidationError",

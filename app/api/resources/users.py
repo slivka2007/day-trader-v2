@@ -3,6 +3,7 @@ User API resources.
 """
 
 import logging
+from typing import Literal
 
 from flask import g, request
 from flask_jwt_extended import (
@@ -11,7 +12,7 @@ from flask_jwt_extended import (
     get_jwt_identity,
     jwt_required,
 )
-from flask_restx import Namespace, Resource, fields
+from flask_restx import Model, Namespace, Resource, fields
 
 from app.api.schemas.user import (
     password_change_schema,
@@ -34,13 +35,13 @@ from app.utils.errors import (
 )
 
 # Set up logging
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 # Create namespace
-ns = Namespace("users", description="User operations")
+ns: Namespace = Namespace("users", description="User operations")
 
 # API models for Swagger documentation
-user_model = ns.model(
+user_model: Model = ns.model(
     "User",
     {
         "id": fields.Integer(readonly=True, description="User identifier"),
@@ -57,7 +58,7 @@ user_model = ns.model(
     },
 )
 
-user_create_model = ns.model(
+user_create_model: Model = ns.model(
     "UserCreate",
     {
         "username": fields.String(
@@ -76,7 +77,7 @@ user_create_model = ns.model(
     },
 )
 
-user_update_model = ns.model(
+user_update_model: Model = ns.model(
     "UserUpdate",
     {
         "username": fields.String(
@@ -92,7 +93,7 @@ user_update_model = ns.model(
     },
 )
 
-user_delete_model = ns.model(
+user_delete_model: Model = ns.model(
     "UserDelete",
     {
         "confirm": fields.Boolean(required=True, description="Confirmation flag"),
@@ -103,7 +104,7 @@ user_delete_model = ns.model(
     },
 )
 
-login_model = ns.model(
+login_model: Model = ns.model(
     "Login",
     {
         "username": fields.String(required=True, description="Username"),
@@ -111,7 +112,7 @@ login_model = ns.model(
     },
 )
 
-token_model = ns.model(
+token_model: Model = ns.model(
     "Token",
     {
         "access_token": fields.String(description="JWT access token"),
@@ -119,7 +120,7 @@ token_model = ns.model(
     },
 )
 
-password_change_model = ns.model(
+password_change_model: Model = ns.model(
     "PasswordChange",
     {
         "current_password": fields.String(
@@ -145,32 +146,32 @@ class UserList(Resource):
     @admin_required
     @ns.doc("list_users")
     @ns.response(200, "Success", [user_model])
-    def get(self):
+    def get(self) -> any | list[any] | list | dict:
         """Get all users."""
         try:
             with SessionManager() as session:
-                users = UserService.get_all(session)
+                users: list[User] = UserService.get_all(session)
                 return users_schema.dump(users)
         except Exception as e:
             logger.error(f"Error listing users: {str(e)}")
-            raise BusinessLogicError(f"Error retrieving users: {str(e)}")
+            raise BusinessLogicError(f"Error retrieving users: {str(e)}") from e
 
     @ns.doc("create_user")
     @ns.expect(user_create_model)
     @ns.response(201, "User created", user_model)
     @ns.response(400, "Validation error")
-    def post(self):
+    def post(self) -> tuple[any | list[any] | list | dict, Literal[201]]:
         """Create a new user."""
         try:
-            data = request.json or {}
+            data: dict[str, any] = request.json or {}
             # Validate input with schema
-            errors = user_create_schema.validate(data)
+            errors: list[str] = user_create_schema.validate(data)
             if errors:
                 raise ValidationError(f"Invalid input data: {errors}")
 
             with SessionManager() as session:
                 # Use the user service to create user
-                created_user = UserService.create_user(session, data)
+                created_user: User = UserService.create_user(session, data)
                 return user_schema.dump(created_user), 201
 
         except ValidationError as e:
@@ -178,7 +179,7 @@ class UserList(Resource):
             raise
         except Exception as e:
             logger.error(f"Error creating user: {str(e)}")
-            raise BusinessLogicError(f"Could not create user: {str(e)}")
+            raise BusinessLogicError(f"Could not create user: {str(e)}") from e
 
 
 # User detail resource
@@ -191,7 +192,7 @@ class UserDetail(Resource):
     @ns.doc("get_user")
     @ns.response(200, "Success", user_model)
     @ns.response(404, "User not found")
-    def get(self, id):
+    def get(self, id: int) -> any:
         """Get a user by ID."""
         try:
             # Only admins can view other users
@@ -199,14 +200,14 @@ class UserDetail(Resource):
                 raise AuthorizationError("Not authorized to view this user")
 
             with SessionManager() as session:
-                user = UserService.get_or_404(session, id)
+                user: User = UserService.get_or_404(session, id)
                 return user_schema.dump(user)
         except (ResourceNotFoundError, AuthorizationError) as e:
             logger.warning(f"Error retrieving user {id}: {str(e)}")
             raise
         except Exception as e:
             logger.error(f"Error retrieving user {id}: {str(e)}")
-            raise BusinessLogicError(f"Error retrieving user: {str(e)}")
+            raise BusinessLogicError(f"Error retrieving user: {str(e)}") from e
 
     @jwt_required()
     @ns.doc("update_user")
@@ -214,28 +215,28 @@ class UserDetail(Resource):
     @ns.response(200, "Success", user_model)
     @ns.response(400, "Validation error")
     @ns.response(404, "User not found")
-    def put(self, id):
+    def put(self, id: int) -> any:
         """Update a user."""
         try:
             # Only admins or the user themselves can update
             if not g.user.is_admin and g.user.id != id:
                 raise AuthorizationError("Not authorized to update this user")
 
-            data = request.json or {}
+            data: dict[str, any] = request.json or {}
             # Validate input with schema
-            errors = user_update_schema.validate(data)
+            errors: list[str] = user_update_schema.validate(data)
             if errors:
                 raise ValidationError(f"Invalid input data: {errors}")
 
             with SessionManager() as session:
-                user = UserService.get_or_404(session, id)
+                user: User = UserService.get_or_404(session, id)
 
                 # Non-admins cannot set admin status
                 if not g.user.is_admin and "is_admin" in data:
                     raise AuthorizationError("Not authorized to set admin status")
 
                 # Use UserService to update user
-                updated_user = UserService.update_user(session, user, data)
+                updated_user: User = UserService.update_user(session, user, data)
                 return user_schema.dump(updated_user)
 
         except (ValidationError, ResourceNotFoundError, AuthorizationError) as e:
@@ -243,7 +244,7 @@ class UserDetail(Resource):
             raise
         except Exception as e:
             logger.error(f"Error updating user {id}: {str(e)}")
-            raise BusinessLogicError(f"Error updating user: {str(e)}")
+            raise BusinessLogicError(f"Error updating user: {str(e)}") from e
 
     @jwt_required()
     @admin_required
@@ -252,14 +253,14 @@ class UserDetail(Resource):
     @ns.response(204, "User deleted")
     @ns.response(400, "Validation error")
     @ns.response(404, "User not found")
-    def delete(self, id):
+    def delete(self, id: int) -> tuple[any, Literal[204]]:
         """Delete a user."""
         try:
-            data = request.json or {}
+            data: dict[str, any] = request.json or {}
             data["user_id"] = id  # Ensure the ID matches the URL
 
             # Validate deletion request
-            errors = user_delete_schema.validate(data)
+            errors: list[str] = user_delete_schema.validate(data)
             if errors:
                 raise ValidationError(f"Invalid deletion request: {errors}")
 
@@ -268,7 +269,7 @@ class UserDetail(Resource):
                 raise AuthorizationError("Invalid admin password")
 
             with SessionManager() as session:
-                user = UserService.get_or_404(session, id)
+                user: User = UserService.get_or_404(session, id)
 
                 # Cannot delete self
                 if g.user.id == id:
@@ -292,7 +293,7 @@ class UserDetail(Resource):
             raise
         except Exception as e:
             logger.error(f"Error deleting user {id}: {str(e)}")
-            raise BusinessLogicError(f"Error deleting user: {str(e)}")
+            raise BusinessLogicError(f"Error deleting user: {str(e)}") from e
 
 
 # Login resource
@@ -304,20 +305,20 @@ class UserLogin(Resource):
     @ns.expect(login_model)
     @ns.response(200, "Login successful", token_model)
     @ns.response(401, "Authentication failed")
-    def post(self):
+    def post(self) -> tuple[dict[str, str], Literal[200]]:
         """Authenticate a user and return tokens."""
         try:
-            data = request.json or {}
+            data: dict[str, any] = request.json or {}
             # Validate input format
-            errors = user_login_schema.validate(data)
+            errors: list[str] = user_login_schema.validate(data)
             if errors:
                 raise ValidationError(f"Invalid login data: {errors}")
 
-            username = data.get("username", "")
-            password = data.get("password", "")
+            username: str = data.get("username", "")
+            password: str = data.get("password", "")
 
             with SessionManager() as session:
-                user = UserService.find_by_username(session, username)
+                user: User | None = UserService.find_by_username(session, username)
 
                 # Check if user exists and password is correct
                 if not user or not user.verify_password(password):
@@ -331,8 +332,8 @@ class UserLogin(Resource):
                 UserService.login(session, user)
 
                 # Generate tokens
-                access_token = create_access_token(identity=user.id)
-                refresh_token = create_refresh_token(identity=user.id)
+                access_token: str = create_access_token(identity=user.id)
+                refresh_token: str = create_refresh_token(identity=user.id)
 
                 return {"access_token": access_token, "refresh_token": refresh_token}
 
@@ -341,7 +342,7 @@ class UserLogin(Resource):
             raise
         except Exception as e:
             logger.error(f"Error during login: {str(e)}")
-            raise BusinessLogicError(f"Login error: {str(e)}")
+            raise BusinessLogicError(f"Login error: {str(e)}") from e
 
 
 # Password change resource
@@ -355,23 +356,23 @@ class PasswordChange(Resource):
     @ns.response(200, "Password changed")
     @ns.response(400, "Validation error")
     @ns.response(401, "Authentication failed")
-    def post(self):
+    def post(self) -> dict[str, str]:
         """Change user password."""
         try:
-            data = request.json or {}
+            data: dict[str, any] = request.json or {}
             # Validate input format
-            errors = password_change_schema.validate(data)
+            errors: list[str] = password_change_schema.validate(data)
             if errors:
                 raise ValidationError(f"Invalid password change data: {errors}")
 
-            current_password = data.get("current_password", "")
-            new_password = data.get("new_password", "")
+            current_password: str = data.get("current_password", "")
+            new_password: str = data.get("new_password", "")
 
             # Get the current user
-            user_id = get_jwt_identity()
+            user_id: int = get_jwt_identity()
 
             with SessionManager() as session:
-                user = UserService.get_or_404(session, user_id)
+                user: User = UserService.get_or_404(session, user_id)
 
                 # Use UserService to change password
                 UserService.change_password(
@@ -388,7 +389,7 @@ class PasswordChange(Resource):
             raise
         except Exception as e:
             logger.error(f"Error changing password: {str(e)}")
-            raise BusinessLogicError(f"Password change error: {str(e)}")
+            raise BusinessLogicError(f"Password change error: {str(e)}") from e
 
 
 # Token refresh resource
@@ -400,21 +401,21 @@ class TokenRefresh(Resource):
     @ns.doc("refresh_token")
     @ns.response(200, "Token refreshed", token_model)
     @ns.response(401, "Invalid refresh token")
-    def post(self):
+    def post(self) -> dict[str, str]:
         """Refresh access token."""
         try:
             # Get user identity from refresh token
-            user_id = get_jwt_identity()
+            user_id: int = get_jwt_identity()
 
             with SessionManager() as session:
-                user = UserService.get_or_404(session, user_id)
+                user: User = UserService.get_or_404(session, user_id)
 
                 # Check if user is still active
                 if not user.is_active.scalar():
                     raise AuthorizationError("Account is disabled")
 
                 # Generate new access token
-                access_token = create_access_token(identity=user_id)
+                access_token: str = create_access_token(identity=user_id)
 
                 return {"access_token": access_token}
 
@@ -423,7 +424,7 @@ class TokenRefresh(Resource):
             raise
         except Exception as e:
             logger.error(f"Error refreshing token: {str(e)}")
-            raise BusinessLogicError(f"Token refresh error: {str(e)}")
+            raise BusinessLogicError(f"Token refresh error: {str(e)}") from e
 
 
 # User toggle active status
@@ -437,18 +438,18 @@ class UserToggleActive(Resource):
     @ns.doc("toggle_user_active")
     @ns.response(200, "Status toggled", user_model)
     @ns.response(404, "User not found")
-    def post(self, id):
+    def post(self, id: int) -> any:
         """Toggle user active status."""
         try:
             with SessionManager() as session:
-                user = UserService.get_or_404(session, id)
+                user: User = UserService.get_or_404(session, id)
 
                 # Cannot deactivate self
                 if g.user.id == id:
                     raise BusinessLogicError("Cannot deactivate your own account")
 
                 # Use UserService to toggle active status
-                updated_user = UserService.toggle_active(session, user)
+                updated_user: User = UserService.toggle_active(session, user)
 
                 return user_schema.dump(updated_user)
 
@@ -457,7 +458,9 @@ class UserToggleActive(Resource):
             raise
         except Exception as e:
             logger.error(f"Error toggling user {id} active status: {str(e)}")
-            raise BusinessLogicError(f"Error toggling user active status: {str(e)}")
+            raise BusinessLogicError(
+                f"Error toggling user active status: {str(e)}"
+            ) from e
 
 
 # Current user resource
@@ -468,13 +471,13 @@ class CurrentUser(Resource):
     @jwt_required()
     @ns.doc("get_current_user")
     @ns.response(200, "Success", user_model)
-    def get(self):
+    def get(self) -> any:
         """Get current user information."""
         try:
-            user_id = get_jwt_identity()
+            user_id: int = get_jwt_identity()
 
             with SessionManager() as session:
-                user = UserService.get_or_404(session, user_id)
+                user: User = UserService.get_or_404(session, user_id)
                 return user_schema.dump(user)
 
         except ResourceNotFoundError as e:
@@ -482,4 +485,4 @@ class CurrentUser(Resource):
             raise
         except Exception as e:
             logger.error(f"Error retrieving current user: {str(e)}")
-            raise BusinessLogicError(f"Error retrieving current user: {str(e)}")
+            raise BusinessLogicError(f"Error retrieving current user: {str(e)}") from e

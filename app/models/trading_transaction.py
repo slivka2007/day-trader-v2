@@ -4,8 +4,8 @@ Trading Transaction model.
 This model represents a stock trading transaction (buy and sell).
 """
 
-from decimal import Decimal
-from typing import TYPE_CHECKING, Optional
+from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, relationship, validates
@@ -42,42 +42,52 @@ class TradingTransaction(Base):
         stock: Relationship to the stock
     """
 
-    __tablename__ = "trading_transactions"
+    __tablename__: str = "trading_transactions"
 
-    id = Column(Integer, primary_key=True)
-    service_id = Column(Integer, ForeignKey("trading_services.id"), nullable=False)
-    stock_id = Column(Integer, ForeignKey("stocks.id"), nullable=True)
-    stock_symbol = Column(String(10), nullable=False, index=True)
-    shares = Column(Numeric(precision=18, scale=2), nullable=False)
-    state = Column(String(20), default=TransactionState.OPEN.value, nullable=False)
-    purchase_price = Column(Numeric(precision=18, scale=2), nullable=False)
-    sale_price = Column(Numeric(precision=18, scale=2), nullable=True)
-    gain_loss = Column(Numeric(precision=18, scale=2), nullable=True)
-    purchase_date = Column(DateTime, default=get_current_datetime, nullable=False)
-    sale_date = Column(DateTime, nullable=True)
-    notes = Column(Text, nullable=True)
+    id: Mapped[int] = Column(Integer, primary_key=True)
+    service_id: Mapped[int] = Column(
+        Integer, ForeignKey("trading_services.id"), nullable=False
+    )
+    stock_id: Mapped[int] = Column(Integer, ForeignKey("stocks.id"), nullable=True)
+    stock_symbol: Mapped[str] = Column(String(10), nullable=False, index=True)
+    shares: Mapped[float] = Column(Numeric(precision=18, scale=2), nullable=False)
+    state: Mapped[str] = Column(
+        String(20), default=TransactionState.OPEN.value, nullable=False
+    )
+    purchase_price: Mapped[float] = Column(
+        Numeric(precision=18, scale=2), nullable=False
+    )
+    sale_price: Mapped[float | None] = Column(
+        Numeric(precision=18, scale=2), nullable=True
+    )
+    gain_loss: Mapped[float | None] = Column(
+        Numeric(precision=18, scale=2), nullable=True
+    )
+    purchase_date: Mapped[datetime] = Column(
+        DateTime, default=get_current_datetime, nullable=False
+    )
+    sale_date: Mapped[datetime | None] = Column(DateTime, nullable=True)
+    notes: Mapped[str | None] = Column(Text, nullable=True)
 
     # Relationships
     service: Mapped["TradingService"] = relationship(
         "TradingService", back_populates="transactions"
     )
-    stock: Mapped[Optional["Stock"]] = relationship(
-        "Stock", back_populates="transactions"
-    )
+    stock: Mapped[Stock | None] = relationship("Stock", back_populates="transactions")
 
     # Validations
     @validates("stock_symbol")
-    def validate_stock_symbol(self, _key, symbol) -> str:
+    def validate_stock_symbol(symbol: str) -> str:
         """Validate stock symbol."""
         if not symbol:
             raise ValueError("Stock symbol is required")
         return symbol.strip().upper()
 
     @validates("state")
-    def validate_state(self, _key, state) -> str:
+    def validate_state(state: str) -> str:
         """Validate transaction state."""
         if state and not TransactionState.is_valid(state):
-            valid_states = TransactionState.values()
+            valid_states: list[str] = TransactionState.values()
             raise ValueError(
                 f"Invalid transaction state: {state}. "
                 f"Valid states are: {', '.join(valid_states)}"
@@ -85,9 +95,9 @@ class TradingTransaction(Base):
         return state
 
     @validates("shares")
-    def validate_shares(self, _key, shares) -> float:
+    def validate_shares(shares: float) -> float:
         """Validate shares amount."""
-        if shares is not None and float(shares) <= 0:
+        if shares is not None and shares <= 0:
             raise ValueError("Shares must be greater than zero")
         return shares
 
@@ -102,33 +112,26 @@ class TradingTransaction(Base):
     @property
     def is_complete(self) -> bool:
         """Check if the transaction is completed (sold)."""
-        state = self.__dict__.get("state")
-        return bool(state == TransactionState.CLOSED.value)
+        return self.state == TransactionState.CLOSED.value
 
     @property
     def is_profitable(self) -> bool:
         """Check if the transaction is profitable."""
-        attr = self.__dict__
-        is_complete = attr.get("state") == TransactionState.CLOSED.value
-        gain_loss = attr.get("gain_loss")
-        if not is_complete or gain_loss is None:
+        if not self.is_complete or self.gain_loss is None:
             return False
-        return bool(Decimal(str(gain_loss)) > 0)
+        return self.gain_loss > 0
 
     @property
     def can_be_cancelled(self) -> bool:
         """Check if the transaction can be cancelled."""
-        state = self.__dict__.get("state")
-        return bool(TransactionState.can_be_cancelled(str(state)))
+        return TransactionState.can_be_cancelled(self.state)
 
-    def calculate_gain_loss(self) -> Decimal:
+    def calculate_gain_loss(self) -> float:
         """Calculate the gain/loss amount based on current prices."""
         if (
             self.sale_price is not None
             and self.purchase_price is not None
             and self.shares is not None
         ):
-            return Decimal(str(self.sale_price - self.purchase_price)) * Decimal(
-                str(self.shares)
-            )
-        return Decimal("0")
+            return (self.sale_price - self.purchase_price) * self.shares
+        return 0

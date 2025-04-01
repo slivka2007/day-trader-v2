@@ -1,14 +1,14 @@
 """
 Database service for SQLAlchemy configuration and database operations.
 
-This service provides database setup, session management, and schema management functions,
-ensuring proper initialization and consistent database state throughout the application.
+This service provides database setup, session management, and schema management
+functions, ensuring proper initialization and consistent database state throughout the
+application.
 """
 
 import os
 import re
 from pathlib import Path
-from typing import List
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session as SQLAlchemySession
@@ -17,6 +17,9 @@ from sqlalchemy.schema import CreateTable
 
 # Import Base from the shared location
 from app.models import Base
+
+# Import EventService from the events module
+from app.services.events import EventService
 
 # SQLite database path
 DATABASE_URL: str = os.environ.get(
@@ -28,8 +31,8 @@ SQL_FILE_PATH: Path = Path(__file__).parent.parent / "instance" / "database.sql"
 engine: Engine = create_engine(DATABASE_URL)
 
 # Create session factory
-session_factory = sessionmaker(bind=engine)
-Session = scoped_session(session_factory)
+session_factory: sessionmaker = sessionmaker(bind=engine)
+Session: scoped_session = scoped_session(session_factory)
 
 
 def generate_sql_schema() -> str:
@@ -39,25 +42,30 @@ def generate_sql_schema() -> str:
     Returns:
         str: The SQL schema DDL statements as a formatted string
     """
-    sql_statements: List[str] = []
+    sql_statements: list[str] = []
 
     # Generate CREATE TABLE statements for all models
     for table in Base.metadata.sorted_tables:
-        create_stmt = str(CreateTable(table).compile(engine))
+        create_stmt: str = str(CreateTable(table).compile(engine))
         # Add IF NOT EXISTS to make it safer
-        create_stmt = create_stmt.replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS")
+        create_stmt: str = create_stmt.replace(
+            "CREATE TABLE", "CREATE TABLE IF NOT EXISTS"
+        )
         sql_statements.append(create_stmt + ";")
 
     # Add index creation statements
     sql_statements.append("\n-- Create indexes for better performance")
     sql_statements.append(
-        "CREATE INDEX IF NOT EXISTS idx_stock_transactions_service_id ON stock_transactions(service_id);"
+        "CREATE INDEX IF NOT EXISTS idx_stock_transactions_service_id ON "
+        "stock_transactions(service_id);"
     )
     sql_statements.append(
-        "CREATE INDEX IF NOT EXISTS idx_stock_services_symbol ON stock_services(stock_symbol);"
+        "CREATE INDEX IF NOT EXISTS idx_stock_services_symbol ON "
+        "stock_services(stock_symbol);"
     )
     sql_statements.append(
-        "CREATE INDEX IF NOT EXISTS idx_stock_services_state ON stock_services(service_state);"
+        "CREATE INDEX IF NOT EXISTS idx_stock_services_state ON "
+        "stock_services(service_state);"
     )
 
     return "\n\n".join(sql_statements)
@@ -74,7 +82,6 @@ def save_sql_schema() -> str:
         IOError: If file cannot be written
         Exception: For other errors during schema generation
     """
-    from app.services.events import EventService
 
     try:
         sql_schema: str = generate_sql_schema()
@@ -122,11 +129,11 @@ def compare_sql_schema() -> bool:
     # Normalize schemas for comparison (remove whitespace, case insensitive)
     def normalize_schema(schema: str) -> str:
         # Remove comments
-        schema = re.sub(r"--.*?\n", "\n", schema)
+        schema: str = re.sub(r"--.*?\n", "\n", schema)
         # Remove extra whitespace
-        schema = re.sub(r"\s+", " ", schema)
+        schema: str = re.sub(r"\s+", " ", schema)
         # Lowercase
-        schema = schema.lower().strip()
+        schema: str = schema.lower().strip()
         return schema
 
     existing_norm: str = normalize_schema(existing_schema)
@@ -154,7 +161,6 @@ def init_db(reset: bool = True) -> Engine:
     Raises:
         Exception: If database initialization fails
     """
-    from app.services.events import EventService
 
     try:
         # Emit database initialization event
@@ -213,7 +219,6 @@ def check_and_update_schema() -> bool:
     Raises:
         Exception: If schema update fails
     """
-    from app.services.events import EventService
 
     EventService.emit_database_event(operation="schema_check", status="started")
 
@@ -243,7 +248,6 @@ def setup_database(reset_on_startup: bool = True) -> Engine:
     Raises:
         Exception: If database setup fails
     """
-    from app.services.events import EventService
 
     EventService.emit_database_event(
         operation="setup",
@@ -252,10 +256,9 @@ def setup_database(reset_on_startup: bool = True) -> Engine:
     )
 
     try:
-        if reset_on_startup:
-            result = init_db(reset=True)
-        else:
-            result = check_and_update_schema()
+        result: Engine = (
+            init_db(reset=True) if reset_on_startup else check_and_update_schema()
+        )
 
         EventService.emit_database_event(
             operation="setup",
@@ -271,7 +274,7 @@ def setup_database(reset_on_startup: bool = True) -> Engine:
             details={"reset_performed": reset_on_startup},
         )
 
-        return engine
+        return result
     except Exception as e:
         # Emit failure events
         EventService.emit_database_event(

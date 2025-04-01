@@ -6,9 +6,8 @@ providing a clean API for user management operations.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
 
-from sqlalchemy import or_
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.api.schemas.user import user_schema
@@ -25,7 +24,7 @@ class UserService:
     """Service for User model operations."""
 
     @staticmethod
-    def find_by_username(session: Session, username: str) -> Optional[User]:
+    def find_by_username(session: Session, username: str) -> User | None:
         """
         Find a user by username.
 
@@ -36,10 +35,11 @@ class UserService:
         Returns:
             User instance if found, None otherwise
         """
-        return session.query(User).filter(User.username == username).first()
+        stmt: select[tuple[User]] = select(User).where(User.username == username)
+        return session.execute(stmt).scalar_one_or_none()
 
     @staticmethod
-    def find_by_email(session: Session, email: str) -> Optional[User]:
+    def find_by_email(session: Session, email: str) -> User | None:
         """
         Find a user by email.
 
@@ -50,10 +50,11 @@ class UserService:
         Returns:
             User instance if found, None otherwise
         """
-        return session.query(User).filter(User.email == email).first()
+        stmt: select[tuple[User]] = select(User).where(User.email == email)
+        return session.execute(stmt).scalar_one_or_none()
 
     @staticmethod
-    def find_by_username_or_email(session: Session, identifier: str) -> Optional[User]:
+    def find_by_username_or_email(session: Session, identifier: str) -> User | None:
         """
         Find a user by username or email.
 
@@ -64,14 +65,13 @@ class UserService:
         Returns:
             User instance if found, None otherwise
         """
-        return (
-            session.query(User)
-            .filter(or_(User.username == identifier, User.email == identifier))
-            .first()
+        stmt: select[tuple[User]] = select(User).where(
+            or_(User.username == identifier, User.email == identifier)
         )
+        return session.execute(stmt).scalar_one_or_none()
 
     @staticmethod
-    def get_by_id(session: Session, user_id: int) -> Optional[User]:
+    def get_by_id(session: Session, user_id: int) -> User | None:
         """
         Get a user by ID.
 
@@ -82,7 +82,8 @@ class UserService:
         Returns:
             User instance if found, None otherwise
         """
-        return session.query(User).get(user_id)
+        stmt: select[tuple[User]] = select(User).where(User.id == user_id)
+        return session.execute(stmt).scalar_one_or_none()
 
     @staticmethod
     def get_or_404(session: Session, user_id: int) -> User:
@@ -99,7 +100,7 @@ class UserService:
         Raises:
             ResourceNotFoundError: If user not found
         """
-        user: Optional[User] = UserService.get_by_id(session, user_id)
+        user: User | None = UserService.get_by_id(session, user_id)
         if not user:
             raise ResourceNotFoundError(
                 f"User with ID {user_id} not found", resource_id=user_id
@@ -107,7 +108,7 @@ class UserService:
         return user
 
     @staticmethod
-    def get_all(session: Session) -> List[User]:
+    def get_all(session: Session) -> list[User]:
         """
         Get all users.
 
@@ -117,10 +118,11 @@ class UserService:
         Returns:
             List of User instances
         """
-        return session.query(User).all()
+        stmt: select[tuple[User]] = select(User)
+        return list(session.execute(stmt).scalars().all())
 
     @staticmethod
-    def create_user(session: Session, data: Dict[str, Any]) -> User:
+    def create_user(session: Session, data: dict[str, any]) -> User:
         """
         Create a new user.
 
@@ -138,25 +140,22 @@ class UserService:
 
         try:
             # Validate data is a dictionary
-            data_dict: Dict[str, Any] = data if isinstance(data, dict) else {}
+            data_dict: dict[str, any] = data if isinstance(data, dict) else {}
 
             # Validate required fields
-            required_fields: List[str] = ["username", "email", "password"]
+            required_fields: list[str] = ["username", "email", "password"]
             for field in required_fields:
                 if field not in data_dict or not data_dict.get(field):
                     raise ValidationError(f"Field '{field}' is required")
 
             # Check for duplicate username or email
-            existing_user: Optional[User] = (
-                session.query(User)
-                .filter(
-                    or_(
-                        User.username == data_dict.get("username"),
-                        User.email == data_dict.get("email"),
-                    )
+            stmt: select[tuple[User]] = select(User).where(
+                or_(
+                    User.username == data_dict.get("username"),
+                    User.email == data_dict.get("email"),
                 )
-                .first()
             )
+            existing_user: User | None = session.execute(stmt).scalar_one_or_none()
 
             if existing_user:
                 if existing_user.username == data_dict.get("username"):
@@ -169,7 +168,7 @@ class UserService:
                     )
 
             # Create password_hash from password
-            password: Optional[str] = data_dict.pop("password", None)
+            password: str | None = data_dict.pop("password", None)
 
             # Create user from data
             user: User = User(**{k: v for k, v in data_dict.items() if k != "password"})
@@ -182,8 +181,8 @@ class UserService:
             session.commit()
 
             # Prepare response data
-            user_data: Dict[str, Any] = user_schema.dump(user)
-            user_data_dict: Dict[str, Any] = (
+            user_data: dict[str, any] = user_schema.dump(user)
+            user_data_dict: dict[str, any] = (
                 user_data if isinstance(user_data, dict) else user_data[0]
             )
 
@@ -198,10 +197,10 @@ class UserService:
             session.rollback()
             if isinstance(e, ValidationError):
                 raise
-            raise ValidationError(f"Could not create user: {str(e)}")
+            raise ValidationError(f"Could not create user: {str(e)}") from e
 
     @staticmethod
-    def update_user(session: Session, user: User, data: Dict[str, Any]) -> User:
+    def update_user(session: Session, user: User, data: dict[str, any]) -> User:
         """
         Update user attributes.
 
@@ -220,14 +219,14 @@ class UserService:
 
         try:
             # Validate data is a dictionary
-            data_dict: Dict[str, Any] = data if isinstance(data, dict) else {}
+            data_dict: dict[str, any] = data if isinstance(data, dict) else {}
 
             # Define which fields can be updated
             allowed_fields: set[str] = {"username", "email", "is_active", "is_admin"}
 
             # Check for username uniqueness if changing
             if "username" in data_dict and data_dict.get("username") != user.username:
-                existing: Optional[User] = UserService.find_by_username(
+                existing: User | None = UserService.find_by_username(
                     session, data_dict.get("username", "")
                 )
                 if existing:
@@ -237,7 +236,7 @@ class UserService:
 
             # Check for email uniqueness if changing
             if "email" in data_dict and data_dict.get("email") != user.email:
-                existing: Optional[User] = UserService.find_by_email(
+                existing: User | None = UserService.find_by_email(
                     session, data_dict.get("email", "")
                 )
                 if existing:
@@ -259,12 +258,12 @@ class UserService:
 
             # Only commit if something was updated
             if updated:
-                setattr(user, "updated_at", get_current_datetime())
+                user.updated_at = get_current_datetime()
                 session.commit()
 
                 # Prepare response data
-                user_data: Dict[str, Any] = user_schema.dump(user)
-                user_data_dict: Dict[str, Any] = (
+                user_data: dict[str, any] = user_schema.dump(user)
+                user_data_dict: dict[str, any] = (
                     user_data if isinstance(user_data, dict) else user_data[0]
                 )
 
@@ -279,7 +278,7 @@ class UserService:
             session.rollback()
             if isinstance(e, ValidationError):
                 raise
-            raise ValidationError(f"Could not update user: {str(e)}")
+            raise ValidationError(f"Could not update user: {str(e)}") from e
 
     @staticmethod
     def toggle_active(session: Session, user: User) -> User:
@@ -301,8 +300,8 @@ class UserService:
             session.commit()
 
             # Prepare response data
-            user_data: Dict[str, Any] = user_schema.dump(user)
-            user_data_dict: Dict[str, Any] = (
+            user_data: dict[str, any] = user_schema.dump(user)
+            user_data_dict: dict[str, any] = (
                 user_data if isinstance(user_data, dict) else user_data[0]
             )
 
@@ -317,7 +316,7 @@ class UserService:
         except Exception as e:
             logger.error(f"Error toggling user status: {str(e)}")
             session.rollback()
-            raise ValidationError(f"Could not toggle user status: {str(e)}")
+            raise ValidationError(f"Could not toggle user status: {str(e)}") from e
 
     @staticmethod
     def login(session: Session, user: User) -> User:
@@ -353,9 +352,8 @@ class UserService:
         """
         try:
             # Check if granting user is an admin
-            granting_user: Optional[User] = UserService.get_by_id(
-                session, granting_user_id
-            )
+            stmt: select[tuple[User]] = select(User).where(User.id == granting_user_id)
+            granting_user: User | None = session.execute(stmt).scalar_one_or_none()
             if not granting_user or not granting_user.is_admin:
                 raise AuthorizationError("Only admins can grant admin privileges")
 
@@ -365,8 +363,8 @@ class UserService:
             session.commit()
 
             # Prepare response data
-            user_data: Dict[str, Any] = user_schema.dump(user)
-            user_data_dict: Dict[str, Any] = (
+            user_data: dict[str, any] = user_schema.dump(user)
+            user_data_dict: dict[str, any] = (
                 user_data if isinstance(user_data, dict) else user_data[0]
             )
 
@@ -381,7 +379,7 @@ class UserService:
             session.rollback()
             if isinstance(e, (AuthorizationError, ResourceNotFoundError)):
                 raise
-            raise ValidationError(f"Could not grant admin privileges: {str(e)}")
+            raise ValidationError(f"Could not grant admin privileges: {str(e)}") from e
 
     @staticmethod
     def delete_user(session: Session, user: User) -> bool:
@@ -409,7 +407,7 @@ class UserService:
         except Exception as e:
             logger.error(f"Error deleting user: {str(e)}")
             session.rollback()
-            raise ValidationError(f"Could not delete user: {str(e)}")
+            raise ValidationError(f"Could not delete user: {str(e)}") from e
 
     @staticmethod
     def change_password(
@@ -446,10 +444,10 @@ class UserService:
             session.rollback()
             if isinstance(e, ValidationError):
                 raise
-            raise ValidationError(f"Could not change password: {str(e)}")
+            raise ValidationError(f"Could not change password: {str(e)}") from e
 
     @staticmethod
-    def days_since_login(user: User) -> Optional[int]:
+    def days_since_login(user: User) -> int | None:
         """
         Calculate days since last login.
 
@@ -464,7 +462,7 @@ class UserService:
         return (get_current_datetime() - user.last_login).days
 
     @staticmethod
-    def user_to_dict(user: User) -> Dict[str, Any]:
+    def user_to_dict(user: User) -> dict[str, any]:
         """
         Convert user to dictionary for API responses.
 
