@@ -1,8 +1,9 @@
-"""
-Stock model.
+"""Stock model.
 
 This model represents basic information about stocks, including symbols and names.
 """
+
+from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
@@ -19,8 +20,7 @@ if TYPE_CHECKING:
 
 
 class Stock(Base):
-    """
-    Model representing a stock entity.
+    """Model representing a stock entity.
 
     Stores basic information about stocks including symbol and name,
     with relationships to price history data and trading activities.
@@ -36,33 +36,52 @@ class Stock(Base):
         intraday_prices: Relationship to intraday price history
         services: Services trading this stock
         transactions: Transactions for this stock
+
     """
 
     __tablename__: str = "stocks"
 
+    # Constants
+    MAX_SYMBOL_LENGTH: int = 10
+
+    # Error messages
+    ERR_SYMBOL_REQUIRED: str = "Stock symbol is required"
+    ERR_SYMBOL_LENGTH: str = (
+        f"Stock symbol must be {MAX_SYMBOL_LENGTH} characters or less"
+    )
+
     # Basic information
-    symbol: Mapped[str] = Column(String(10), unique=True, nullable=False, index=True)
+    symbol: Mapped[str] = Column(
+        String(MAX_SYMBOL_LENGTH),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
     name: Mapped[str | None] = Column(String(200), nullable=True)
     is_active: Mapped[bool] = Column(Boolean, default=True, nullable=False)
     sector: Mapped[str | None] = Column(String(100), nullable=True)
     description: Mapped[str | None] = Column(String(1000), nullable=True)
 
     # Relationships
-    daily_prices: Mapped[list["StockDailyPrice"]] = relationship(
-        "StockDailyPrice", back_populates="stock", cascade="all, delete-orphan"
+    daily_prices: Mapped[list[StockDailyPrice]] = relationship(
+        "StockDailyPrice",
+        back_populates="stock",
+        cascade="all, delete-orphan",
     )
 
-    intraday_prices: Mapped[list["StockIntradayPrice"]] = relationship(
-        "StockIntradayPrice", back_populates="stock", cascade="all, delete-orphan"
+    intraday_prices: Mapped[list[StockIntradayPrice]] = relationship(
+        "StockIntradayPrice",
+        back_populates="stock",
+        cascade="all, delete-orphan",
     )
 
-    services: Mapped[list["TradingService"]] = relationship(
+    services: Mapped[list[TradingService]] = relationship(
         "TradingService",
         primaryjoin="Stock.id == TradingService.stock_id",
         back_populates="stock",
     )
 
-    transactions: Mapped[list["TradingTransaction"]] = relationship(
+    transactions: Mapped[list[TradingTransaction]] = relationship(
         "TradingTransaction",
         primaryjoin="Stock.id == TradingTransaction.stock_id",
         back_populates="stock",
@@ -70,30 +89,30 @@ class Stock(Base):
 
     # Validations
     @validates("symbol")
-    def validate_symbol(symbol: str) -> str:
+    def validate_symbol(self, symbol: str) -> str:
         """Validate stock symbol."""
         if not symbol:
-            raise ValueError("Stock symbol is required")
+            raise ValueError(self.ERR_SYMBOL_REQUIRED)
 
         # Convert to uppercase
         symbol: str = symbol.strip().upper()
 
-        if len(symbol) > 10:
-            raise ValueError("Stock symbol must be 10 characters or less")
+        if len(symbol) > self.MAX_SYMBOL_LENGTH:
+            raise ValueError(self.ERR_SYMBOL_LENGTH)
 
         return symbol
 
     def __repr__(self) -> str:
-        """String representation of the Stock object."""
+        """Return string representation of the Stock object."""
         return f"<Stock(id={self.id}, symbol='{self.symbol}', name='{self.name}')>"
 
     # Simple intrinsic business logic
     def has_dependencies(self) -> bool:
-        """
-        Check if the stock has any dependencies.
+        """Check if the stock has any dependencies.
 
         Returns:
             True if stock has dependencies, False otherwise
+
         """
         return (self.services is not None and len(self.services) > 0) or (
             self.transactions is not None and len(self.transactions) > 0

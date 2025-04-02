@@ -1,10 +1,10 @@
-"""
-Trading Transaction model.
+"""Trading Transaction model.
 
 This model represents a stock trading transaction (buy and sell).
 """
 
-from datetime import datetime
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, Text
@@ -15,13 +15,14 @@ from app.models.enums import TransactionState
 from app.utils.current_datetime import get_current_datetime
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from app.models.stock import Stock
     from app.models.trading_service import TradingService
 
 
 class TradingTransaction(Base):
-    """
-    Model representing a stock trading transaction.
+    """Model representing a stock trading transaction.
 
     Stores information about buy and sell transactions, including prices,
     shares, and profit/loss calculations.
@@ -40,69 +41,81 @@ class TradingTransaction(Base):
         sale_date: Date/time of sale (null until sold)
         service: Relationship to the trading service
         stock: Relationship to the stock
+
     """
 
     __tablename__: str = "trading_transactions"
 
+    # Error messages
+    ERR_SYMBOL_REQUIRED: str = "Stock symbol is required"
+    ERR_INVALID_STATE: str = "Invalid transaction state: {}"
+    ERR_SHARES_POSITIVE: str = "Shares must be greater than zero"
+
     id: Mapped[int] = Column(Integer, primary_key=True)
     service_id: Mapped[int] = Column(
-        Integer, ForeignKey("trading_services.id"), nullable=False
+        Integer,
+        ForeignKey("trading_services.id"),
+        nullable=False,
     )
     stock_id: Mapped[int] = Column(Integer, ForeignKey("stocks.id"), nullable=True)
     stock_symbol: Mapped[str] = Column(String(10), nullable=False, index=True)
     shares: Mapped[float] = Column(Numeric(precision=18, scale=2), nullable=False)
     state: Mapped[str] = Column(
-        String(20), default=TransactionState.OPEN.value, nullable=False
+        String(20),
+        default=TransactionState.OPEN.value,
+        nullable=False,
     )
     purchase_price: Mapped[float] = Column(
-        Numeric(precision=18, scale=2), nullable=False
+        Numeric(precision=18, scale=2),
+        nullable=False,
     )
     sale_price: Mapped[float | None] = Column(
-        Numeric(precision=18, scale=2), nullable=True
+        Numeric(precision=18, scale=2),
+        nullable=True,
     )
     gain_loss: Mapped[float | None] = Column(
-        Numeric(precision=18, scale=2), nullable=True
+        Numeric(precision=18, scale=2),
+        nullable=True,
     )
     purchase_date: Mapped[datetime] = Column(
-        DateTime, default=get_current_datetime, nullable=False
+        DateTime,
+        default=get_current_datetime,
+        nullable=False,
     )
     sale_date: Mapped[datetime | None] = Column(DateTime, nullable=True)
     notes: Mapped[str | None] = Column(Text, nullable=True)
 
     # Relationships
-    service: Mapped["TradingService"] = relationship(
-        "TradingService", back_populates="transactions"
+    service: Mapped[TradingService] = relationship(
+        "TradingService",
+        back_populates="transactions",
     )
     stock: Mapped[Stock | None] = relationship("Stock", back_populates="transactions")
 
     # Validations
     @validates("stock_symbol")
-    def validate_stock_symbol(symbol: str) -> str:
+    def validate_stock_symbol(self, symbol: str) -> str:
         """Validate stock symbol."""
         if not symbol:
-            raise ValueError("Stock symbol is required")
+            raise ValueError(self.ERR_SYMBOL_REQUIRED)
         return symbol.strip().upper()
 
     @validates("state")
-    def validate_state(state: str) -> str:
+    def validate_state(self, state: str) -> str:
         """Validate transaction state."""
         if state and not TransactionState.is_valid(state):
-            valid_states: list[str] = TransactionState.values()
-            raise ValueError(
-                f"Invalid transaction state: {state}. "
-                f"Valid states are: {', '.join(valid_states)}"
-            )
+            raise ValueError(self.ERR_INVALID_STATE.format(state))
         return state
 
     @validates("shares")
-    def validate_shares(shares: float) -> float:
+    def validate_shares(self, shares: float) -> float:
         """Validate shares amount."""
         if shares is not None and shares <= 0:
-            raise ValueError("Shares must be greater than zero")
+            raise ValueError(self.ERR_SHARES_POSITIVE)
         return shares
 
     def __repr__(self) -> str:
-        """String representation of the TradingTransaction object."""
+        """Return string representation of the TradingTransaction object."""
         return (
             f"<TradingTransaction(id={self.id}, symbol='{self.stock_symbol}', "
             f"shares={self.shares})>"

@@ -1,9 +1,10 @@
-"""
-Event emission service for WebSocket notifications.
+"""Event emission service for WebSocket notifications.
 
 This module centralizes WebSocket event emission logic to ensure consistent
 formatting and behavior across the application.
 """
+
+from __future__ import annotations
 
 import logging
 from typing import TypedDict, cast
@@ -12,11 +13,13 @@ from flask import Flask, current_app
 
 from app.utils.current_datetime import get_current_datetime
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 # Type definitions for payload dictionaries
 class PayloadDict(TypedDict, total=False):
+    """Type definition for event payload dictionaries with optional fields."""
+
     timestamp: str
     action: str
     message: str
@@ -34,20 +37,24 @@ class EventService:
 
     @staticmethod
     def emit(
-        event_type: str, data: dict[str, any], room: str, include_timestamp: bool = True
+        event_type: str,
+        data: dict[str, any],
+        room: str,
+        *,
+        include_timestamp: bool = True,
     ) -> None:
-        """
-        Emit a WebSocket event to a specific room.
+        """Emit a WebSocket event to a specific room.
 
         Args:
             event_type: The event type (e.g., 'service_update', 'price_update')
             data: The event payload
             room: The room to emit to (e.g., 'services', 'service_123')
             include_timestamp: Whether to include a timestamp in the payload
+
         """
         try:
             # Ensure socketio is available
-            app: Flask = cast(Flask, current_app)
+            app: Flask = cast("Flask", current_app)
             if not hasattr(app, "socketio"):
                 logger.warning("SocketIO not initialized, skipping event emission")
                 return
@@ -58,19 +65,19 @@ class EventService:
 
             # Emit the event
             app.socketio.emit(event_type, data, room=room)
-            logger.debug(f"Emitted {event_type} event to room {room}")
+            logger.debug("Emitted %s event to room %s", event_type, room)
 
-        except Exception as e:
-            logger.error(f"Error emitting {event_type} event: {str(e)}")
+        except Exception:
+            logger.exception("Error emitting %s event", event_type)
 
     @classmethod
     def emit_test(cls, message: str, room: str = "test") -> None:
-        """
-        Emit a test event for WebSocket functionality verification.
+        """Emit a test event for WebSocket functionality verification.
 
         Args:
             message: The test message
             room: The room to emit to (default: 'test')
+
         """
         payload: dict[str, any] = {"message": message, "type": "test_event"}
 
@@ -78,16 +85,19 @@ class EventService:
 
     @classmethod
     def emit_stock_update(
-        cls, action: str, stock_data: dict[str, any], stock_symbol: str | None = None
+        cls,
+        action: str,
+        stock_data: dict[str, any],
+        stock_symbol: str | None = None,
     ) -> None:
-        """
-        Emit a stock update event.
+        """Emit a stock update event.
 
         Args:
             action: The action that occurred (e.g., 'created', 'updated',
             'status_changed')
             stock_data: The stock data (typically from stock_schema.dump())
             stock_symbol: The stock symbol for room-specific events
+
         """
         payload: dict[str, any] = {"action": action, "stock": stock_data}
 
@@ -105,14 +115,14 @@ class EventService:
         service_data: dict[str, any],
         service_id: int | None = None,
     ) -> None:
-        """
-        Emit a service update event.
+        """Emit a service update event.
 
         Args:
             action: The action that occurred (e.g., 'created', 'updated',
             'state_changed')
             service_data: The service data (typically from service_schema.dump())
             service_id: The service ID for room-specific events
+
         """
         payload: dict[str, any] = {"action": action, "service": service_data}
 
@@ -129,10 +139,10 @@ class EventService:
         action: str,
         user_data: dict[str, any],
         user_id: int | None = None,
+        *,
         include_sensitive: bool = False,
     ) -> None:
-        """
-        Emit a user update event.
+        """Emit a user update event.
 
         Args:
             action: The action that occurred (e.g., 'created', 'updated', 'activated',
@@ -140,6 +150,7 @@ class EventService:
             user_data: The user data (typically from user_schema.dump())
             user_id: The user ID for room-specific events
             include_sensitive: Whether to include sensitive user data (default: False)
+
         """
         # Filter out sensitive data if needed
         payload_user_data: dict[str, any] = user_data.copy()
@@ -147,8 +158,7 @@ class EventService:
             # Remove sensitive fields that should not be broadcast
             sensitive_fields: list[str] = ["password", "last_login_days_ago"]
             for field in sensitive_fields:
-                if field in payload_user_data:
-                    del payload_user_data[field]
+                payload_user_data.pop(field, None)
 
         payload: dict[str, any] = {"action": action, "user": payload_user_data}
 
@@ -167,14 +177,14 @@ class EventService:
         service_id: int | None = None,
         additional_data: dict[str, any] | None = None,
     ) -> None:
-        """
-        Emit a transaction update event.
+        """Emit a transaction update event.
 
         Args:
             action: The action that occurred (e.g., 'created', 'completed', 'cancelled')
             transaction_data: The transaction data
             service_id: The associated service ID
             additional_data: Any additional data to include in the payload
+
         """
         payload: dict[str, any] = {"action": action, "transaction": transaction_data}
 
@@ -200,15 +210,18 @@ class EventService:
 
     @classmethod
     def emit_price_update(
-        cls, action: str, price_data: dict[str, any], stock_symbol: str
+        cls,
+        action: str,
+        price_data: dict[str, any],
+        stock_symbol: str,
     ) -> None:
-        """
-        Emit a price update event.
+        """Emit a price update event.
 
         Args:
             action: The action that occurred (e.g., 'created', 'updated')
             price_data: The price data
             stock_symbol: The stock symbol
+
         """
         payload: dict[str, any] = {
             "action": action,
@@ -224,7 +237,9 @@ class EventService:
 
         # Emit consolidated price update for data feeds
         cls.emit(
-            "data_feed", {"type": "price_update", "data": payload}, room="data_feeds"
+            "data_feed",
+            {"type": "price_update", "data": payload},
+            room="data_feeds",
         )
 
     @classmethod
@@ -234,13 +249,13 @@ class EventService:
         error_code: int = 500,
         details: dict[str, any] | None = None,
     ) -> None:
-        """
-        Emit an error event.
+        """Emit an error event.
 
         Args:
             error_message: The error message
             error_code: The error code (similar to HTTP status codes)
             details: Additional error details
+
         """
         payload: dict[str, any] = {
             "error": True,
@@ -261,14 +276,14 @@ class EventService:
         resource_id: int | None = None,
         resource_type: str | None = None,
     ) -> None:
-        """
-        Emit a metrics update event for analytics dashboards.
+        """Emit a metrics update event for analytics dashboards.
 
         Args:
             metric_type: The type of metrics (e.g., 'performance', 'transaction_stats')
             metric_data: The metrics data
             resource_id: Optional ID of the related resource
             resource_type: Optional type of the related resource
+
         """
         payload: dict[str, any] = {"type": metric_type, "metrics": metric_data}
 
@@ -281,7 +296,9 @@ class EventService:
         # If resource details are provided, also emit to resource-specific room
         if resource_id is not None and resource_type:
             cls.emit(
-                "metrics_update", payload, room=f"{resource_type}_{resource_id}_metrics"
+                "metrics_update",
+                payload,
+                room=f"{resource_type}_{resource_id}_metrics",
             )
 
     @classmethod
@@ -292,14 +309,14 @@ class EventService:
         severity: str = "info",
         details: dict[str, any] | None = None,
     ) -> None:
-        """
-        Emit a system-wide notification event.
+        """Emit a system-wide notification event.
 
         Args:
             notification_type: The type of notification (e.g., 'maintenance', 'alert')
             message: The notification message
             severity: The severity level ('info', 'warning', 'error', 'critical')
             details: Optional additional details
+
         """
         payload: dict[str, any] = {
             "type": notification_type,
@@ -324,14 +341,14 @@ class EventService:
         target: str | None = None,
         details: dict[str, any] | None = None,
     ) -> None:
-        """
-        Emit a database operation event.
+        """Emit a database operation event.
 
         Args:
             operation: The operation performed (e.g., 'backup', 'restore', 'migration')
             status: The operation status ('started', 'completed', 'failed')
             target: Optional target of the operation (e.g., table name or backup file)
             details: Optional additional details
+
         """
         payload: dict[str, any] = {"operation": operation, "status": status}
 

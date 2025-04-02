@@ -1,11 +1,11 @@
-"""
-Database service for SQLAlchemy configuration and database operations.
+"""Database service for SQLAlchemy configuration and database operations.
 
 This service provides database setup, session management, and schema management
 functions, ensuring proper initialization and consistent database state throughout the
 application.
 """
 
+import logging
 import os
 import re
 from pathlib import Path
@@ -21,9 +21,12 @@ from app.models import Base
 # Import EventService from the events module
 from app.services.events import EventService
 
+logger: logging.Logger = logging.getLogger(__name__)
+
 # SQLite database path
 DATABASE_URL: str = os.environ.get(
-    "DATABASE_URL", "sqlite:///app/instance/daytrader.db"
+    "DATABASE_URL",
+    "sqlite:///app/instance/daytrader.db",
 )
 SQL_FILE_PATH: Path = Path(__file__).parent.parent / "instance" / "database.sql"
 
@@ -36,11 +39,11 @@ Session: scoped_session = scoped_session(session_factory)
 
 
 def generate_sql_schema() -> str:
-    """
-    Generate SQL DDL statements from SQLAlchemy models.
+    """Generate SQL DDL statements from SQLAlchemy models.
 
     Returns:
         str: The SQL schema DDL statements as a formatted string
+
     """
     sql_statements: list[str] = []
 
@@ -49,7 +52,8 @@ def generate_sql_schema() -> str:
         create_stmt: str = str(CreateTable(table).compile(engine))
         # Add IF NOT EXISTS to make it safer
         create_stmt: str = create_stmt.replace(
-            "CREATE TABLE", "CREATE TABLE IF NOT EXISTS"
+            "CREATE TABLE",
+            "CREATE TABLE IF NOT EXISTS",
         )
         sql_statements.append(create_stmt + ";")
 
@@ -57,23 +61,22 @@ def generate_sql_schema() -> str:
     sql_statements.append("\n-- Create indexes for better performance")
     sql_statements.append(
         "CREATE INDEX IF NOT EXISTS idx_stock_transactions_service_id ON "
-        "stock_transactions(service_id);"
+        "stock_transactions(service_id);",
     )
     sql_statements.append(
         "CREATE INDEX IF NOT EXISTS idx_stock_services_symbol ON "
-        "stock_services(stock_symbol);"
+        "stock_services(stock_symbol);",
     )
     sql_statements.append(
         "CREATE INDEX IF NOT EXISTS idx_stock_services_state ON "
-        "stock_services(service_state);"
+        "stock_services(service_state);",
     )
 
     return "\n\n".join(sql_statements)
 
 
 def save_sql_schema() -> str:
-    """
-    Generate and save SQL schema to database.sql file.
+    """Generate and save SQL schema to database.sql file.
 
     Returns:
         str: The SQL schema that was saved
@@ -81,8 +84,8 @@ def save_sql_schema() -> str:
     Raises:
         IOError: If file cannot be written
         Exception: For other errors during schema generation
-    """
 
+    """
     try:
         sql_schema: str = generate_sql_schema()
 
@@ -96,8 +99,10 @@ def save_sql_schema() -> str:
             details={"size": len(sql_schema)},
         )
 
-        print(f"SQL schema saved to {SQL_FILE_PATH}")
-        return sql_schema
+        logger.info("SQL schema saved to %s", SQL_FILE_PATH)
+        if sql_schema:
+            return sql_schema
+        logger.warning("SQL schema is empty")
     except Exception as e:
         # Emit failure event
         EventService.emit_database_event(
@@ -110,14 +115,14 @@ def save_sql_schema() -> str:
 
 
 def compare_sql_schema() -> bool:
-    """
-    Compare existing SQL schema file with current models.
+    """Compare existing SQL schema file with current models.
 
     Returns:
         bool: True if schemas match, False if they don't or file doesn't exist
+
     """
     if not SQL_FILE_PATH.exists():
-        print(f"SQL file {SQL_FILE_PATH} does not exist")
+        logger.info("SQL file %s does not exist", SQL_FILE_PATH)
         return False
 
     # Read existing SQL schema
@@ -141,16 +146,14 @@ def compare_sql_schema() -> bool:
 
     # Compare normalized schemas
     if existing_norm == current_norm:
-        print("SQL schema matches current models")
+        logger.info("SQL schema matches current models")
         return True
-    else:
-        print("SQL schema does not match current models")
-        return False
+    logger.info("SQL schema does not match current models")
+    return False
 
 
-def init_db(reset: bool = True) -> Engine:
-    """
-    Initialize the database, optionally resetting it first.
+def init_db(*, reset: bool = True) -> Engine:
+    """Initialize the database, optionally resetting it first.
 
     Args:
         reset: If True, drops all tables before creating them.
@@ -160,12 +163,14 @@ def init_db(reset: bool = True) -> Engine:
 
     Raises:
         Exception: If database initialization fails
-    """
 
+    """
     try:
         # Emit database initialization event
         EventService.emit_database_event(
-            operation="initialization", status="started", details={"reset": reset}
+            operation="initialization",
+            status="started",
+            details={"reset": reset},
         )
 
         if reset:
@@ -177,9 +182,9 @@ def init_db(reset: bool = True) -> Engine:
         # Generate and save SQL schema
         save_sql_schema()
 
-        print(f"Database initialized at {DATABASE_URL}")
+        logger.info("Database initialized at %s", DATABASE_URL)
         if reset:
-            print("All existing data has been reset.")
+            logger.info("All existing data has been reset")
 
         # Emit completion event
         EventService.emit_database_event(
@@ -188,7 +193,8 @@ def init_db(reset: bool = True) -> Engine:
             details={"reset": reset, "url": DATABASE_URL},
         )
 
-        return engine
+        if engine:
+            return engine
     except Exception as e:
         # Emit failure event
         EventService.emit_database_event(
@@ -200,30 +206,29 @@ def init_db(reset: bool = True) -> Engine:
 
 
 def get_session() -> SQLAlchemySession:
-    """
-    Get a new database session.
+    """Get a new database session.
 
     Returns:
         SQLAlchemySession: A new SQLAlchemy session
+
     """
     return Session()
 
 
 def check_and_update_schema() -> bool:
-    """
-    Check if SQL schema matches models and update if needed.
+    """Check if SQL schema matches models and update if needed.
 
     Returns:
         bool: True if schema check/update succeeded
 
     Raises:
         Exception: If schema update fails
-    """
 
+    """
     EventService.emit_database_event(operation="schema_check", status="started")
 
     if not compare_sql_schema():
-        print("Updating SQL schema file")
+        logger.info("Updating SQL schema file")
         save_sql_schema()
 
     # Always ensure database tables exist
@@ -235,9 +240,8 @@ def check_and_update_schema() -> bool:
 
 
 # Function to be called in app startup
-def setup_database(reset_on_startup: bool = True) -> Engine:
-    """
-    Setup database during application startup.
+def setup_database(*, reset_on_startup: bool = True) -> Engine:
+    """Set up database during application startup.
 
     Args:
         reset_on_startup: Whether to reset the database on startup
@@ -247,8 +251,8 @@ def setup_database(reset_on_startup: bool = True) -> Engine:
 
     Raises:
         Exception: If database setup fails
-    """
 
+    """
     EventService.emit_database_event(
         operation="setup",
         status="started",
@@ -256,9 +260,10 @@ def setup_database(reset_on_startup: bool = True) -> Engine:
     )
 
     try:
-        result: Engine = (
-            init_db(reset=True) if reset_on_startup else check_and_update_schema()
-        )
+        if reset_on_startup:
+            result: Engine = init_db(reset=True)
+        else:
+            result: Engine = check_and_update_schema()
 
         EventService.emit_database_event(
             operation="setup",
@@ -273,8 +278,8 @@ def setup_database(reset_on_startup: bool = True) -> Engine:
             severity="info",
             details={"reset_performed": reset_on_startup},
         )
-
-        return result
+        if result:
+            return result
     except Exception as e:
         # Emit failure events
         EventService.emit_database_event(
@@ -285,7 +290,7 @@ def setup_database(reset_on_startup: bool = True) -> Engine:
 
         EventService.emit_system_notification(
             notification_type="database",
-            message=f"Database setup failed: {str(e)}",
+            message=f"Database setup failed: {e!s}",
             severity="error",
         )
 

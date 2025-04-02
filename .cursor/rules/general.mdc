@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+"Use built-in types like list, str, any, float, etc. instead of using typing libraries/imports. Example: list[str] instead of List[str] from typing."
+"For SQLAlchemy, use select from sqlalchemy instead of Query from sqlalchemy.orm."
+"Always implement type hints into the syntax"
+"Attempt to fix Ruff linter errors"
+
+ 

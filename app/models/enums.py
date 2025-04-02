@@ -1,5 +1,4 @@
-"""
-Enumeration types for database models.
+"""Enumeration types for database models.
 
 This module defines enumerations that represent constrained values in models,
 ensuring type safety and consistency when working with state fields. These
@@ -20,8 +19,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 
 class ServiceState(EnumBase):
-    """
-    Service operational states.
+    """Service operational states.
 
     Represents the possible operational states of a trading service:
 
@@ -63,8 +61,7 @@ class ServiceState(EnumBase):
 
 
 class ServiceAction(EnumBase):
-    """
-    Actions that can be taken on a service.
+    """Actions that can be taken on a service.
 
     Represents the possible actions that can be taken on a service:
 
@@ -87,8 +84,7 @@ class ServiceAction(EnumBase):
 
 
 class TradingMode(EnumBase):
-    """
-    Trading mode for services.
+    """Trading mode for services.
 
     Represents the current trading strategy mode:
 
@@ -126,14 +122,13 @@ class TradingMode(EnumBase):
         """Get the opposite trading mode (BUY -> SELL, SELL -> BUY, HOLD -> HOLD)."""
         if mode == cls.BUY.value:
             return cls.SELL.value
-        elif mode == cls.SELL.value:
+        if mode == cls.SELL.value:
             return cls.BUY.value
         return mode
 
 
 class TransactionState(EnumBase):
-    """
-    Transaction states.
+    """Transaction states.
 
     Represents the possible states of a trading transaction:
 
@@ -168,8 +163,9 @@ class TransactionState(EnumBase):
 
     @classmethod
     def is_terminal(cls, state: str) -> bool:
-        """
-        Check if the transaction is in a terminal state (cannot be changed further).
+        """Check if the transaction is in a terminal state.
+
+        (cannot be changed further).
         """
         return state in cls.terminal_states()
 
@@ -180,8 +176,7 @@ class TransactionState(EnumBase):
 
 
 class PriceSource(EnumBase):
-    """
-    Source of price data.
+    """Source of price data.
 
     Represents the origin of price data:
 
@@ -234,8 +229,7 @@ class PriceSource(EnumBase):
 
 # Additional enumerations can be added here as needed
 class AnalysisTimeframe(EnumBase):
-    """
-    Timeframes for analysis.
+    """Timeframes for analysis.
 
     Represents standard time periods for financial analysis:
 

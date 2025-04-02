@@ -1,11 +1,11 @@
-"""
-Intraday price model.
+"""Intraday price model.
 
 This model represents intraday (e.g., hourly or minute-by-minute) stock price data.
 """
 
-from datetime import datetime
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar
 
 from sqlalchemy import (
     Column,
@@ -23,12 +23,13 @@ from app.models.enums import PriceSource
 from app.utils.current_datetime import get_current_datetime
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from app.models.stock import Stock
 
 
 class StockIntradayPrice(Base):
-    """
-    Model representing intraday stock price data.
+    """Model representing intraday stock price data.
 
     Stores price information for stocks during the trading day, including timestamp,
     open, high, low, close prices and trading volume. Each record represents a single
@@ -46,9 +47,16 @@ class StockIntradayPrice(Base):
         volume: Number of shares traded during the interval
         source: Source of this price data
         stock: Relationship to the parent Stock
+
     """
 
     __tablename__: str = "stock_intraday_prices"
+
+    # Error messages
+    ERR_INVALID_SOURCE: str = "Invalid price source: {}"
+    ERR_FUTURE_TIMESTAMP: str = "Timestamp cannot be in the future: {}"
+    ERR_INVALID_INTERVAL: str = "Invalid interval {}. Must be one of: 1, 5, 15, 30, 60"
+    VALID_INTERVALS: ClassVar[list[int]] = [1, 5, 15, 30, 60]
 
     # Foreign keys and timestamp
     stock_id: Mapped[int] = Column(Integer, ForeignKey("stocks.id"), nullable=False)
@@ -64,49 +72,48 @@ class StockIntradayPrice(Base):
 
     # Metadata
     source: Mapped[str] = Column(
-        String(20), default=PriceSource.DELAYED.value, nullable=False
+        String(20),
+        default=PriceSource.DELAYED.value,
+        nullable=False,
     )
 
     # Relationship
-    stock: Mapped["Stock"] = relationship("Stock", back_populates="intraday_prices")
+    stock: Mapped[Stock] = relationship("Stock", back_populates="intraday_prices")
 
     # Constraints
     __table_args__: tuple[UniqueConstraint] = (
         UniqueConstraint(
-            "stock_id", "timestamp", "interval", name="uix_stock_intraday_time"
+            "stock_id",
+            "timestamp",
+            "interval",
+            name="uix_stock_intraday_time",
         ),
     )
 
     # Validations
     @validates("source")
-    def validate_source(source: str) -> str:
+    def validate_source(self, source: str) -> str:
         """Validate price source."""
         if source and not PriceSource.is_valid(source):
-            valid_sources: list[str] = PriceSource.values()
-            raise ValueError(
-                f"Invalid price source: {source}. "
-                f"Valid sources are: {', '.join(valid_sources)}"
-            )
+            raise ValueError(self.ERR_INVALID_SOURCE.format(source))
         return source
 
     @validates("timestamp")
-    def validate_timestamp(timestamp: datetime) -> datetime:
+    def validate_timestamp(self, timestamp: datetime) -> datetime:
         """Validate timestamp is not in the future."""
         if timestamp and timestamp > get_current_datetime():
-            raise ValueError(f"Timestamp cannot be in the future: {timestamp}")
+            raise ValueError(self.ERR_FUTURE_TIMESTAMP.format(timestamp))
         return timestamp
 
     @validates("interval")
-    def validate_interval(interval: int) -> int:
+    def validate_interval(self, interval: int) -> int:
         """Validate interval is one of the valid values."""
-        if interval not in [1, 5, 15, 30, 60]:
-            raise ValueError(
-                f"Invalid interval {interval}. Must be one of: 1, 5, 15, 30, 60"
-            )
+        if interval not in self.VALID_INTERVALS:
+            raise ValueError(self.ERR_INVALID_INTERVAL.format(interval))
         return interval
 
     def __repr__(self) -> str:
-        """String representation of the StockIntradayPrice object."""
+        """Return string representation of the StockIntradayPrice object."""
         return (
             f"<StockIntradayPrice(id={self.id}, stock_id={self.stock_id}, "
             f"timestamp={self.timestamp})>"

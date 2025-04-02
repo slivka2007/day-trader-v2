@@ -1,6 +1,4 @@
-"""
-User API resources.
-"""
+"""User API resources."""
 
 import logging
 from typing import Literal
@@ -62,7 +60,8 @@ user_create_model: Model = ns.model(
     "UserCreate",
     {
         "username": fields.String(
-            required=True, description="Unique username (letters, numbers, underscores)"
+            required=True,
+            description="Unique username (letters, numbers, underscores)",
         ),
         "email": fields.String(required=True, description="Unique email address"),
         "password": fields.String(
@@ -70,7 +69,8 @@ user_create_model: Model = ns.model(
             description="Password (min 8 chars with number, upper, lower, special)",
         ),
         "password_confirm": fields.String(
-            required=True, description="Confirm password"
+            required=True,
+            description="Confirm password",
         ),
         "is_active": fields.Boolean(description="Is user account active"),
         "is_admin": fields.Boolean(description="Is user an administrator"),
@@ -81,11 +81,11 @@ user_update_model: Model = ns.model(
     "UserUpdate",
     {
         "username": fields.String(
-            description="Unique username (letters, numbers, underscores)"
+            description="Unique username (letters, numbers, underscores)",
         ),
         "email": fields.String(description="Unique email address"),
         "password": fields.String(
-            description="Password (min 8 chars with number, upper, lower, special)"
+            description="Password (min 8 chars with number, upper, lower, special)",
         ),
         "password_confirm": fields.String(description="Confirm password"),
         "is_active": fields.Boolean(description="Is user account active"),
@@ -99,7 +99,8 @@ user_delete_model: Model = ns.model(
         "confirm": fields.Boolean(required=True, description="Confirmation flag"),
         "user_id": fields.Integer(required=True, description="User ID to delete"),
         "password": fields.String(
-            required=True, description="Admin password for verification"
+            required=True,
+            description="Admin password for verification",
         ),
     },
 )
@@ -124,14 +125,16 @@ password_change_model: Model = ns.model(
     "PasswordChange",
     {
         "current_password": fields.String(
-            required=True, description="Current password"
+            required=True,
+            description="Current password",
         ),
         "new_password": fields.String(
             required=True,
             description="New password (min 8 chars with number, upper, lower, special)",
         ),
         "confirm_password": fields.String(
-            required=True, description="Confirm new password"
+            required=True,
+            description="Confirm new password",
         ),
     },
 )
@@ -153,8 +156,8 @@ class UserList(Resource):
                 users: list[User] = UserService.get_all(session)
                 return users_schema.dump(users)
         except Exception as e:
-            logger.error(f"Error listing users: {str(e)}")
-            raise BusinessLogicError(f"Error retrieving users: {str(e)}") from e
+            logger.error(f"Error listing users: {e!s}")
+            raise BusinessLogicError(f"Error retrieving users: {e!s}") from e
 
     @ns.doc("create_user")
     @ns.expect(user_create_model)
@@ -175,11 +178,11 @@ class UserList(Resource):
                 return user_schema.dump(created_user), 201
 
         except ValidationError as e:
-            logger.warning(f"Validation error creating user: {str(e)}")
+            logger.warning(f"Validation error creating user: {e!s}")
             raise
         except Exception as e:
-            logger.error(f"Error creating user: {str(e)}")
-            raise BusinessLogicError(f"Could not create user: {str(e)}") from e
+            logger.error(f"Error creating user: {e!s}")
+            raise BusinessLogicError(f"Could not create user: {e!s}") from e
 
 
 # User detail resource
@@ -203,11 +206,11 @@ class UserDetail(Resource):
                 user: User = UserService.get_or_404(session, id)
                 return user_schema.dump(user)
         except (ResourceNotFoundError, AuthorizationError) as e:
-            logger.warning(f"Error retrieving user {id}: {str(e)}")
+            logger.warning(f"Error retrieving user {id}: {e!s}")
             raise
         except Exception as e:
-            logger.error(f"Error retrieving user {id}: {str(e)}")
-            raise BusinessLogicError(f"Error retrieving user: {str(e)}") from e
+            logger.error(f"Error retrieving user {id}: {e!s}")
+            raise BusinessLogicError(f"Error retrieving user: {e!s}") from e
 
     @jwt_required()
     @ns.doc("update_user")
@@ -240,11 +243,11 @@ class UserDetail(Resource):
                 return user_schema.dump(updated_user)
 
         except (ValidationError, ResourceNotFoundError, AuthorizationError) as e:
-            logger.warning(f"Error updating user {id}: {str(e)}")
+            logger.warning(f"Error updating user {id}: {e!s}")
             raise
         except Exception as e:
-            logger.error(f"Error updating user {id}: {str(e)}")
-            raise BusinessLogicError(f"Error updating user: {str(e)}") from e
+            logger.error(f"Error updating user {id}: {e!s}")
+            raise BusinessLogicError(f"Error updating user: {e!s}") from e
 
     @jwt_required()
     @admin_required
@@ -289,11 +292,11 @@ class UserDetail(Resource):
             AuthorizationError,
             BusinessLogicError,
         ) as e:
-            logger.warning(f"Error deleting user {id}: {str(e)}")
+            logger.warning(f"Error deleting user {id}: {e!s}")
             raise
         except Exception as e:
-            logger.error(f"Error deleting user {id}: {str(e)}")
-            raise BusinessLogicError(f"Error deleting user: {str(e)}") from e
+            logger.error(f"Error deleting user {id}: {e!s}")
+            raise BusinessLogicError(f"Error deleting user: {e!s}") from e
 
 
 # Login resource
@@ -338,11 +341,11 @@ class UserLogin(Resource):
                 return {"access_token": access_token, "refresh_token": refresh_token}
 
         except (ValidationError, AuthorizationError) as e:
-            logger.warning(f"Login failed: {str(e)}")
+            logger.warning(f"Login failed: {e!s}")
             raise
         except Exception as e:
-            logger.error(f"Error during login: {str(e)}")
-            raise BusinessLogicError(f"Login error: {str(e)}") from e
+            logger.error(f"Error during login: {e!s}")
+            raise BusinessLogicError(f"Login error: {e!s}") from e
 
 
 # Password change resource
@@ -376,7 +379,10 @@ class PasswordChange(Resource):
 
                 # Use UserService to change password
                 UserService.change_password(
-                    session, user, current_password, new_password
+                    session,
+                    user,
+                    current_password,
+                    new_password,
                 )
 
                 # Log the password change
@@ -385,11 +391,11 @@ class PasswordChange(Resource):
                 return {"message": "Password changed successfully"}
 
         except (ValidationError, ResourceNotFoundError, AuthorizationError) as e:
-            logger.warning(f"Password change failed: {str(e)}")
+            logger.warning(f"Password change failed: {e!s}")
             raise
         except Exception as e:
-            logger.error(f"Error changing password: {str(e)}")
-            raise BusinessLogicError(f"Password change error: {str(e)}") from e
+            logger.error(f"Error changing password: {e!s}")
+            raise BusinessLogicError(f"Password change error: {e!s}") from e
 
 
 # Token refresh resource
@@ -420,11 +426,11 @@ class TokenRefresh(Resource):
                 return {"access_token": access_token}
 
         except (ResourceNotFoundError, AuthorizationError) as e:
-            logger.warning(f"Token refresh failed: {str(e)}")
+            logger.warning(f"Token refresh failed: {e!s}")
             raise
         except Exception as e:
-            logger.error(f"Error refreshing token: {str(e)}")
-            raise BusinessLogicError(f"Token refresh error: {str(e)}") from e
+            logger.error(f"Error refreshing token: {e!s}")
+            raise BusinessLogicError(f"Token refresh error: {e!s}") from e
 
 
 # User toggle active status
@@ -454,12 +460,12 @@ class UserToggleActive(Resource):
                 return user_schema.dump(updated_user)
 
         except (ResourceNotFoundError, BusinessLogicError) as e:
-            logger.warning(f"Error toggling user {id} active status: {str(e)}")
+            logger.warning(f"Error toggling user {id} active status: {e!s}")
             raise
         except Exception as e:
-            logger.error(f"Error toggling user {id} active status: {str(e)}")
+            logger.error(f"Error toggling user {id} active status: {e!s}")
             raise BusinessLogicError(
-                f"Error toggling user active status: {str(e)}"
+                f"Error toggling user active status: {e!s}",
             ) from e
 
 
@@ -481,8 +487,8 @@ class CurrentUser(Resource):
                 return user_schema.dump(user)
 
         except ResourceNotFoundError as e:
-            logger.warning(f"Error retrieving current user: {str(e)}")
+            logger.warning(f"Error retrieving current user: {e!s}")
             raise
         except Exception as e:
-            logger.error(f"Error retrieving current user: {str(e)}")
-            raise BusinessLogicError(f"Error retrieving current user: {str(e)}") from e
+            logger.error(f"Error retrieving current user: {e!s}")
+            raise BusinessLogicError(f"Error retrieving current user: {e!s}") from e

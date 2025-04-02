@@ -1,10 +1,11 @@
-"""
-Base model classes and helpers for SQLAlchemy models.
+"""Base model classes and helpers for SQLAlchemy models.
 
 This module defines the base classes and common functionality used by all models.
 It provides foundation classes with standardized behavior for timestamps, serialization,
 validation, and error handling.
 """
+
+from __future__ import annotations
 
 import json
 import logging
@@ -27,8 +28,7 @@ DeclarativeBase: any = declarative_base()
 
 
 class Base(DeclarativeBase):
-    """
-    Abstract base class for all database models.
+    """Abstract base class for all database models.
 
     This class provides common columns and functionality that should be present
     in all models, such as timestamps for creation and updates, serialization
@@ -38,6 +38,7 @@ class Base(DeclarativeBase):
         id: Primary key for all models
         created_at: Timestamp when the record was created
         updated_at: Timestamp when the record was last updated
+
     """
 
     __abstract__ = True
@@ -55,18 +56,17 @@ class Base(DeclarativeBase):
     )
 
     def __repr__(self) -> str:
-        """
-        Default string representation of a model.
+        """Return string representation of a model.
 
         Returns:
             String representation showing class name and ID
+
         """
         return f"<{self.__class__.__name__}(id={self.id})>"
 
     @classmethod
-    def get_by_id(cls, session: Session, record_id: int) -> "Base | None":
-        """
-        Get a record by its ID.
+    def get_by_id(cls, session: Session, record_id: int) -> Base | None:
+        """Get a record by its ID.
 
         Args:
             session: Database session
@@ -74,13 +74,13 @@ class Base(DeclarativeBase):
 
         Returns:
             Model instance if found, None otherwise
+
         """
         return session.query(cls).filter(cls.id == record_id).first()
 
     @classmethod
-    def get_or_404(cls, session: Session, record_id: int) -> "Base":
-        """
-        Get a record by its ID or raise ResourceNotFoundError.
+    def get_or_404(cls, session: Session, record_id: int) -> Base:
+        """Get a record by its ID or raise ResourceNotFoundError.
 
         Args:
             session: Database session
@@ -91,19 +91,23 @@ class Base(DeclarativeBase):
 
         Raises:
             ResourceNotFoundError: If record not found
+
         """
         record: Base | None = cls.get_by_id(session, record_id)
         if not record:
             raise ResourceNotFoundError(
-                resource_type=cls.__name__, resource_id=record_id
+                resource_type=cls.__name__,
+                resource_id=record_id,
             )
         return record
 
     def to_dict(
-        self, include_relationships: bool = False, exclude: set[str] | None = None
+        self,
+        *,
+        include_relationships: bool = False,
+        exclude: set[str] | None = None,
     ) -> dict[str, any]:
-        """
-        Convert the model instance to a dictionary.
+        """Convert the model instance to a dictionary.
 
         Args:
             include_relationships: Whether to include relationships in the output
@@ -111,6 +115,7 @@ class Base(DeclarativeBase):
 
         Returns:
             Dictionary representation of the model
+
         """
         if exclude is None:
             exclude = set()
@@ -145,16 +150,19 @@ class Base(DeclarativeBase):
                     ]
                 else:
                     result[relationship.key] = related_obj.to_dict(
-                        include_relationships=False, exclude=exclude
+                        include_relationships=False,
+                        exclude=exclude,
                     )
 
         return result
 
     def to_json(
-        self, include_relationships: bool = False, exclude: set[str] | None = None
+        self,
+        *,
+        include_relationships: bool = False,
+        exclude: set[str] | None = None,
     ) -> str:
-        """
-        Convert the model instance to a JSON string.
+        """Convert the model instance to a JSON string.
 
         Args:
             include_relationships: Whether to include relationships in the output
@@ -162,29 +170,32 @@ class Base(DeclarativeBase):
 
         Returns:
             JSON string representation of the model
+
         """
         try:
             return json.dumps(
                 self.to_dict(
-                    include_relationships=include_relationships, exclude=exclude
-                )
+                    include_relationships=include_relationships,
+                    exclude=exclude,
+                ),
             )
-        except (TypeError, ValueError, OverflowError) as e:
-            logger.error(
-                "Error serializing %s to JSON: %s", self.__class__.__name__, str(e)
+        except (TypeError, ValueError, OverflowError):
+            logger.exception(
+                "Error serializing %s to JSON",
+                self.__class__.__name__,
             )
             return json.dumps({"error": "Serialization error", "id": self.id})
 
     @staticmethod
     def _serialize_value(value: any) -> any:
-        """
-        Serialize a value for JSON compatibility.
+        """Serialize a value for JSON compatibility.
 
         Args:
             value: The value to serialize
 
         Returns:
             JSON-compatible representation of the value
+
         """
         if value is None:
             return None
@@ -204,9 +215,8 @@ class Base(DeclarativeBase):
         return value
 
     @classmethod
-    def from_dict(cls, data: dict[str, any], ignore_unknown: bool = True) -> any:
-        """
-        Create a new instance from a dictionary.
+    def from_dict(cls, data: dict[str, any], *, ignore_unknown: bool = True) -> any:
+        """Create a new instance from a dictionary.
 
         Args:
             data: Dictionary containing model data
@@ -218,6 +228,7 @@ class Base(DeclarativeBase):
         Raises:
             ValueError: If required data is missing or invalid and ignore_unknown
             is False
+
         """
         # Get column names
         columns: set[str] = {c.key for c in class_mapper(cls).columns}
@@ -228,23 +239,25 @@ class Base(DeclarativeBase):
             if key in columns:
                 valid_data[key] = value
             elif not ignore_unknown:
-                raise ValueError(f"Unknown column '{key}' for {cls.__name__}")
+                error_msg = f"Unknown column '{key}' for {cls.__name__}"
+                raise ValueError(error_msg)
+            else:
+                continue
 
         try:
             return cls(**valid_data)
         except Exception as e:
-            logger.error("Error creating %s from dict: %s", cls.__name__, str(e))
-            raise ValueError(
-                f"Could not create {cls.__name__} from data: {str(e)}"
-            ) from e
+            logger.exception("Error creating %s from dict", cls.__name__)
+            error_msg = f"Could not create {cls.__name__} from data: {e!s}"
+            raise ValueError(error_msg) from e
 
     @classmethod
     def get_columns(cls) -> list[str]:
-        """
-        Get a list of column names for this model.
+        """Get a list of column names for this model.
 
         Returns:
             List of column names
+
         """
         return [
             prop.key
@@ -253,10 +266,11 @@ class Base(DeclarativeBase):
         ]
 
     def update_from_dict(
-        self, data: dict[str, any], allowed_fields: set[str] | None = None
+        self,
+        data: dict[str, any],
+        allowed_fields: set[str] | None = None,
     ) -> bool:
-        """
-        Update model attributes from a dictionary.
+        """Update model attributes from a dictionary.
 
         Args:
             data: Dictionary of attributes to update
@@ -268,6 +282,7 @@ class Base(DeclarativeBase):
 
         Raises:
             ValueError: If attempt to update a non-allowed field
+
         """
         # Default fields to exclude from updates
         default_exclude: set[str] = {"id", "created_at"}
@@ -290,7 +305,8 @@ class Base(DeclarativeBase):
 
             # Check if field is allowed
             if key not in allowed_fields:
-                raise ValueError(f"Cannot update field '{key}': not allowed")
+                error_msg = f"Cannot update field '{key}': not allowed"
+                raise ValueError(error_msg)
 
             # Update if value is different
             current_value: any = self.key
@@ -302,8 +318,7 @@ class Base(DeclarativeBase):
 
 
 class EnumBase(str, Enum):
-    """
-    Base class for string enumerations to be used with SQLAlchemy.
+    """Base class for string enumerations to be used with SQLAlchemy.
 
     This allows enum values to be used directly in ORM queries
     and ensures consistent serialization to/from the database.
@@ -316,6 +331,7 @@ class EnumBase(str, Enum):
             INACTIVE = auto()
 
         # Results in Status.ACTIVE.value == "ACTIVE"
+
     """
 
     @classmethod
@@ -324,13 +340,12 @@ class EnumBase(str, Enum):
         return name.upper()
 
     def __str__(self) -> str:
-        """String representation is just the value."""
+        """Return the string value of the enum."""
         return self.value
 
     @classmethod
-    def from_string(cls, value: str) -> "EnumBase":
-        """
-        Convert a string to the corresponding enum value.
+    def from_string(cls, value: str) -> EnumBase:
+        """Convert a string to the corresponding enum value.
 
         Args:
             value: String value to convert
@@ -340,41 +355,48 @@ class EnumBase(str, Enum):
 
         Raises:
             ValueError: If value is not valid for this enum
+
         """
+
+        def _raise_invalid_value(val: str, err: Exception | None = None) -> None:
+            error_msg: str = f"Invalid value '{val}' for {cls.__name__}"
+            if err:
+                raise ValueError(error_msg) from err
+            raise ValueError(error_msg)
+
         try:
             # Case-insensitive search
             for member in cls:
                 if member.value.upper() == value.upper():
                     return member
             # Not found
-            raise ValueError(f"'{value}' is not a valid value for {cls.__name__}")
+            _raise_invalid_value(value)
         except Exception as e:
-            logger.error("Error converting string to %s: %s", cls.__name__, str(e))
-            raise ValueError(f"Invalid value '{value}' for {cls.__name__}") from e
+            logger.exception("Error converting string to %s", cls.__name__)
+            _raise_invalid_value(value, e)
 
     @classmethod
     def values(cls) -> list[str]:
-        """
-        Get a list of all valid values for this enum.
+        """Get a list of all valid values for this enum.
 
         Returns:
             List of valid enum values
+
         """
         return [member.value for member in cls]
 
     @classmethod
     def is_valid(cls, value: str) -> bool:
-        """
-        Check if a string is a valid value for this enum.
+        """Check if a string is a valid value for this enum.
 
         Args:
             value: String value to check
 
         Returns:
             True if valid, False otherwise
+
         """
         try:
-            cls.from_string(value)
-            return True
+            return bool(cls.from_string(value))
         except ValueError:
             return False

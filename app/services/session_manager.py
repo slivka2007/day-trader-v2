@@ -1,16 +1,20 @@
-"""
-Session manager module for handling database sessions.
+"""Session manager module for handling database sessions.
 
 This module provides session management utilities including a context manager
 for automatic session handling and a decorator for wrapping functions that
 require database access.
 """
 
+from __future__ import annotations
+
 import functools
 import logging
-from typing import Callable, TypeVar
+from typing import TYPE_CHECKING, Callable, TypeVar
 
-from sqlalchemy.orm import Session
+if TYPE_CHECKING:
+    from types import TracebackType
+
+    from sqlalchemy.orm import Session
 
 from app.services.database import get_session
 
@@ -30,26 +34,53 @@ class SessionManager:
         with SessionManager() as session:
             user = session.query(User).filter_by(username='johndoe').first()
             user.last_login = datetime.now()
+
     """
 
     def __init__(self) -> None:
+        """Initialize a new SessionManager with no active session.
+
+        The session will be created when entering the context manager.
+        """
         self.session: Session | None = None
 
     def __enter__(self) -> Session:
-        self.session: Session = get_session()
+        """Enter the context manager and create a new session.
+
+        Returns:
+            The newly created session.
+
+        """
+        self.session = get_session()
         return self.session
 
-    def __exit__(self, exc_type: Exception | None, exc_val: Exception | None) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Exit the context manager and handle session cleanup.
+
+        Commits the session if no exceptions occurred, otherwise rolls back.
+        Always closes the session at the end.
+
+        Args:
+            exc_type: Exception type if an exception was raised, None otherwise
+            exc_val: Exception value if an exception was raised, None otherwise
+            exc_tb: Exception traceback if an exception was raised, None otherwise
+
+        """
         if exc_type is not None:
-            logger.error(f"Session rolled back due to exception: {exc_val}")
+            logger.exception("Session rolled back due to exception: %s", exc_val)
             if self.session:
                 self.session.rollback()
         else:
             try:
                 if self.session:
                     self.session.commit()
-            except Exception as e:
-                logger.error(f"Failed to commit session: {e}")
+            except Exception:
+                logger.exception("Failed to commit session")
                 if self.session:
                     self.session.rollback()
                 raise
@@ -58,7 +89,7 @@ class SessionManager:
 
 
 def with_session(func: Callable[..., T]) -> Callable[..., T]:
-    """Decorator for automatically managing database sessions.
+    """Decorate a function to automatically manage database sessions.
 
     This decorator wraps a function with session handling logic, providing
     the function with a session object as its first argument after self.
@@ -73,10 +104,11 @@ def with_session(func: Callable[..., T]) -> Callable[..., T]:
         @with_session
         def get_user(self, session, user_id):
             return session.query(User).get(user_id)
+
     """
 
     @functools.wraps(func)
-    def wrapper(self, *args: any, **kwargs: any) -> T:
+    def wrapper(self: any, *args: any, **kwargs: any) -> T:
         with SessionManager() as session:
             return func(self, session, *args, **kwargs)
 

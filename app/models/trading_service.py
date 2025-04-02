@@ -1,8 +1,9 @@
-"""
-Trading Service model.
+"""Trading Service model.
 
 This model represents a trading service that can buy and sell stocks.
 """
+
+from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
@@ -19,8 +20,7 @@ if TYPE_CHECKING:
 
 
 class TradingService(Base):
-    """
-    Model representing a stock trading service.
+    """Model representing a stock trading service.
 
     Manages the trading of a specific stock, tracking balance, shares, and performance.
 
@@ -41,23 +41,42 @@ class TradingService(Base):
         user: Relationship to the user who owns this service
         stock: Relationship to the stock being traded
         transactions: Relationship to trading transactions
+
     """
 
     __tablename__: str = "trading_services"
 
+    # Constants
+    MAX_ALLOCATION_PERCENT: float = 100.0
+
+    # Error messages
+    ERR_SYMBOL_REQUIRED: str = "Stock symbol is required"
+    ERR_INVALID_STATE: str = "Invalid service state: {}"
+    ERR_INVALID_MODE: str = "Invalid trading mode: {}"
+    ERR_INITIAL_BALANCE: str = "Initial balance must be greater than 0"
+    ERR_ALLOCATION_PERCENT: str = (
+        f"Allocation percent must be between 0 and {MAX_ALLOCATION_PERCENT}"
+    )
+
     id: Mapped[int] = Column(Integer, primary_key=True)
     user_id: Mapped[int] = Column(Integer, ForeignKey("users.id"), nullable=False)
     stock_id: Mapped[int | None] = Column(
-        Integer, ForeignKey("stocks.id"), nullable=True
+        Integer,
+        ForeignKey("stocks.id"),
+        nullable=True,
     )
     name: Mapped[str] = Column(String(100), nullable=False)
     description: Mapped[str | None] = Column(Text, nullable=True)
     stock_symbol: Mapped[str] = Column(String(10), nullable=False)
     state: Mapped[str] = Column(
-        String(20), default=ServiceState.INACTIVE.value, nullable=False
+        String(20),
+        default=ServiceState.INACTIVE.value,
+        nullable=False,
     )
     mode: Mapped[str] = Column(
-        String(20), default=TradingMode.BUY.value, nullable=False
+        String(20),
+        default=TradingMode.BUY.value,
+        nullable=False,
     )
     is_active: Mapped[bool] = Column(Boolean, default=True, nullable=False)
 
@@ -66,17 +85,23 @@ class TradingService(Base):
     current_balance = Column(Numeric(precision=18, scale=2), nullable=False)
     minimum_balance = Column(Numeric(precision=18, scale=2), default=0, nullable=False)
     allocation_percent = Column(
-        Numeric(precision=18, scale=2), default=0.5, nullable=False
+        Numeric(precision=18, scale=2),
+        default=0.5,
+        nullable=False,
     )
 
     # Strategy configuration
     buy_threshold = Column(Numeric(precision=18, scale=2), default=3.0, nullable=False)
     sell_threshold = Column(Numeric(precision=18, scale=2), default=2.0, nullable=False)
     stop_loss_percent = Column(
-        Numeric(precision=18, scale=2), default=5.0, nullable=False
+        Numeric(precision=18, scale=2),
+        default=5.0,
+        nullable=False,
     )
     take_profit_percent = Column(
-        Numeric(precision=18, scale=2), default=10.0, nullable=False
+        Numeric(precision=18, scale=2),
+        default=10.0,
+        nullable=False,
     )
 
     # Statistics
@@ -86,58 +111,52 @@ class TradingService(Base):
     total_gain_loss = Column(Numeric(precision=18, scale=2), nullable=False, default=0)
 
     # Relationships
-    user: Mapped["User"] = relationship("User", back_populates="services")
+    user: Mapped[User] = relationship("User", back_populates="services")
     stock: Mapped[Stock | None] = relationship("Stock", back_populates="services")
-    transactions: Mapped[list["TradingTransaction"]] = relationship(
-        "TradingTransaction", back_populates="service", cascade="all, delete-orphan"
+    transactions: Mapped[list[TradingTransaction]] = relationship(
+        "TradingTransaction",
+        back_populates="service",
+        cascade="all, delete-orphan",
     )
 
     # Validations
     @validates("stock_symbol")
-    def validate_stock_symbol(symbol: str) -> str:
+    def validate_stock_symbol(self, symbol: str) -> str:
         """Validate stock symbol."""
         if not symbol:
-            raise ValueError("Stock symbol is required")
+            raise ValueError(self.ERR_SYMBOL_REQUIRED)
         return symbol.strip().upper()
 
     @validates("state")
-    def validate_state(state: str) -> str:
+    def validate_state(self, state: str) -> str:
         """Validate service state."""
         if state and not ServiceState.is_valid(state):
-            valid_states: list[str] = ServiceState.values()
-            raise ValueError(
-                f"Invalid service state: {state}. "
-                f"Valid states are: {', '.join(valid_states)}"
-            )
+            raise ValueError(self.ERR_INVALID_STATE.format(state))
         return state
 
     @validates("mode")
-    def validate_mode(mode: str) -> str:
+    def validate_mode(self, mode: str) -> str:
         """Validate trading mode."""
         if mode and not TradingMode.is_valid(mode):
-            valid_modes: list[str] = TradingMode.values()
-            raise ValueError(
-                f"Invalid trading mode: {mode}. "
-                f"Valid modes are: {', '.join(valid_modes)}"
-            )
+            raise ValueError(self.ERR_INVALID_MODE.format(mode))
         return mode
 
     @validates("initial_balance")
-    def validate_initial_balance(value: float) -> float:
+    def validate_initial_balance(self, value: float) -> float:
         """Validate initial balance is positive."""
         if value is not None and value <= 0:
-            raise ValueError("Initial balance must be greater than 0")
+            raise ValueError(self.ERR_INITIAL_BALANCE)
         return value
 
     @validates("allocation_percent")
-    def validate_allocation_percent(value: float) -> float:
-        """Validate allocation percent is between 0 and 100."""
-        if value is not None and (value < 0 or value > 100):
-            raise ValueError("Allocation percent must be between 0 and 100")
+    def validate_allocation_percent(self, value: float) -> float:
+        """Validate allocation percent is between 0 and MAX_ALLOCATION_PERCENT."""
+        if value is not None and (value < 0 or value > self.MAX_ALLOCATION_PERCENT):
+            raise ValueError(self.ERR_ALLOCATION_PERCENT)
         return value
 
     def __repr__(self) -> str:
-        """String representation of the TradingService object."""
+        """Return string representation of the TradingService object."""
         return (
             f"<TradingService(id={self.id}, symbol='{self.stock_symbol}', "
             f"balance={self.current_balance})>"
@@ -170,10 +189,10 @@ class TradingService(Base):
         return self.total_gain_loss > 0
 
     def has_dependencies(self) -> bool:
-        """
-        Check if the service has any dependencies.
+        """Check if the service has any dependencies.
 
         Returns:
             True if there are dependencies, False otherwise
+
         """
         return self.transactions and len(self.transactions) > 0

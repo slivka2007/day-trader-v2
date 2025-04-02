@@ -3,22 +3,20 @@ Trading Transactions API resources.
 """
 
 import logging
-from http import HTTPStatus
-from typing import Any, cast, Dict, List, Optional
-from decimal import Decimal
+from typing import Literal
 
 from flask import request
 from flask_jwt_extended import jwt_required
-from flask_restx import Namespace, Resource, fields
+from flask_restx import Model, Namespace, OrderedModel, Resource, fields
+from sqlalchemy import select
 
-from app.api import apply_pagination
 from app.api.schemas.trading_transaction import (
     transaction_cancel_schema,
     transaction_complete_schema,
     transaction_create_schema,
     transaction_schema,
 )
-from app.models import TradingService, TransactionState
+from app.models import TradingService, TradingTransaction, TransactionState, User
 from app.services.session_manager import SessionManager
 from app.services.transaction_service import TransactionService
 from app.utils.auth import (
@@ -34,13 +32,13 @@ from app.utils.errors import (
 )
 
 # Set up logging
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 # Create namespace
-api = Namespace("transactions", description="Trading transaction operations")
+api: Namespace = Namespace("transactions", description="Trading transaction operations")
 
 # Define API models
-transaction_model = api.model(
+transaction_model: Model | OrderedModel = api.model(
     "TradingTransaction",
     {
         "id": fields.Integer(readonly=True, description="The transaction identifier"),
@@ -72,12 +70,12 @@ transaction_model = api.model(
     },
 )
 
-transaction_complete_model = api.model(
+transaction_complete_model: Model | OrderedModel = api.model(
     "TransactionComplete",
     {"sale_price": fields.Float(required=True, description="Sale price per share")},
 )
 
-transaction_create_model = api.model(
+transaction_create_model: Model | OrderedModel = api.model(
     "TransactionCreate",
     {
         "service_id": fields.Integer(
@@ -91,13 +89,13 @@ transaction_create_model = api.model(
     },
 )
 
-transaction_cancel_model = api.model(
+transaction_cancel_model: Model | OrderedModel = api.model(
     "TransactionCancel",
     {"reason": fields.String(description="Reason for cancellation")},
 )
 
 # Models for collection responses with pagination
-transaction_list_model = api.model(
+transaction_list_model: Model | OrderedModel = api.model(
     "TransactionList",
     {
         "items": fields.List(
@@ -143,17 +141,21 @@ class TransactionList(Resource):
     @api.response(200, "Success")
     @api.response(401, "Unauthorized")
     @jwt_required()
-    def get(self):
+    def get(self) -> dict[str, any]:
         """List all transactions for the current user."""
         with SessionManager() as session:
             # Get current user
-            user = get_current_user(session)
+            user: User = get_current_user(session)
             if not user:
                 raise AuthorizationError("User not authenticated")
 
             # Get services owned by this user
-            user_services = (
-                session.query(TradingService).filter_by(user_id=user.id).all()
+            user_services: list[TradingService] = (
+                session.execute(
+                    select(TradingService).where(TradingService.user_id == user.id)
+                )
+                .scalars()
+                .all()
             )
             if not user_services:
                 return {
@@ -168,30 +170,30 @@ class TransactionList(Resource):
                     },
                 }
 
-            service_ids = [service.id for service in user_services]
+            service_ids: list[int] = [service.id for service in user_services]
 
             # Parse query parameters
-            filters = {}
+            filters: dict[str, any] = {}
 
-            service_id = request.args.get("service_id")
+            service_id: str | None = request.args.get("service_id")
             if service_id and service_id.isdigit() and int(service_id) in service_ids:
                 filters["service_id"] = int(service_id)
 
-            state = request.args.get("state")
+            state: str | None = request.args.get("state")
             if state and TransactionState.is_valid(state):
                 filters["state"] = state
 
             # Build query from user's services
-            all_transactions = []
+            all_transactions: list[any] = []
             try:
                 if "service_id" in filters:
                     # Get transactions for a specific service
                     if "state" in filters:
-                        transactions = TransactionService.get_by_service(
+                        transactions: list[any] = TransactionService.get_by_service(
                             session, filters["service_id"], filters["state"]
                         )
                     else:
-                        transactions = TransactionService.get_by_service(
+                        transactions: list[any] = TransactionService.get_by_service(
                             session, filters["service_id"]
                         )
 
@@ -200,25 +202,25 @@ class TransactionList(Resource):
                     # Get transactions for all user's services
                     for service_id in service_ids:
                         if "state" in filters:
-                            transactions = TransactionService.get_by_service(
-                                session, int(service_id.scalar()), filters["state"]
+                            transactions: list[any] = TransactionService.get_by_service(
+                                session, int(service_id), filters["state"]
                             )
                         else:
-                            transactions = TransactionService.get_by_service(
-                                session, int(service_id.scalar())
+                            transactions: list[any] = TransactionService.get_by_service(
+                                session, int(service_id)
                             )
 
                         all_transactions.extend(transactions)
 
                 # Apply sorting
-                sort_field = request.args.get("sort", "purchase_date")
-                sort_order = request.args.get("order", "desc")
+                sort_field: str = request.args.get("sort", "purchase_date")
+                sort_order: str = request.args.get("order", "desc")
 
                 # Sort using a safer approach
-                def get_sort_key(t: Any) -> Any:
+                def get_sort_key(t: any) -> any:
                     # Get attribute safely or use purchase_date as fallback
                     try:
-                        val = getattr(t, sort_field, None)
+                        val: any | None = getattr(t, sort_field, None)
                         if val is None:
                             val = getattr(t, "purchase_date", None)
                         return val
@@ -226,7 +228,7 @@ class TransactionList(Resource):
                         return None
 
                 # Sort the transactions with explicit list casting
-                all_transactions = sorted(
+                all_transactions: list[any] = sorted(
                     list(all_transactions),
                     key=get_sort_key,
                     reverse=(sort_order.lower() == "desc"),
@@ -235,16 +237,18 @@ class TransactionList(Resource):
                 # Apply pagination - handle list instead of query
                 if isinstance(all_transactions, list):
                     # Get pagination parameters
-                    page = request.args.get("page", 1, type=int)
-                    page_size = min(request.args.get("page_size", 20, type=int), 100)
+                    page: int = request.args.get("page", 1, type=int)
+                    page_size: int = min(
+                        request.args.get("page_size", 20, type=int), 100
+                    )
 
                     # Manual pagination for list
-                    start = (page - 1) * page_size
-                    end = start + page_size
-                    items = all_transactions[start:end]
-                    total = len(all_transactions)
+                    start: int = (page - 1) * page_size
+                    end: int = start + page_size
+                    items: list[any] = all_transactions[start:end]
+                    total: int = len(all_transactions)
 
-                    paginated_data = {
+                    paginated_data: dict[str, any] = {
                         "items": items,
                         "pagination": {
                             "page": page,
@@ -255,9 +259,6 @@ class TransactionList(Resource):
                             "has_prev": start > 0,
                         },
                     }
-                else:
-                    # Use the normal pagination function
-                    paginated_data = apply_pagination(query=all_transactions)
 
                 return paginated_data
 
@@ -266,7 +267,9 @@ class TransactionList(Resource):
                 raise
             except Exception as e:
                 logger.error(f"Error listing transactions: {str(e)}")
-                raise BusinessLogicError(f"Could not list transactions: {str(e)}")
+                raise BusinessLogicError(
+                    f"Could not list transactions: {str(e)}"
+                ) from e
 
     @api.doc("create_transaction")
     @api.expect(transaction_create_model)
@@ -276,30 +279,30 @@ class TransactionList(Resource):
     @api.response(401, "Unauthorized")
     @api.response(404, "Service not found")
     @jwt_required()
-    def post(self):
+    def post(self) -> tuple[any | list[any] | list | dict, Literal[201]]:
         """Create a new trading transaction (buy)"""
-        data = request.json
+        data: dict[str, any] = request.json
 
         # Validate input data
         try:
-            validated_data = transaction_create_schema.load(data or {})
+            validated_data: dict[str, any] = transaction_create_schema.load(data or {})
         except ValidationError as err:
             logger.warning(f"Validation error creating transaction: {str(err)}")
             raise ValidationError(
                 "Invalid transaction data", errors={"general": [str(err)]}
-            )
+            ) from err
 
         # Safety check to ensure validated_data is a dictionary
         if not validated_data or not isinstance(validated_data, dict):
             raise ValidationError("Invalid transaction data format")
 
-        service_id = validated_data.get("service_id")
+        service_id: int | None = validated_data.get("service_id")
         if not service_id:
             raise ValidationError("Missing service_id")
 
         with SessionManager() as session:
             # Get current user and verify service ownership
-            user = get_current_user(session)
+            user: User | None = get_current_user(session)
             if not user:
                 raise AuthorizationError("User not authenticated")
 
@@ -308,17 +311,19 @@ class TransactionList(Resource):
                 session=session,
                 resource_type="service",
                 resource_id=service_id,
-                user_id=user.id.scalar(),
+                user_id=user.id,
             )
 
             try:
                 # Create the transaction using the service layer
-                transaction = TransactionService.create_buy_transaction(
-                    session=session,
-                    service_id=service_id,
-                    stock_symbol=validated_data.get("stock_symbol", ""),
-                    shares=validated_data.get("shares", 0),
-                    purchase_price=validated_data.get("purchase_price", 0),
+                transaction: TradingTransaction = (
+                    TransactionService.create_buy_transaction(
+                        session=session,
+                        service_id=service_id,
+                        stock_symbol=validated_data.get("stock_symbol", ""),
+                        shares=validated_data.get("shares", 0),
+                        purchase_price=validated_data.get("purchase_price", 0),
+                    )
                 )
 
                 return transaction_schema.dump(transaction), 201
@@ -334,7 +339,9 @@ class TransactionList(Resource):
                 raise
             except Exception as e:
                 logger.error(f"Error creating transaction: {str(e)}")
-                raise BusinessLogicError(f"Could not create transaction: {str(e)}")
+                raise BusinessLogicError(
+                    f"Could not create transaction: {str(e)}"
+                ) from e
 
 
 @api.route("/<int:id>")
@@ -350,17 +357,17 @@ class TransactionItem(Resource):
     @api.response(404, "Transaction not found")
     @jwt_required()
     @require_ownership("transaction")
-    def get(self, id):
+    def get(self, id: int) -> tuple[any | list[any] | list | dict, Literal[200]]:
         """Get a transaction by ID"""
         with SessionManager() as session:
             # Get current user
-            user = get_current_user(session)
+            user: User | None = get_current_user(session)
             if not user:
                 raise AuthorizationError("User not authenticated")
 
             # Verify ownership and get transaction
-            transaction = TransactionService.verify_ownership(
-                session, id, user.id.scalar()
+            transaction: TradingTransaction = TransactionService.verify_ownership(
+                session, id, user.id
             )
             return transaction_schema.dump(transaction)
 
@@ -371,16 +378,16 @@ class TransactionItem(Resource):
     @api.response(404, "Transaction not found")
     @jwt_required()
     @require_ownership("transaction")
-    def delete(self, id):
+    def delete(self, id: int) -> tuple[str, Literal[204]]:
         """Delete a transaction."""
         with SessionManager() as session:
             # Get current user
-            user = get_current_user(session)
+            user: User | None = get_current_user(session)
             if not user:
                 raise AuthorizationError("User not authenticated")
 
             # Verify ownership
-            TransactionService.verify_ownership(session, id, user.id.scalar())
+            TransactionService.verify_ownership(session, id, user.id)
 
             try:
                 # Delete the transaction
@@ -395,7 +402,9 @@ class TransactionItem(Resource):
                 raise
             except Exception as e:
                 logger.error(f"Error deleting transaction: {str(e)}")
-                raise BusinessLogicError(f"Could not delete transaction: {str(e)}")
+                raise BusinessLogicError(
+                    f"Could not delete transaction: {str(e)}"
+                ) from e
 
 
 @api.route("/<int:id>/complete")
@@ -413,24 +422,26 @@ class TransactionComplete(Resource):
     @api.response(404, "Transaction not found")
     @jwt_required()
     @require_ownership("transaction")
-    def post(self, id):
+    def post(self, id: int) -> tuple[any | list[any] | list | dict, Literal[200]]:
         """Complete (sell) a transaction"""
-        data = request.json
+        data: dict[str, any] = request.json
 
         # Validate input data
         try:
             # Ensure data is a dictionary
-            data_dict = data if isinstance(data, dict) else {}
-            validated_data = transaction_complete_schema.load(data_dict)
+            data_dict: dict[str, any] = data if isinstance(data, dict) else {}
+            validated_data: dict[str, any] = transaction_complete_schema.load(data_dict)
         except ValidationError as err:
             logger.warning(f"Validation error completing transaction: {str(err)}")
-            raise ValidationError("Invalid sale data", errors={"general": [str(err)]})
+            raise ValidationError(
+                "Invalid sale data", errors={"general": [str(err)]}
+            ) from err
 
         # Safely access sale_price and convert to Decimal
         if validated_data and isinstance(validated_data, dict):
-            sale_price_value = validated_data.get("sale_price")
+            sale_price_value: any | None = validated_data.get("sale_price")
             if sale_price_value is not None:
-                sale_price = Decimal(str(sale_price_value))
+                sale_price: float = float(str(sale_price_value))
             else:
                 raise ValidationError(
                     "Missing sale price", errors={"sale_price": ["Field is required"]}
@@ -442,17 +453,17 @@ class TransactionComplete(Resource):
 
         with SessionManager() as session:
             # Get current user
-            user = get_current_user(session)
+            user: User | None = get_current_user(session)
             if not user:
                 raise AuthorizationError("User not authenticated")
 
             # Verify ownership
-            TransactionService.verify_ownership(session, id, user.id.scalar())
+            TransactionService.verify_ownership(session, id, user.id)
 
             try:
                 # Complete the transaction using the service layer
-                transaction = TransactionService.complete_transaction(
-                    session, id, sale_price
+                transaction: TradingTransaction = (
+                    TransactionService.complete_transaction(session, id, sale_price)
                 )
                 return transaction_schema.dump(transaction)
 
@@ -467,7 +478,9 @@ class TransactionComplete(Resource):
                 raise
             except Exception as e:
                 logger.error(f"Error completing transaction: {str(e)}")
-                raise BusinessLogicError(f"Could not complete transaction: {str(e)}")
+                raise BusinessLogicError(
+                    f"Could not complete transaction: {str(e)}"
+                ) from e
 
 
 @api.route("/<int:id>/cancel")
@@ -485,38 +498,40 @@ class TransactionCancel(Resource):
     @api.response(404, "Transaction not found")
     @jwt_required()
     @require_ownership("transaction")
-    def post(self, id):
+    def post(self, id: int) -> tuple[any | list[any] | list | dict, Literal[200]]:
         """Cancel a transaction"""
-        data = request.json or {}
+        data: dict[str, any] = request.json or {}
 
         # Validate input data
         try:
             # Ensure data is a dictionary
-            data_dict = data if isinstance(data, dict) else {}
-            validated_data = transaction_cancel_schema.load(data_dict)
+            data_dict: dict[str, any] = data if isinstance(data, dict) else {}
+            validated_data: dict[str, any] = transaction_cancel_schema.load(data_dict)
         except ValidationError as err:
             logger.warning(f"Validation error cancelling transaction: {str(err)}")
             raise ValidationError(
                 "Invalid cancellation data", errors={"general": [str(err)]}
-            )
+            ) from err
 
         # Safely access reason
         reason = "User cancelled"
         if validated_data and isinstance(validated_data, dict):
-            reason = validated_data.get("reason", reason)
+            reason: str | None = validated_data.get("reason", reason)
 
         with SessionManager() as session:
             # Get current user
-            user = get_current_user(session)
+            user: User | None = get_current_user(session)
             if not user:
                 raise AuthorizationError("User not authenticated")
 
             # Verify ownership
-            TransactionService.verify_ownership(session, id, user.id.scalar())
+            TransactionService.verify_ownership(session, id, user.id)
 
             try:
                 # Cancel the transaction using the service layer
-                transaction = TransactionService.cancel_transaction(session, id, reason)
+                transaction: TradingTransaction = TransactionService.cancel_transaction(
+                    session, id, reason
+                )
                 return transaction_schema.dump(transaction)
 
             except ValidationError as e:
@@ -530,7 +545,9 @@ class TransactionCancel(Resource):
                 raise
             except Exception as e:
                 logger.error(f"Error cancelling transaction: {str(e)}")
-                raise BusinessLogicError(f"Could not cancel transaction: {str(e)}")
+                raise BusinessLogicError(
+                    f"Could not cancel transaction: {str(e)}"
+                ) from e
 
 
 @api.route("/services/<int:service_id>")
@@ -555,12 +572,16 @@ class ServiceTransactions(Resource):
     @api.response(404, "Service not found")
     @jwt_required()
     @require_ownership("service")
-    def get(self, service_id):
+    def get(
+        self, service_id: int
+    ) -> tuple[any | list[any] | list | dict, Literal[200]]:
         """Get all transactions for a specific trading service."""
         with SessionManager() as session:
             # Check if service exists and belongs to user
             # (require_ownership decorator already verifies ownership)
-            service = session.query(TradingService).filter_by(id=service_id).first()
+            service: TradingService | None = session.execute(
+                select(TradingService).where(TradingService.id == service_id)
+            ).scalar_one_or_none()
             if not service:
                 raise ResourceNotFoundError(
                     f"TradingService with ID {service_id} not found",
@@ -568,28 +589,28 @@ class ServiceTransactions(Resource):
                 )
 
             # Get transactions for this service
-            state = request.args.get("state")
+            state: str | None = request.args.get("state")
 
             try:
                 # Use service layer to get transactions
                 if state:
-                    transactions = TransactionService.get_by_service(
-                        session, service_id, state
+                    transactions: list[TradingTransaction] = (
+                        TransactionService.get_by_service(session, service_id, state)
                     )
                 else:
-                    transactions = TransactionService.get_by_service(
-                        session, service_id
+                    transactions: list[TradingTransaction] = (
+                        TransactionService.get_by_service(session, service_id)
                     )
 
                 # Apply sorting
-                sort_field = request.args.get("sort", "purchase_date")
-                sort_order = request.args.get("order", "desc")
+                sort_field: str = request.args.get("sort", "purchase_date")
+                sort_order: str = request.args.get("order", "desc")
 
                 # Sort using a safer approach
-                def get_sort_key(t: Any) -> Any:
+                def get_sort_key(t: any) -> any:
                     # Get attribute safely or use purchase_date as fallback
                     try:
-                        val = getattr(t, sort_field, None)
+                        val: any | None = getattr(t, sort_field, None)
                         if val is None:
                             val = getattr(t, "purchase_date", None)
                         return val
@@ -606,16 +627,18 @@ class ServiceTransactions(Resource):
                 # Apply pagination - handle list instead of query
                 if isinstance(transactions, list):
                     # Get pagination parameters
-                    page = request.args.get("page", 1, type=int)
-                    page_size = min(request.args.get("page_size", 20, type=int), 100)
+                    page: int = request.args.get("page", 1, type=int)
+                    page_size: int = min(
+                        request.args.get("page_size", 20, type=int), 100
+                    )
 
                     # Manual pagination for list
-                    start = (page - 1) * page_size
-                    end = start + page_size
-                    items = transactions[start:end]
-                    total = len(transactions)
+                    start: int = (page - 1) * page_size
+                    end: int = start + page_size
+                    items: list[any] = transactions[start:end]
+                    total: int = len(transactions)
 
-                    paginated_data = {
+                    paginated_data: dict[str, any] = {
                         "items": items,
                         "pagination": {
                             "page": page,
@@ -626,9 +649,6 @@ class ServiceTransactions(Resource):
                             "has_prev": start > 0,
                         },
                     }
-                else:
-                    # Use the normal pagination function
-                    paginated_data = apply_pagination(query=transactions)
 
                 return paginated_data
 
@@ -637,7 +657,9 @@ class ServiceTransactions(Resource):
                 raise
             except Exception as e:
                 logger.error(f"Error listing transactions: {str(e)}")
-                raise BusinessLogicError(f"Could not list transactions: {str(e)}")
+                raise BusinessLogicError(
+                    f"Could not list transactions: {str(e)}"
+                ) from e
 
 
 @api.route("/<int:id>/notes")
@@ -660,9 +682,9 @@ class TransactionNotes(Resource):
     @api.response(404, "Transaction not found")
     @jwt_required()
     @require_ownership("transaction")
-    def put(self, id):
+    def put(self, id: int) -> tuple[any | list[any] | list | dict, Literal[200]]:
         """Update transaction notes"""
-        data = request.json
+        data: dict[str, any] = request.json
 
         # Check if data is None or doesn't contain notes
         if data is None or not isinstance(data, dict) or "notes" not in data:
@@ -672,18 +694,18 @@ class TransactionNotes(Resource):
 
         with SessionManager() as session:
             # Get current user
-            user = get_current_user(session)
+            user: User | None = get_current_user(session)
             if not user:
                 raise AuthorizationError("User not authenticated")
 
             # Verify ownership
-            TransactionService.verify_ownership(session, id, user.id.scalar())
+            TransactionService.verify_ownership(session, id, user.id)
 
             try:
                 # Update notes using the service layer
-                notes = data.get("notes", "") if isinstance(data, dict) else ""
-                transaction = TransactionService.update_transaction_notes(
-                    session, id, notes
+                notes: str = data.get("notes", "") if isinstance(data, dict) else ""
+                transaction: TradingTransaction = (
+                    TransactionService.update_transaction_notes(session, id, notes)
                 )
                 return transaction_schema.dump(transaction)
 
@@ -694,7 +716,7 @@ class TransactionNotes(Resource):
                 logger.error(f"Error updating transaction notes: {str(e)}")
                 raise BusinessLogicError(
                     f"Could not update transaction notes: {str(e)}"
-                )
+                ) from e
 
 
 @api.route("/services/<int:service_id>/metrics")
@@ -709,12 +731,16 @@ class TransactionMetrics(Resource):
     @api.response(404, "Service not found")
     @jwt_required()
     @require_ownership("service")
-    def get(self, service_id):
+    def get(
+        self, service_id: int
+    ) -> tuple[any | list[any] | list | dict, Literal[200]]:
         """Get metrics for transactions of a service"""
         with SessionManager() as session:
             # Check if service exists and belongs to user
             # (require_ownership decorator already verifies ownership)
-            service = session.query(TradingService).filter_by(id=service_id).first()
+            service: TradingService | None = session.execute(
+                select(TradingService).where(TradingService.id == service_id)
+            ).scalar_one_or_none()
             if not service:
                 raise ResourceNotFoundError(
                     f"TradingService with ID {service_id} not found",
@@ -723,8 +749,10 @@ class TransactionMetrics(Resource):
 
             try:
                 # Calculate metrics using the service layer
-                metrics = TransactionService.calculate_transaction_metrics(
-                    session, service_id
+                metrics: dict[str, any] = (
+                    TransactionService.calculate_transaction_metrics(
+                        session, service_id
+                    )
                 )
                 return metrics
 
@@ -732,4 +760,4 @@ class TransactionMetrics(Resource):
                 logger.error(f"Error calculating transaction metrics: {str(e)}")
                 raise BusinessLogicError(
                     f"Could not calculate transaction metrics: {str(e)}"
-                )
+                ) from e

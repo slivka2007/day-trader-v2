@@ -1,5 +1,4 @@
-"""
-Models package for the Day Trader application.
+"""Models package for the Day Trader application.
 
 This package contains all SQLAlchemy models used by the application.
 """
@@ -24,17 +23,17 @@ from app.models.user import User
 
 # Exposed for easier imports
 __all__: list[str] = [
+    "AnalysisTimeframe",
     "Base",
+    "PriceSource",
+    "ServiceAction",
+    "ServiceState",
     "Stock",
     "StockDailyPrice",
     "StockIntradayPrice",
+    "TradingMode",
     "TradingService",
     "TradingTransaction",
-    "User",
-    "ServiceState",
-    "ServiceAction",
-    "TradingMode",
     "TransactionState",
-    "PriceSource",
-    "AnalysisTimeframe",
+    "User",
 ]

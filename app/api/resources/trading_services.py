@@ -2,12 +2,12 @@
 Trading Services API resources.
 """
 
-from http import HTTPStatus
-from typing import Any, Dict, cast
+from typing import Literal
 
 from flask import current_app, request
 from flask_jwt_extended import jwt_required
-from flask_restx import Namespace, Resource, fields
+from flask_restx import Model, Namespace, OrderedModel, Resource, fields
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.api import apply_filters, apply_pagination
@@ -17,7 +17,7 @@ from app.api.schemas.trading_service import (
     service_update_schema,
     services_schema,
 )
-from app.models import TradingService
+from app.models import TradingService, User
 from app.services.session_manager import SessionManager
 from app.services.trading_service import TradingServiceService
 from app.utils.auth import get_current_user, require_ownership
@@ -27,7 +27,7 @@ from app.utils.errors import AuthorizationError, BusinessLogicError, ValidationE
 api = Namespace("services", description="Trading service operations")
 
 # Define models for Swagger documentation
-service_model = api.model(
+service_model: Model | OrderedModel = api.model(
     "TradingService",
     {
         "id": fields.Integer(readonly=True, description="The service identifier"),
@@ -66,7 +66,7 @@ service_model = api.model(
 )
 
 # Add pagination model
-pagination_model = api.model(
+pagination_model: Model | OrderedModel = api.model(
     "Pagination",
     {
         "page": fields.Integer(description="Current page number"),
@@ -79,7 +79,7 @@ pagination_model = api.model(
 )
 
 # Add paginated list model
-service_list_model = api.model(
+service_list_model: Model | OrderedModel = api.model(
     "ServiceList",
     {
         "items": fields.List(
@@ -92,7 +92,7 @@ service_list_model = api.model(
 )
 
 # Define decision model for buy/sell decision endpoints
-decision_model = api.model(
+decision_model: Model | OrderedModel = api.model(
     "TradingDecision",
     {
         "should_proceed": fields.Boolean(
@@ -126,22 +126,30 @@ class ServiceList(Resource):
     @api.response(200, "Success")
     @api.response(401, "Unauthorized")
     @jwt_required()
-    def get(self):
+    def get(self) -> tuple[any | list[any] | list | dict, Literal[200]]:
         """List all trading services for the authenticated user"""
         with SessionManager() as session:
             # Get current user
-            user = get_current_user(session)
+            user: User | None = get_current_user(session)
             if not user:
                 raise AuthorizationError("User not authenticated")
 
             # Get base query for user's services
-            query = session.query(TradingService).filter_by(user_id=user.id.scalar())
+            query: list[TradingService] = (
+                (
+                    session.execute(
+                        select(TradingService).where(TradingService.user_id == user.id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
 
             # Apply filters
             query = apply_filters(query, TradingService)
 
             # Apply pagination
-            result = apply_pagination(query)
+            result: dict[str, any] = apply_pagination(query)
 
             # Serialize the results
             result["items"] = services_schema.dump(result["items"])

@@ -6,7 +6,7 @@ import platform
 import sys
 
 from flask import current_app, request
-from flask_restx import Namespace, Resource, fields
+from flask_restx import Model, Namespace, OrderedModel, Resource, fields
 
 from app.utils.current_datetime import get_current_datetime
 
@@ -14,7 +14,7 @@ from app.utils.current_datetime import get_current_datetime
 api = Namespace("system", description="System information and operations")
 
 # Define API models
-health_model = api.model(
+health_model: Model | OrderedModel = api.model(
     "Health",
     {
         "status": fields.String(description="System status"),
@@ -22,7 +22,7 @@ health_model = api.model(
     },
 )
 
-info_model = api.model(
+info_model: Model | OrderedModel = api.model(
     "SystemInfo",
     {
         "python_version": fields.String(description="Python version"),
@@ -32,7 +32,7 @@ info_model = api.model(
     },
 )
 
-websocket_test_model = api.model(
+websocket_test_model: Model | OrderedModel = api.model(
     "WebSocketTest",
     {
         "status": fields.String(description="Test status"),
@@ -42,7 +42,7 @@ websocket_test_model = api.model(
 )
 
 # Define WebSocket documentation model
-websocket_event_model = api.model(
+websocket_event_model: Model | OrderedModel = api.model(
     "WebSocketEvent",
     {
         "name": fields.String(description="Event name"),
@@ -55,7 +55,7 @@ websocket_event_model = api.model(
     },
 )
 
-websocket_room_model = api.model(
+websocket_room_model: Model | OrderedModel = api.model(
     "WebSocketRoom",
     {
         "name": fields.String(description="Room name"),
@@ -67,7 +67,7 @@ websocket_room_model = api.model(
     },
 )
 
-websocket_docs_model = api.model(
+websocket_docs_model: Model | OrderedModel = api.model(
     "WebSocketDocs",
     {
         "events": fields.List(
@@ -88,7 +88,7 @@ class Health(Resource):
 
     @api.doc("get_health")
     @api.marshal_with(health_model)
-    def get(self):
+    def get(self) -> dict[str, any]:
         """Get the current system health status."""
         return {"status": "ok", "timestamp": get_current_datetime()}
 
@@ -99,7 +99,7 @@ class SystemInfo(Resource):
 
     @api.doc("get_system_info")
     @api.marshal_with(info_model)
-    def get(self):
+    def get(self) -> dict[str, any]:
         """Get system information."""
         return {
             "python_version": sys.version.split()[0],
@@ -115,10 +115,10 @@ class WebSocketTest(Resource):
 
     @api.doc("test_websocket")
     @api.marshal_with(websocket_test_model)
-    def post(self):
+    def post(self) -> dict[str, any]:
         """Test WebSocket functionality by emitting an event."""
-        message = (request.json or {}).get("message", "Test WebSocket message")
-        timestamp = get_current_datetime()
+        message: str = (request.json or {}).get("message", "Test WebSocket message")
+        timestamp: str = get_current_datetime().isoformat()
 
         # Use EventService to emit the test event
         from app.services.events import EventService
@@ -141,57 +141,74 @@ class WebSocketDocs(Resource):
 
     @api.doc("get_websocket_docs")
     @api.marshal_with(websocket_docs_model)
-    def get(self):
+    def get(self) -> dict[str, any]:
         """Get documentation for WebSocket events and rooms."""
         # Document all WebSocket events
-        events = [
+        events: list[dict[str, any]] = [
             {
                 "name": "service_update",
-                "description": "Emitted when a trading service is created, updated, or deleted",
+                "description": (
+                    "Emitted when a trading service is created, updated, or deleted"
+                ),
                 "direction": "server-to-client",
-                "payload": '{"action": "created|updated|deleted|toggled", "service": {...}}',
+                "payload": (
+                    '{"action": "created|updated|deleted|toggled", "service": {...}}'
+                ),
                 "rooms": ["services", "service_{id}"],
             },
             {
                 "name": "user_update",
-                "description": "Emitted when a user is created, updated, or has status changed",
+                "description": (
+                    "Emitted when a user is created, updated, or has status changed"
+                ),
                 "direction": "server-to-client",
-                "payload": '{"action": "created|updated|activated|deactivated", "user": {...}}',
+                "payload": (
+                    '{"action": "created|updated|activated|deactivated", "user": {...}}'
+                ),
                 "rooms": ["users", "user_{id}"],
             },
             {
                 "name": "transaction_update",
-                "description": "Emitted when a transaction is created or completed",
+                "description": ("Emitted when a transaction is created or completed"),
                 "direction": "server-to-client",
-                "payload": '{"action": "created|completed", "transaction": {...}}',
+                "payload": ('{"action": "created|completed", "transaction": {...}}'),
                 "rooms": ["transactions"],
             },
             {
                 "name": "price_update",
                 "description": "Emitted when new price data is available",
                 "direction": "server-to-client",
-                "payload": '{"type": "daily|intraday", "stock_symbol": "...", "stock_id": 1, ...}',
+                "payload": (
+                    '{"type": "daily|intraday", '
+                    '"stock_symbol": "...", '
+                    '"stock_id": 1, ...}'
+                ),
                 "rooms": ["price_updates"],
             },
             {
                 "name": "test",
                 "description": "Test event for verifying WebSocket connectivity",
                 "direction": "server-to-client",
-                "payload": '{"message": "...", "type": "test_event", "timestamp": "..."}',
+                "payload": (
+                    '{"message": "...", "type": "test_event", "timestamp": "..."}'
+                ),
                 "rooms": ["test"],
             },
             {
                 "name": "data_feed",
                 "description": "Consolidated data feed for multiple event types",
                 "direction": "server-to-client",
-                "payload": '{"type": "price_update|stock_update", "data": {...}}',
+                "payload": ('{"type": "price_update|stock_update", "data": {...}}'),
                 "rooms": ["data_feeds"],
             },
             {
                 "name": "error",
                 "description": "Emitted when an error occurs during event processing",
                 "direction": "server-to-client",
-                "payload": '{"error": true, "code": 400, "message": "...", "timestamp": "...", "details": {...}}',
+                "payload": (
+                    '{"error": true, "code": 400, "message": "...", '
+                    '"timestamp": "...", "details": {...}}'
+                ),
                 "rooms": ["errors"],
             },
             {
@@ -211,7 +228,7 @@ class WebSocketDocs(Resource):
         ]
 
         # Document all rooms
-        rooms = [
+        rooms: list[dict[str, any]] = [
             {
                 "name": "service_{id}",
                 "description": "Room for updates about a specific trading service",
