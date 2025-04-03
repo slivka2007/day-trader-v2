@@ -53,6 +53,56 @@ class APIError(Exception):
 class ValidationError(APIError):
     """Error raised when validation fails."""
 
+    # Common validation error messages
+    FIELD_REQUIRED: str = "Field '{}' is required"
+    USERNAME_EXISTS: str = "Username '{}' already exists"
+    EMAIL_EXISTS: str = "Email '{}' already exists"
+    INVALID_PASSWORD: str = "Current password is incorrect"  # noqa: S105
+    CREATE_USER_ERROR: str = "Could not create user: {}"
+    UPDATE_USER_ERROR: str = "Could not update user: {}"
+    TOGGLE_STATUS_ERROR: str = "Could not toggle user status: {}"
+    GRANT_ADMIN_ERROR: str = "Could not grant admin privileges: {}"
+    DELETE_USER_ERROR: str = "Could not delete user: {}"
+    CHANGE_PASSWORD_ERROR: str = "Could not change password: {}"  # noqa: S105
+
+    # User validation specific messages
+    INVALID_USERNAME: str = "Invalid username format"
+    PASSWORD_NUMBER: str = "Password requires a number"  # noqa: S105
+    PASSWORD_UPPER: str = "Password requires uppercase"  # noqa: S105
+    PASSWORD_LOWER: str = "Password requires lowercase"  # noqa: S105
+    PASSWORD_SPECIAL: str = "Password requires special char"  # noqa: S105
+    PASSWORDS_MISMATCH: str = "Passwords do not match"
+    MUST_CONFIRM: str = "Must confirm deletion"
+    USER_NOT_FOUND: str = "User not found"
+    ACTIVE_SERVICES: str = "Cannot delete: active services"
+    INVALID_CREDENTIALS: str = "Invalid username or password"
+
+    # Transaction validation specific messages
+    SHARES_POSITIVE: str = "Shares must be greater than zero"
+    PRICE_POSITIVE: str = "Purchase price must be greater than zero"
+    INSUFFICIENT_FUNDS: str = (
+        "Insufficient funds. Required: ${:.2f}, Available: ${:.2f}"
+    )
+    SERVICE_NOT_BUYING: str = (
+        "Service is not in a state that allows buying (current state: {}, mode: {})"
+    )
+    SERVICE_NOT_FOUND: str = "Trading service with ID {} not found"
+    TRANSACTION_NOT_FOUND: str = "Transaction with ID {} not found"
+    TRANSACTION_NOT_OPEN: str = (
+        "Transaction cannot be completed because it is not open (current state: {})"
+    )
+    CANNOT_DELETE_OPEN: str = "Cannot delete an open transaction. Cancel it first."
+    TRANSACTION_NOT_CANCELLABLE: str = (
+        "Transaction cannot be cancelled because it is in state: {}"
+    )
+    INVALID_STATE: str = "Invalid transaction state: {}"
+    USER_NOT_OWNER: str = "User {} does not own the service for transaction {}"
+    CREATE_BUY_ERROR: str = "Could not create buy transaction: {}"
+    COMPLETE_ERROR: str = "Could not complete transaction: {}"
+    CANCEL_ERROR: str = "Could not cancel transaction: {}"
+    DELETE_ERROR: str = "Could not delete transaction: {}"
+    UPDATE_NOTES_ERROR: str = "Could not update transaction notes: {}"
+
     def __init__(
         self,
         message: str,
@@ -70,8 +120,90 @@ class ValidationError(APIError):
         super().__init__(message, status_code, {"validation_errors": errors or {}})
 
 
+class UserError(ValidationError):
+    """Errors specific to user model and operations."""
+
+    # User model validation errors
+    USERNAME_REQUIRED: str = "Username is required"
+    USERNAME_LENGTH: str = "Username must be between {} and {} characters"
+    USERNAME_FORMAT: str = (
+        "Username can only contain letters, numbers, underscores, and hyphens"
+    )
+    EMAIL_REQUIRED: str = "Email is required"
+    EMAIL_FORMAT: str = "Invalid email format"
+    PASSWORD_REQUIRED: str = "Password is required"  # noqa: S105
+    PASSWORD_LENGTH: str = "Password must be at least {} characters"
+    PASSWORD_COMPLEXITY: str = (
+        "Password must contain at least one uppercase letter, "  # noqa: S105
+        "one lowercase letter, and one digit"
+    )
+    PASSWORD_NOT_READABLE: str = "Password is not a readable attribute"  # noqa: S105
+
+
+class StockError(ValidationError):
+    """Errors specific to stock model and operations."""
+
+    # Stock model validation errors
+    SYMBOL_REQUIRED: str = "Stock symbol is required"
+    SYMBOL_LENGTH: str = "Stock symbol must be {} characters or less"
+
+
+class StockPriceError(ValidationError):
+    """Errors specific to stock price models and operations."""
+
+    # Stock price validation errors (common)
+    INVALID_SOURCE: str = "Invalid price source: {}"
+
+    # Intraday price validation errors
+    FUTURE_TIMESTAMP: str = "Timestamp cannot be in the future: {}"
+    INVALID_INTERVAL: str = "Invalid interval {}. Must be one of: 1, 5, 15, 30, 60"
+
+    # Daily price validation errors
+    FUTURE_DATE: str = "Price date cannot be in the future: {}"
+    NEGATIVE_PRICE: str = "{} cannot be negative"
+    HIGH_LOW_PRICE: str = "High price cannot be less than low price"
+    LOW_HIGH_PRICE: str = "Low price cannot be greater than high price"
+
+
+class TransactionError(ValidationError):
+    """Errors specific to trading transaction model and operations."""
+
+    # Transaction model validation errors
+    SYMBOL_REQUIRED: str = "Stock symbol is required"
+    INVALID_STATE: str = "Invalid transaction state: {}"
+    SHARES_POSITIVE: str = "Shares must be greater than zero"
+
+
+class TradingServiceError(ValidationError):
+    """Errors specific to the trading service module."""
+
+    # Trading service validation error messages
+    INITIAL_BALANCE: str = "Initial balance must be greater than zero"
+    REQUIRED_FIELD: str = "Field '{}' is required"
+    INSUFFICIENT_PRICE_DATA: str = "Not enough price data for stock {} to backtest"
+    CREATE_SERVICE: str = "Could not create trading service: {}"
+    UPDATE_SERVICE: str = "Could not update trading service: {}"
+    BACKTEST_FAILED: str = "Backtest failed: {}"
+    NO_SELL_NO_SHARES: str = "Cannot set mode to SELL when no shares are held"
+    NO_BUY_MIN_BALANCE: str = (
+        "Cannot set mode to BUY when balance is at or below minimum"
+    )
+    DELETE_WITH_TRANSACTIONS: str = (
+        "Cannot delete trading service with active transactions. Cancel or complete them "
+        "first."
+    )
+    # Additional trading service validation errors
+    SYMBOL_REQUIRED: str = "Stock symbol is required"
+    INVALID_STATE: str = "Invalid service state: {}"
+    INVALID_MODE: str = "Invalid trading mode: {}"
+    ALLOCATION_PERCENT: str = "Allocation percent must be between 0 and {}"
+
+
 class AuthorizationError(APIError):
     """Error raised for authorization/permission issues."""
+
+    # Common authorization error messages
+    ADMIN_ONLY = "Only admins can grant admin privileges"
 
     def __init__(
         self,
@@ -93,6 +225,9 @@ class AuthorizationError(APIError):
 class ResourceNotFoundError(APIError):
     """Error raised when a requested resource is not found."""
 
+    # Error message template
+    NOT_FOUND = "{} with ID {} not found"
+
     def __init__(
         self,
         resource_type: str,
@@ -109,7 +244,7 @@ class ResourceNotFoundError(APIError):
             payload: Additional error context
 
         """
-        message: str = f"{resource_type} with ID {resource_id} not found"
+        message: str = self.NOT_FOUND.format(resource_type, resource_id)
         payload_data: dict[str, any] = {
             "resource_type": resource_type,
             "resource_id": resource_id,

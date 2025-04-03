@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, relationship, validates
 from app.models.base import Base
 from app.models.enums import PriceSource
 from app.utils.current_datetime import get_current_date
+from app.utils.errors import StockPriceError
 
 if TYPE_CHECKING:
     from datetime import date
@@ -51,13 +52,6 @@ class StockDailyPrice(Base):
     """
 
     __tablename__: str = "stock_daily_prices"
-
-    # Error messages
-    ERR_INVALID_SOURCE: str = "Invalid price source: {}"
-    ERR_FUTURE_DATE: str = "Price date cannot be in the future: {}"
-    ERR_NEGATIVE_PRICE: str = "{} cannot be negative"
-    ERR_HIGH_LOW_PRICE: str = "High price cannot be less than low price"
-    ERR_LOW_HIGH_PRICE: str = "Low price cannot be greater than high price"
 
     # Foreign keys and date
     stock_id: Mapped[int] = Column(Integer, ForeignKey("stocks.id"), nullable=False)
@@ -91,21 +85,21 @@ class StockDailyPrice(Base):
     def validate_source(self, source: str) -> str:
         """Validate price source."""
         if source and not PriceSource.is_valid(source):
-            raise ValueError(self.ERR_INVALID_SOURCE.format(source))
+            raise ValueError(StockPriceError.INVALID_SOURCE.format(source))
         return source
 
     @validates("price_date")
     def validate_price_date(self, price_date: date) -> date:
         """Validate price date is not in the future."""
         if price_date and price_date > get_current_date():
-            raise ValueError(self.ERR_FUTURE_DATE.format(price_date))
+            raise ValueError(StockPriceError.FUTURE_DATE.format(price_date))
         return price_date
 
     @validates("high_price", "low_price", "open_price", "close_price", "adj_close")
     def validate_prices(self, _key: str, value: float) -> float:
         """Validate price values."""
         if value is not None and value < 0:
-            raise ValueError(self.ERR_NEGATIVE_PRICE.format(_key))
+            raise ValueError(StockPriceError.NEGATIVE_PRICE.format(_key))
 
         # Check high_price >= low_price if both are being set
         if (
@@ -114,7 +108,7 @@ class StockDailyPrice(Base):
             and self.low_price is not None
             and value < self.low_price
         ):
-            raise ValueError(self.ERR_HIGH_LOW_PRICE)
+            raise ValueError(StockPriceError.HIGH_LOW_PRICE)
 
         if (
             _key == "low_price"
@@ -122,7 +116,7 @@ class StockDailyPrice(Base):
             and self.high_price is not None
             and value > self.high_price
         ):
-            raise ValueError(self.ERR_LOW_HIGH_PRICE)
+            raise ValueError(StockPriceError.LOW_HIGH_PRICE)
 
         return value
 

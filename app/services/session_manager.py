@@ -32,7 +32,9 @@ class SessionManager:
 
     Example:
         with SessionManager() as session:
-            user = session.query(User).filter_by(username='johndoe').first()
+            user = session.execute(
+                select(User).where(User.username == "johndoe"),
+            ).scalar_one_or_none()
             user.last_login = datetime.now()
 
     """

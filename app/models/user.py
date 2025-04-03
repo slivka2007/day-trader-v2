@@ -13,6 +13,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.models.base import Base
 from app.utils.current_datetime import get_current_datetime
+from app.utils.errors import UserError
 
 if TYPE_CHECKING:
     from app.models.trading_service import TradingService
@@ -41,27 +42,6 @@ class User(Base):
     MIN_USERNAME_LENGTH: int = 3
     MAX_USERNAME_LENGTH: int = 50
     MIN_PASSWORD_LENGTH: int = 8
-
-    # Error messages
-    ERR_USERNAME_REQUIRED: str = "Username is required"
-    ERR_USERNAME_LENGTH: str = (
-        f"Username must be between {MIN_USERNAME_LENGTH} and "
-        f"{MAX_USERNAME_LENGTH} characters"
-    )
-    ERR_USERNAME_FORMAT: str = (
-        "Username can only contain letters, numbers, underscores, and hyphens"
-    )
-    ERR_EMAIL_REQUIRED: str = "Email is required"
-    ERR_EMAIL_FORMAT: str = "Invalid email format"
-    ERR_PASSWORD_REQUIRED: str = "Password is required"  # noqa: S105
-    ERR_PASSWORD_LENGTH: str = (
-        f"Password must be at least {MIN_PASSWORD_LENGTH} characters"
-    )
-    ERR_PASSWORD_COMPLEXITY: str = (
-        "Password must contain at least one uppercase letter, "  # noqa: S105
-        "one lowercase letter, and one digit"
-    )
-    ERR_PASSWORD_NOT_READABLE: str = "Password is not a readable attribute"  # noqa: S105
 
     id: Mapped[int] = Column(Integer, primary_key=True)
     username: Mapped[str] = Column(
@@ -92,46 +72,51 @@ class User(Base):
     def validate_username(self, username: str) -> str:
         """Validate username."""
         if not username:
-            raise ValueError(self.ERR_USERNAME_REQUIRED)
+            raise ValueError(UserError.USERNAME_REQUIRED)
         if (
             len(username) < self.MIN_USERNAME_LENGTH
             or len(username) > self.MAX_USERNAME_LENGTH
         ):
-            raise ValueError(self.ERR_USERNAME_LENGTH)
+            raise ValueError(
+                UserError.USERNAME_LENGTH.format(
+                    self.MIN_USERNAME_LENGTH,
+                    self.MAX_USERNAME_LENGTH,
+                ),
+            )
         # Check username format
         if not re.match(r"^[a-zA-Z0-9_-]+$", username):
-            raise ValueError(self.ERR_USERNAME_FORMAT)
+            raise ValueError(UserError.USERNAME_FORMAT)
         return username
 
     @validates("email")
     def validate_email(self, email: str) -> str:
         """Validate email."""
         if not email:
-            raise ValueError(self.ERR_EMAIL_REQUIRED)
+            raise ValueError(UserError.EMAIL_REQUIRED)
         # More comprehensive email validation
         if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
-            raise ValueError(self.ERR_EMAIL_FORMAT)
+            raise ValueError(UserError.EMAIL_FORMAT)
         return email
 
     @property
     def password(self) -> str:
         """Password getter."""
-        raise AttributeError(self.ERR_PASSWORD_NOT_READABLE)
+        raise AttributeError(UserError.PASSWORD_NOT_READABLE)
 
     @password.setter
     def password(self, password: str) -> None:
         """Password setter - hash the password."""
         if not password:
-            raise ValueError(self.ERR_PASSWORD_REQUIRED)
+            raise ValueError(UserError.PASSWORD_REQUIRED)
         if len(password) < self.MIN_PASSWORD_LENGTH:
-            raise ValueError(self.ERR_PASSWORD_LENGTH)
+            raise ValueError(UserError.PASSWORD_LENGTH.format(self.MIN_PASSWORD_LENGTH))
         # More advanced password validation
         if not (
             any(c.isupper() for c in password)
             and any(c.islower() for c in password)
             and any(c.isdigit() for c in password)
         ):
-            raise ValueError(self.ERR_PASSWORD_COMPLEXITY)
+            raise ValueError(UserError.PASSWORD_COMPLEXITY)
         self.password_hash = generate_password_hash(password)
 
     def verify_password(self, password: str) -> bool:

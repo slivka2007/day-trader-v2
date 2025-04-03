@@ -1,6 +1,4 @@
-"""
-Trading Transaction model schemas.
-"""
+"""Trading Transaction model schemas."""
 
 from typing import Literal
 
@@ -32,10 +30,12 @@ class TradingTransactionSchema(SQLAlchemyAutoSchema):
     # Add calculated fields that may be useful in the UI
     total_cost: fields.Method = fields.Method("calculate_total_cost", dump_only=True)
     total_revenue: fields.Method = fields.Method(
-        "calculate_total_revenue", dump_only=True
+        "calculate_total_revenue",
+        dump_only=True,
     )
     profit_loss_pct: fields.Method = fields.Method(
-        "calculate_profit_loss_pct", dump_only=True
+        "calculate_profit_loss_pct",
+        dump_only=True,
     )
 
     def calculate_total_cost(self, obj: TradingTransaction) -> float:
@@ -54,7 +54,7 @@ class TradingTransactionSchema(SQLAlchemyAutoSchema):
         """Calculate the profit/loss as a percentage."""
         if obj.purchase_price and obj.sale_price and obj.purchase_price > 0:
             return float(
-                ((obj.sale_price - obj.purchase_price) / obj.purchase_price) * 100
+                ((obj.sale_price - obj.purchase_price) / obj.purchase_price) * 100,
             )
         return 0.0
 
@@ -92,7 +92,7 @@ class TradingTransactionSchema(SQLAlchemyAutoSchema):
             valid_states: list[str] = TransactionState.values()
             raise ValidationError(
                 f"Invalid transaction state: {value}. Valid states are: "
-                f"{', '.join(valid_states)}"
+                f"{', '.join(valid_states)}",
             )
 
 
@@ -106,7 +106,8 @@ class TransactionCompleteSchema(Schema):
     """Schema for completing (selling) a transaction."""
 
     sale_price: fields.Float = fields.Float(
-        required=True, validate=validate.Range(min=0.01)
+        required=True,
+        validate=validate.Range(min=0.01),
     )
 
     @validates("sale_price")
@@ -120,7 +121,6 @@ class TransactionCompleteSchema(Schema):
         """Validate the transaction is in a state where it can be completed."""
         # This validation could be performed if the transaction_id was passed
         # Since it's handled in the resource, we don't need additional validation here
-        pass
 
 
 # Schema for creating a new buy transaction
@@ -129,13 +129,16 @@ class TransactionCreateSchema(Schema):
 
     service_id: fields.Integer = fields.Integer(required=True)
     stock_symbol: fields.String = fields.String(
-        required=True, validate=validate.Length(min=1, max=10)
+        required=True,
+        validate=validate.Length(min=1, max=10),
     )
     shares: fields.Float = fields.Float(
-        required=True, validate=validate.Range(min=0.01)
+        required=True,
+        validate=validate.Range(min=0.01),
     )
     purchase_price: fields.Float = fields.Float(
-        required=True, validate=validate.Range(min=0.01)
+        required=True,
+        validate=validate.Range(min=0.01),
     )
 
     @validates("stock_symbol")
@@ -154,13 +157,13 @@ class TransactionCreateSchema(Schema):
 
         with SessionManager() as session:
             service: TradingService | None = session.execute(
-                select(TradingService).where(TradingService.id == data["service_id"])
+                select(TradingService).where(TradingService.id == data["service_id"]),
             ).scalar_one_or_none()
             if not service:
                 raise ValidationError("Service not found")
             if not service.can_buy:
                 raise ValidationError(
-                    "Service cannot make purchases in its current state"
+                    "Service cannot make purchases in its current state",
                 )
 
             # If stock symbol not provided, use the one from service
@@ -173,7 +176,8 @@ class TransactionCancelSchema(Schema):
     """Schema for cancelling a transaction."""
 
     reason: fields.String = fields.String(
-        required=False, validate=validate.Length(max=500)
+        required=False,
+        validate=validate.Length(max=500),
     )
 
     @validates_schema
@@ -182,7 +186,6 @@ class TransactionCancelSchema(Schema):
         # This validation is handled in the model's cancel_transaction method
         # The transaction_id is part of the resource URL path, so we don't need to
         # validate it here
-        pass
 
 
 # Schema for deleting a transaction
@@ -202,8 +205,8 @@ class TransactionDeleteSchema(Schema):
         with SessionManager() as session:
             transaction: TradingTransaction | None = session.execute(
                 select(TradingTransaction).where(
-                    TradingTransaction.id == data["transaction_id"]
-                )
+                    TradingTransaction.id == data["transaction_id"],
+                ),
             ).scalar_one_or_none()
             if not transaction:
                 raise ValidationError("Transaction not found")

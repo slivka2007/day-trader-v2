@@ -11,6 +11,7 @@ from sqlalchemy import Boolean, Column, String
 from sqlalchemy.orm import Mapped, relationship, validates
 
 from app.models.base import Base
+from app.utils.errors import StockError
 
 if TYPE_CHECKING:
     from app.models.stock_daily_price import StockDailyPrice
@@ -43,12 +44,6 @@ class Stock(Base):
 
     # Constants
     MAX_SYMBOL_LENGTH: int = 10
-
-    # Error messages
-    ERR_SYMBOL_REQUIRED: str = "Stock symbol is required"
-    ERR_SYMBOL_LENGTH: str = (
-        f"Stock symbol must be {MAX_SYMBOL_LENGTH} characters or less"
-    )
 
     # Basic information
     symbol: Mapped[str] = Column(
@@ -92,13 +87,13 @@ class Stock(Base):
     def validate_symbol(self, symbol: str) -> str:
         """Validate stock symbol."""
         if not symbol:
-            raise ValueError(self.ERR_SYMBOL_REQUIRED)
+            raise ValueError(StockError.SYMBOL_REQUIRED)
 
         # Convert to uppercase
         symbol: str = symbol.strip().upper()
 
         if len(symbol) > self.MAX_SYMBOL_LENGTH:
-            raise ValueError(self.ERR_SYMBOL_LENGTH)
+            raise ValueError(StockError.SYMBOL_LENGTH.format(self.MAX_SYMBOL_LENGTH))
 
         return symbol
 

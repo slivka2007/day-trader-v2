@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, relationship, validates
 from app.models.base import Base
 from app.models.enums import PriceSource
 from app.utils.current_datetime import get_current_datetime
+from app.utils.errors import StockPriceError
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -52,10 +53,7 @@ class StockIntradayPrice(Base):
 
     __tablename__: str = "stock_intraday_prices"
 
-    # Error messages
-    ERR_INVALID_SOURCE: str = "Invalid price source: {}"
-    ERR_FUTURE_TIMESTAMP: str = "Timestamp cannot be in the future: {}"
-    ERR_INVALID_INTERVAL: str = "Invalid interval {}. Must be one of: 1, 5, 15, 30, 60"
+    # Constants for valid interval values
     VALID_INTERVALS: ClassVar[list[int]] = [1, 5, 15, 30, 60]
 
     # Foreign keys and timestamp
@@ -95,21 +93,21 @@ class StockIntradayPrice(Base):
     def validate_source(self, source: str) -> str:
         """Validate price source."""
         if source and not PriceSource.is_valid(source):
-            raise ValueError(self.ERR_INVALID_SOURCE.format(source))
+            raise ValueError(StockPriceError.INVALID_SOURCE.format(source))
         return source
 
     @validates("timestamp")
     def validate_timestamp(self, timestamp: datetime) -> datetime:
         """Validate timestamp is not in the future."""
         if timestamp and timestamp > get_current_datetime():
-            raise ValueError(self.ERR_FUTURE_TIMESTAMP.format(timestamp))
+            raise ValueError(StockPriceError.FUTURE_TIMESTAMP.format(timestamp))
         return timestamp
 
     @validates("interval")
     def validate_interval(self, interval: int) -> int:
         """Validate interval is one of the valid values."""
         if interval not in self.VALID_INTERVALS:
-            raise ValueError(self.ERR_INVALID_INTERVAL.format(interval))
+            raise ValueError(StockPriceError.INVALID_INTERVAL.format(interval))
         return interval
 
     def __repr__(self) -> str:

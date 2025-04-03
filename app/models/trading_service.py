@@ -12,6 +12,7 @@ from sqlalchemy.orm import Mapped, relationship, validates
 
 from app.models.base import Base
 from app.models.enums import ServiceState, TradingMode
+from app.utils.errors import TradingServiceError
 
 if TYPE_CHECKING:
     from app.models.stock import Stock
@@ -48,15 +49,6 @@ class TradingService(Base):
 
     # Constants
     MAX_ALLOCATION_PERCENT: float = 100.0
-
-    # Error messages
-    ERR_SYMBOL_REQUIRED: str = "Stock symbol is required"
-    ERR_INVALID_STATE: str = "Invalid service state: {}"
-    ERR_INVALID_MODE: str = "Invalid trading mode: {}"
-    ERR_INITIAL_BALANCE: str = "Initial balance must be greater than 0"
-    ERR_ALLOCATION_PERCENT: str = (
-        f"Allocation percent must be between 0 and {MAX_ALLOCATION_PERCENT}"
-    )
 
     id: Mapped[int] = Column(Integer, primary_key=True)
     user_id: Mapped[int] = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -124,35 +116,39 @@ class TradingService(Base):
     def validate_stock_symbol(self, symbol: str) -> str:
         """Validate stock symbol."""
         if not symbol:
-            raise ValueError(self.ERR_SYMBOL_REQUIRED)
+            raise ValueError(TradingServiceError.SYMBOL_REQUIRED)
         return symbol.strip().upper()
 
     @validates("state")
     def validate_state(self, state: str) -> str:
         """Validate service state."""
         if state and not ServiceState.is_valid(state):
-            raise ValueError(self.ERR_INVALID_STATE.format(state))
+            raise ValueError(TradingServiceError.INVALID_STATE.format(state))
         return state
 
     @validates("mode")
     def validate_mode(self, mode: str) -> str:
         """Validate trading mode."""
         if mode and not TradingMode.is_valid(mode):
-            raise ValueError(self.ERR_INVALID_MODE.format(mode))
+            raise ValueError(TradingServiceError.INVALID_MODE.format(mode))
         return mode
 
     @validates("initial_balance")
     def validate_initial_balance(self, value: float) -> float:
         """Validate initial balance is positive."""
         if value is not None and value <= 0:
-            raise ValueError(self.ERR_INITIAL_BALANCE)
+            raise ValueError(TradingServiceError.INITIAL_BALANCE)
         return value
 
     @validates("allocation_percent")
     def validate_allocation_percent(self, value: float) -> float:
         """Validate allocation percent is between 0 and MAX_ALLOCATION_PERCENT."""
         if value is not None and (value < 0 or value > self.MAX_ALLOCATION_PERCENT):
-            raise ValueError(self.ERR_ALLOCATION_PERCENT)
+            raise ValueError(
+                TradingServiceError.ALLOCATION_PERCENT.format(
+                    self.MAX_ALLOCATION_PERCENT,
+                ),
+            )
         return value
 
     def __repr__(self) -> str:

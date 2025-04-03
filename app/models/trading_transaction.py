@@ -13,6 +13,7 @@ from sqlalchemy.orm import Mapped, relationship, validates
 from app.models.base import Base
 from app.models.enums import TransactionState
 from app.utils.current_datetime import get_current_datetime
+from app.utils.errors import TransactionError
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -45,11 +46,6 @@ class TradingTransaction(Base):
     """
 
     __tablename__: str = "trading_transactions"
-
-    # Error messages
-    ERR_SYMBOL_REQUIRED: str = "Stock symbol is required"
-    ERR_INVALID_STATE: str = "Invalid transaction state: {}"
-    ERR_SHARES_POSITIVE: str = "Shares must be greater than zero"
 
     id: Mapped[int] = Column(Integer, primary_key=True)
     service_id: Mapped[int] = Column(
@@ -97,21 +93,21 @@ class TradingTransaction(Base):
     def validate_stock_symbol(self, symbol: str) -> str:
         """Validate stock symbol."""
         if not symbol:
-            raise ValueError(self.ERR_SYMBOL_REQUIRED)
+            raise ValueError(TransactionError.SYMBOL_REQUIRED)
         return symbol.strip().upper()
 
     @validates("state")
     def validate_state(self, state: str) -> str:
         """Validate transaction state."""
         if state and not TransactionState.is_valid(state):
-            raise ValueError(self.ERR_INVALID_STATE.format(state))
+            raise ValueError(TransactionError.INVALID_STATE.format(state))
         return state
 
     @validates("shares")
     def validate_shares(self, shares: float) -> float:
         """Validate shares amount."""
         if shares is not None and shares <= 0:
-            raise ValueError(self.ERR_SHARES_POSITIVE)
+            raise ValueError(TransactionError.SHARES_POSITIVE)
         return shares
 
     def __repr__(self) -> str:

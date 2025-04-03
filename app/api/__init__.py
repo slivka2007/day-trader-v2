@@ -1,14 +1,19 @@
-"""
-REST API package for the Day Trader application.
+"""REST API package for the Day Trader application.
 
 This package contains all the API resources, models, and schemas for the application.
 """
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Query
 
 from flask import Blueprint, Flask, request
 from flask_restx import Api
 from flask_restx.errors import ValidationError
 from flask_socketio import SocketIO
-from sqlalchemy.orm import Query
 
 from app.api.resources import register_resources
 
@@ -37,8 +42,7 @@ api: Api = Api(
 
 # Pagination and filtering utilities
 def apply_pagination(query: Query, default_page_size: int = 20) -> dict:
-    """
-    Apply pagination to a SQLAlchemy query.
+    """Apply pagination to a SQLAlchemy query.
 
     Args:
         query: The SQLAlchemy query to paginate
@@ -46,13 +50,13 @@ def apply_pagination(query: Query, default_page_size: int = 20) -> dict:
 
     Returns:
         dict: Contains paginated results and metadata
+
     """
     page: int = request.args.get("page", 1, type=int)
     page_size: int = request.args.get("page_size", default_page_size, type=int)
 
     # Limit page size to avoid overloading
-    if page_size > 100:
-        page_size = 100
+    page_size = min(page_size, 100)
 
     # Calculate offset
     offset: int = (page - 1) * page_size
@@ -77,72 +81,83 @@ def apply_pagination(query: Query, default_page_size: int = 20) -> dict:
     return {"items": items, "pagination": pagination}
 
 
-def apply_filters(query: Query, model: any, filter_args: dict | None = None) -> Query:
-    """
-    Apply filters to a SQLAlchemy query based on request arguments.
+def _apply_range_filter(
+    query: Query,
+    model: any,
+    key: str,
+    value: any,
+    suffix: str,
+) -> Query:
+    """Apply range-based filters (min, max, before, after)."""
+    base_key: str = key[: -len(suffix)]
+    if hasattr(model, base_key):
+        column: any = getattr(model, base_key)
+        if suffix in ("_min", "_after"):
+            return query.filter(column >= value)
+        if suffix in ("_max", "_before"):
+            return query.filter(column <= value)
+    return query
 
-    Args:
-        query: The SQLAlchemy query to filter
-        model: The model class being queried
-        filter_args: Optional dictionary of filter arguments
 
-    Returns:
-        Query: Filtered SQLAlchemy query
-    """
-    # Use request args if no filter_args provided
-    filters: dict[str, any] = filter_args or request.args
+def _apply_like_filter(query: Query, model: any, key: str, value: any) -> Query:
+    """Apply LIKE filter for text search."""
+    base_key: str = key[:-5]  # Remove '_like' suffix
+    if hasattr(model, base_key):
+        column: any = getattr(model, base_key)
+        return query.filter(column.ilike(f"%{value}%"))
+    return query
 
-    # Apply filters for columns that exist in the model
-    for key, value in filters.items():
-        # Skip pagination and sorting parameters
-        if key in ["page", "page_size", "sort", "order"]:
-            continue
 
-        # Check if the column exists in the model
-        if hasattr(model, key):
-            column: any = getattr(model, key)
-
-            # Special handling for specific filters
-            if key.endswith("_min"):
-                base_key: str = key[:-4]  # Remove '_min' suffix
-                if hasattr(model, base_key):
-                    column: any = getattr(model, base_key)
-                    query = query.filter(column >= value)
-            elif key.endswith("_max"):
-                base_key = key[:-4]  # Remove '_max' suffix
-                if hasattr(model, base_key):
-                    column: any = getattr(model, base_key)
-                    query = query.filter(column <= value)
-            elif key.endswith("_after"):
-                base_key: str = key[:-6]  # Remove '_after' suffix
-                if hasattr(model, base_key):
-                    column: any = getattr(model, base_key)
-                    query = query.filter(column >= value)
-            elif key.endswith("_before"):
-                base_key: str = key[:-7]  # Remove '_before' suffix
-                if hasattr(model, base_key):
-                    column: any = getattr(model, base_key)
-                    query = query.filter(column <= value)
-            elif key.endswith("_like"):
-                base_key: str = key[:-5]  # Remove '_like' suffix
-                if hasattr(model, base_key):
-                    column: any = getattr(model, base_key)
-                    query = query.filter(column.ilike(f"%{value}%"))
-            else:
-                # Default exact match
-                query = query.filter(column == value)
-
-    # Apply sorting if requested
-    sort_column: str | None = request.args.get("sort")
-    sort_order: str = request.args.get("order", "asc")
-
+def _apply_sorting(
+    query: Query,
+    model: any,
+    sort_column: str | None,
+    sort_order: str,
+) -> Query:
+    """Apply sorting to query."""
     if sort_column and hasattr(model, sort_column):
         column: any = getattr(model, sort_column)
         if sort_order.lower() == "desc":
             column = column.desc()
-        query = query.order_by(column)
-
+        return query.order_by(column)
     return query
+
+
+def apply_filters(query: Query, model: any, filter_args: dict | None = None) -> Query:
+    """Apply filters to a SQLAlchemy query based on request arguments."""
+    filters: dict[str, any] = filter_args or request.args
+
+    for key, value in filters.items():
+        if key in ["page", "page_size", "sort", "order"]:
+            continue
+
+        if not hasattr(model, key):
+            continue
+
+        if key.endswith(("_min", "_max", "_after", "_before")):
+            query = _apply_range_filter(
+                query,
+                model,
+                key,
+                value,
+                key[-4:]
+                if key.endswith(("_min", "_max"))
+                else key[-6:]
+                if key.endswith("_after")
+                else key[-7:],
+            )
+        elif key.endswith("_like"):
+            query = _apply_like_filter(query, model, key, value)
+        else:
+            column = getattr(model, key)
+            query = query.filter(column == value)
+
+    return _apply_sorting(
+        query,
+        model,
+        request.args.get("sort"),
+        request.args.get("order", "asc"),
+    )
 
 
 register_resources(api)
@@ -172,7 +187,7 @@ socketio: SocketIO = SocketIO(cors_allowed_origins="*")
 
 
 def init_websockets(app: Flask) -> SocketIO:
-    """Initialize WebSocket handlers"""
+    """Initialize WebSocket handlers."""
     from app.api.sockets import register_handlers
 
     socketio.init_app(app)
@@ -182,10 +197,10 @@ def init_websockets(app: Flask) -> SocketIO:
 
 
 __all__: list[str] = [
-    "api_bp",
     "api",
-    "apply_pagination",
+    "api_bp",
     "apply_filters",
+    "apply_pagination",
     "init_websockets",
     "socketio",
 ]
