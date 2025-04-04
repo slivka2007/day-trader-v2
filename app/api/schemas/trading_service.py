@@ -1,6 +1,4 @@
-"""
-Trading Service model schemas.
-"""
+"""Trading Service model schemas."""
 
 from typing import Literal
 
@@ -13,7 +11,6 @@ from marshmallow import (
     validates_schema,
 )
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
-from sqlalchemy import select
 
 from app.api.schemas import Schema
 from app.models import (
@@ -22,6 +19,8 @@ from app.models import (
     TradingMode,
     TradingService,
 )
+from app.utils.constants import StockConstants, TradingServiceConstants
+from app.utils.errors import TradingServiceError
 
 
 class TradingServiceSchema(SQLAlchemyAutoSchema):
@@ -41,34 +40,37 @@ class TradingServiceSchema(SQLAlchemyAutoSchema):
     def validate_initial_balance(self, value: float) -> None:
         """Validate initial balance is positive."""
         if value <= 0:
-            raise ValidationError("Initial balance must be greater than 0")
+            raise ValidationError(TradingServiceError.INITIAL_BALANCE)
 
     @validates("stock_symbol")
     def validate_stock_symbol(self, value: str) -> None:
         """Validate stock symbol."""
-        if not value or len(value) > 10:
-            raise ValidationError("Stock symbol must be 1-10 characters")
+        if not value or len(value) > StockConstants.MAX_SYMBOL_LENGTH:
+            raise ValidationError(TradingServiceError.SYMBOL_LENGTH)
 
         if not value.isalnum():
-            raise ValidationError("Stock symbol must contain only letters and numbers")
+            raise ValidationError(TradingServiceError.SYMBOL_FORMAT)
 
     @validates("allocation_percent")
     def validate_allocation_percent(self, value: float) -> None:
         """Validate allocation percent."""
-        if value < 0 or value > 100:
-            raise ValidationError("Allocation percent must be between 0 and 100")
+        if (
+            value < TradingServiceConstants.MIN_ALLOCATION_PERCENT
+            or value > TradingServiceConstants.MAX_ALLOCATION_PERCENT
+        ):
+            raise ValidationError(TradingServiceError.ALLOCATION_PERCENT)
 
     @validates("buy_threshold")
     def validate_buy_threshold(self, value: float) -> None:
         """Validate buy threshold."""
         if value < 0:
-            raise ValidationError("Buy threshold must be non-negative")
+            raise ValidationError(TradingServiceError.BUY_THRESHOLD_NEGATIVE)
 
     @validates("sell_threshold")
     def validate_sell_threshold(self, value: float) -> None:
         """Validate sell threshold."""
         if value < 0:
-            raise ValidationError("Sell threshold must be non-negative")
+            raise ValidationError(TradingServiceError.SELL_THRESHOLD_NEGATIVE)
 
 
 # Create an instance for easy importing
@@ -81,32 +83,44 @@ class TradingServiceCreateSchema(Schema):
     """Schema for creating a TradingService."""
 
     stock_symbol: fields.String = fields.String(
-        required=True, validate=validate.Length(min=1, max=10)
+        required=True,
+        validate=validate.Length(min=1, max=StockConstants.MAX_SYMBOL_LENGTH),
     )
     name: fields.String = fields.String(
-        required=True, validate=validate.Length(min=1, max=100)
+        required=True,
+        validate=validate.Length(min=1, max=TradingServiceConstants.MAX_NAME_LENGTH),
     )
     description: fields.String = fields.String(allow_none=True)
     initial_balance: fields.Float = fields.Float(
-        required=True, validate=validate.Range(min=1)
+        required=True,
+        validate=validate.Range(min=TradingServiceConstants.MIN_INITIAL_BALANCE),
     )
     minimum_balance: fields.Float = fields.Float(
-        default=0, validate=validate.Range(min=0)
+        default=0,
+        validate=validate.Range(min=TradingServiceConstants.MIN_MINIMUM_BALANCE),
     )
     allocation_percent: fields.Float = fields.Float(
-        default=0.5, validate=validate.Range(min=0, max=100)
+        default=TradingServiceConstants.DEFAULT_ALLOCATION_PERCENT,
+        validate=validate.Range(
+            min=TradingServiceConstants.MIN_ALLOCATION_PERCENT,
+            max=TradingServiceConstants.MAX_ALLOCATION_PERCENT,
+        ),
     )
     buy_threshold: fields.Float = fields.Float(
-        default=3.0, validate=validate.Range(min=0)
+        default=TradingServiceConstants.DEFAULT_BUY_THRESHOLD,
+        validate=validate.Range(min=TradingServiceConstants.MIN_BUY_THRESHOLD),
     )
     sell_threshold: fields.Float = fields.Float(
-        default=2.0, validate=validate.Range(min=0)
+        default=TradingServiceConstants.DEFAULT_SELL_THRESHOLD,
+        validate=validate.Range(min=TradingServiceConstants.MIN_SELL_THRESHOLD),
     )
     stop_loss_percent: fields.Float = fields.Float(
-        default=5.0, validate=validate.Range(min=0)
+        default=TradingServiceConstants.DEFAULT_STOP_LOSS_PERCENT,
+        validate=validate.Range(min=TradingServiceConstants.MIN_STOP_LOSS_PERCENT),
     )
     take_profit_percent: fields.Float = fields.Float(
-        default=10.0, validate=validate.Range(min=0)
+        default=TradingServiceConstants.DEFAULT_TAKE_PROFIT_PERCENT,
+        validate=validate.Range(min=TradingServiceConstants.MIN_TAKE_PROFIT_PERCENT),
     )
     is_active: fields.Boolean = fields.Boolean(default=True)
 
@@ -122,23 +136,46 @@ class TradingServiceCreateSchema(Schema):
 class TradingServiceUpdateSchema(Schema):
     """Schema for updating a TradingService."""
 
-    name: fields.String = fields.String(validate=validate.Length(min=1, max=100))
-    description: fields.String = fields.String(allow_none=True)
-    stock_symbol: fields.String = fields.String(validate=validate.Length(min=1, max=10))
-    is_active: fields.Boolean = fields.Boolean()
-    minimum_balance: fields.Float = fields.Float(validate=validate.Range(min=0))
-    allocation_percent: fields.Float = fields.Float(
-        validate=validate.Range(min=0, max=100)
+    name: fields.String = fields.String(
+        validate=validate.Length(
+            min=TradingServiceConstants.MIN_NAME_LENGTH,
+            max=TradingServiceConstants.MAX_NAME_LENGTH,
+        ),
     )
-    buy_threshold: fields.Float = fields.Float(validate=validate.Range(min=0))
-    sell_threshold: fields.Float = fields.Float(validate=validate.Range(min=0))
-    stop_loss_percent: fields.Float = fields.Float(validate=validate.Range(min=0))
-    take_profit_percent: fields.Float = fields.Float(validate=validate.Range(min=0))
+    description: fields.String = fields.String(allow_none=True)
+    stock_symbol: fields.String = fields.String(
+        validate=validate.Length(
+            min=StockConstants.MIN_SYMBOL_LENGTH,
+            max=StockConstants.MAX_SYMBOL_LENGTH,
+        ),
+    )
+    is_active: fields.Boolean = fields.Boolean()
+    minimum_balance: fields.Float = fields.Float(
+        validate=validate.Range(min=TradingServiceConstants.MIN_MINIMUM_BALANCE),
+    )
+    allocation_percent: fields.Float = fields.Float(
+        validate=validate.Range(
+            min=TradingServiceConstants.MIN_ALLOCATION_PERCENT,
+            max=TradingServiceConstants.MAX_ALLOCATION_PERCENT,
+        ),
+    )
+    buy_threshold: fields.Float = fields.Float(
+        validate=validate.Range(min=TradingServiceConstants.MIN_BUY_THRESHOLD),
+    )
+    sell_threshold: fields.Float = fields.Float(
+        validate=validate.Range(min=TradingServiceConstants.MIN_SELL_THRESHOLD),
+    )
+    stop_loss_percent: fields.Float = fields.Float(
+        validate=validate.Range(min=TradingServiceConstants.MIN_STOP_LOSS_PERCENT),
+    )
+    take_profit_percent: fields.Float = fields.Float(
+        validate=validate.Range(min=TradingServiceConstants.MIN_TAKE_PROFIT_PERCENT),
+    )
     state: fields.String = fields.String(
-        validate=validate.OneOf([state.value for state in ServiceState])
+        validate=validate.OneOf([state.value for state in ServiceState]),
     )
     mode: fields.String = fields.String(
-        validate=validate.OneOf([mode.value for mode in TradingMode])
+        validate=validate.OneOf([mode.value for mode in TradingMode]),
     )
 
 
@@ -153,32 +190,7 @@ class TradingServiceDeleteSchema(Schema):
     def validate_deletion(self, data: dict) -> None:
         """Validate deletion confirmation and check for dependencies."""
         if not data.get("confirm"):
-            raise ValidationError("Must confirm deletion by setting 'confirm' to true")
-
-        # Check if service has associated transactions
-        from app.models import TradingService, TradingTransaction
-        from app.services.session_manager import SessionManager
-
-        with SessionManager() as session:
-            # Find the service
-            service: TradingService | None = session.execute(
-                select(TradingService).where(TradingService.id == data["service_id"])
-            ).scalar_one_or_none()
-            if not service:
-                return  # Service doesn't exist, let the resource handle this error
-
-            # Check if any transactions are associated with this service
-            transactions_count: int = session.execute(
-                select(TradingTransaction).where(
-                    TradingTransaction.service_id == service.id
-                )
-            ).count()
-            if transactions_count > 0:
-                raise ValidationError(
-                    f"Cannot delete service because it has {transactions_count} "
-                    "associated transaction(s). Cancel or complete all transactions "
-                    "first."
-                )
+            raise ValidationError(TradingServiceError.CONFIRM_DELETION)
 
 
 # Schema for trading action (buy/sell decision)
@@ -190,21 +202,25 @@ class TradingServiceActionSchema(Schema):
         validate=validate.OneOf([action.value for action in ServiceAction]),
     )
     stock_symbol: fields.String = fields.String(
-        required=True, validate=validate.Length(min=1, max=10)
+        required=True,
+        validate=validate.Length(
+            min=StockConstants.MIN_SYMBOL_LENGTH,
+            max=StockConstants.MAX_SYMBOL_LENGTH,
+        ),
     )
     service_id: fields.Integer = fields.Integer(required=True)
     purchase_price: fields.Float = fields.Float(
-        required=False
+        required=False,
     )  # Only needed for sell checks
 
     @validates("stock_symbol")
     def validate_symbol(self, symbol: str) -> None:
         """Validate stock symbol."""
-        if not symbol or len(symbol) > 10:
-            raise ValidationError("Stock symbol must be 1-10 characters")
+        if not symbol or len(symbol) > StockConstants.MAX_SYMBOL_LENGTH:
+            raise ValidationError(TradingServiceError.SYMBOL_LENGTH)
 
         if not symbol.isalnum():
-            raise ValidationError("Stock symbol must contain only letters and numbers")
+            raise ValidationError(TradingServiceError.SYMBOL_FORMAT)
 
 
 # Schema for trading decision response

@@ -18,7 +18,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import ColumnProperty, Session, class_mapper
 
 from app.utils.current_datetime import get_current_datetime
-from app.utils.errors import ResourceNotFoundError
+from app.utils.errors import ResourceNotFoundError, ValidationError
 
 # Set up logging
 logger: logging.Logger = logging.getLogger(__name__)
@@ -226,7 +226,7 @@ class Base(DeclarativeBase):
             A new instance of the model
 
         Raises:
-            ValueError: If required data is missing or invalid and ignore_unknown
+            ValidationError: If required data is missing or invalid and ignore_unknown
             is False
 
         """
@@ -239,8 +239,8 @@ class Base(DeclarativeBase):
             if key in columns:
                 valid_data[key] = value
             elif not ignore_unknown:
-                error_msg = f"Unknown column '{key}' for {cls.__name__}"
-                raise ValueError(error_msg)
+                error_msg: str = f"Unknown column '{key}' for {cls.__name__}"
+                raise ValidationError(error_msg)
             else:
                 continue
 
@@ -249,7 +249,7 @@ class Base(DeclarativeBase):
         except Exception as e:
             logger.exception("Error creating %s from dict", cls.__name__)
             error_msg = f"Could not create {cls.__name__} from data: {e!s}"
-            raise ValueError(error_msg) from e
+            raise ValidationError(error_msg) from e
 
     @classmethod
     def get_columns(cls) -> list[str]:
@@ -281,7 +281,7 @@ class Base(DeclarativeBase):
             True if any fields were updated, False otherwise
 
         Raises:
-            ValueError: If attempt to update a non-allowed field
+            ValidationError: If attempt to update a non-allowed field
 
         """
         # Default fields to exclude from updates
@@ -306,7 +306,7 @@ class Base(DeclarativeBase):
             # Check if field is allowed
             if key not in allowed_fields:
                 error_msg = f"Cannot update field '{key}': not allowed"
-                raise ValueError(error_msg)
+                raise ValidationError(error_msg)
 
             # Update if value is different
             current_value: any = self.key

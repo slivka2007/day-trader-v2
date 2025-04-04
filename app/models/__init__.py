@@ -6,6 +6,7 @@ This package contains all SQLAlchemy models used by the application.
 from app.models.base import Base
 from app.models.enums import (
     AnalysisTimeframe,
+    IntradayInterval,
     PriceSource,
     ServiceAction,
     ServiceState,
@@ -25,6 +26,7 @@ from app.models.user import User
 __all__: list[str] = [
     "AnalysisTimeframe",
     "Base",
+    "IntradayInterval",
     "PriceSource",
     "ServiceAction",
     "ServiceState",

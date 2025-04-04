@@ -11,6 +11,14 @@ import logging
 from flask import Flask, Response, current_app, jsonify, make_response
 from werkzeug.exceptions import HTTPException
 
+from app.utils.constants import (
+    ApiConstants,
+    PriceAnalysisConstants,
+    StockConstants,
+    TradingServiceConstants,
+    UserConstants,
+)
+
 logger: logging.Logger = logging.getLogger(__name__)
 
 
@@ -20,7 +28,7 @@ class APIError(Exception):
     def __init__(
         self,
         message: str,
-        status_code: int = 400,
+        status_code: int = ApiConstants.HTTP_BAD_REQUEST,
         payload: dict[str, any] | None = None,
     ) -> None:
         """Initialize API error with message, status code, and optional payload.
@@ -77,6 +85,13 @@ class ValidationError(APIError):
     ACTIVE_SERVICES: str = "Cannot delete: active services"
     INVALID_CREDENTIALS: str = "Invalid username or password"
 
+    # Stock price validation specific messages
+    MISSING_PRICE_DATE: str = "Missing or invalid price_date"
+    MISSING_PRICE_TIMESTAMP: str = "Missing or invalid price_timestamp"
+    MISSING_PRICE_INTERVAL: str = "Missing or invalid price_interval"
+    INVALID_DATE_FORMAT: str = "Invalid date format. Use YYYY-MM-DD"
+    INVALID_DATETIME_FORMAT: str = "Invalid datetime format. Use YYYY-MM-DD HH:MM:SS"
+
     # Transaction validation specific messages
     SHARES_POSITIVE: str = "Shares must be greater than zero"
     PRICE_POSITIVE: str = "Purchase price must be greater than zero"
@@ -103,11 +118,15 @@ class ValidationError(APIError):
     DELETE_ERROR: str = "Could not delete transaction: {}"
     UPDATE_NOTES_ERROR: str = "Could not update transaction notes: {}"
 
+    # New validation error messages
+    INVALID_DATE_FORMAT = "Invalid date format. Use YYYY-MM-DD"
+    INVALID_DATETIME_FORMAT = "Invalid datetime format. Use YYYY-MM-DD HH:MM:SS"
+
     def __init__(
         self,
         message: str,
         errors: dict[str, any] | None = None,
-        status_code: int = 400,
+        status_code: int = ApiConstants.HTTP_BAD_REQUEST,
     ) -> None:
         """Initialize validation error with message and validation errors.
 
@@ -125,14 +144,18 @@ class UserError(ValidationError):
 
     # User model validation errors
     USERNAME_REQUIRED: str = "Username is required"
-    USERNAME_LENGTH: str = "Username must be between {} and {} characters"
+    USERNAME_LENGTH: str = f"Username must be between {UserConstants.MIN_USERNAME_LENGTH} and {UserConstants.MAX_USERNAME_LENGTH} characters"
     USERNAME_FORMAT: str = (
         "Username can only contain letters, numbers, underscores, and hyphens"
     )
+    USERNAME_REQUIREMENTS: str = f"Username ({UserConstants.MIN_USERNAME_LENGTH}-{UserConstants.MAX_USERNAME_LENGTH} characters, letters, numbers, underscores, hyphens)"
     EMAIL_REQUIRED: str = "Email is required"
     EMAIL_FORMAT: str = "Invalid email format"
     PASSWORD_REQUIRED: str = "Password is required"  # noqa: S105
-    PASSWORD_LENGTH: str = "Password must be at least {} characters"
+    PASSWORD_LENGTH: str = (
+        f"Password must be at least {UserConstants.MIN_PASSWORD_LENGTH} characters"
+    )
+    PASSWORD_REQUIREMENTS: str = f"Password (min {UserConstants.MIN_PASSWORD_LENGTH} chars, uppercase, lowercase, number required)"
     PASSWORD_COMPLEXITY: str = (
         "Password must contain at least one uppercase letter, "  # noqa: S105
         "one lowercase letter, and one digit"
@@ -144,25 +167,85 @@ class StockError(ValidationError):
     """Errors specific to stock model and operations."""
 
     # Stock model validation errors
+    SYMBOL_EXISTS: str = "Stock with symbol already exists: key={}, value={}"
     SYMBOL_REQUIRED: str = "Stock symbol is required"
-    SYMBOL_LENGTH: str = "Stock symbol must be {} characters or less"
+    SYMBOL_LENGTH: str = (
+        f"Stock symbol must be {StockConstants.MAX_SYMBOL_LENGTH} "
+        "characters or less: key={{key}}, value={{value}}"
+    )
+    SYMBOL_FORMAT: str = "Stock symbol must contain only letters and numbers"
+    NAME_LENGTH: str = (
+        f"Stock name must be {StockConstants.MAX_NAME_LENGTH} "
+        "characters or less: key={{key}}, value={{value}}"
+    )
+    SECTOR_LENGTH: str = (
+        f"Stock sector must be {StockConstants.MAX_SECTOR_LENGTH} "
+        "characters or less: key={{key}}, value={{value}}"
+    )
+    DESCRIPTION_LENGTH: str = (
+        f"Stock description must be {StockConstants.MAX_DESCRIPTION_LENGTH} "
+        "characters or less: key={{key}}, value={{value}}"
+    )
+    CONFIRM_DELETION: str = "Must confirm deletion by setting 'confirm' to true"
+    HAS_SERVICES: str = (
+        "Cannot delete stock '{}' because it is used by {} trading service(s): "
+        "key={}, value={}"
+    )
+    HAS_TRANSACTIONS: str = (
+        "Cannot delete stock '{}' because it has {} associated transaction(s): "
+        "key={}, value={}"
+    )
 
 
 class StockPriceError(ValidationError):
     """Errors specific to stock price models and operations."""
 
     # Stock price validation errors (common)
-    INVALID_SOURCE: str = "Invalid price source: {}"
+    INVALID_SOURCE: str = "Invalid price source: key={}, value={}"
 
     # Intraday price validation errors
-    FUTURE_TIMESTAMP: str = "Timestamp cannot be in the future: {}"
-    INVALID_INTERVAL: str = "Invalid interval {}. Must be one of: 1, 5, 15, 30, 60"
+    FUTURE_TIMESTAMP: str = "Timestamp cannot be in the future: key={}, value={}"
+    INVALID_INTERVAL: str = (
+        "Invalid interval key={}, value={}. Must be one of: 1, 5, 15, 30, 60"
+    )
 
     # Daily price validation errors
-    FUTURE_DATE: str = "Price date cannot be in the future: {}"
-    NEGATIVE_PRICE: str = "{} cannot be negative"
-    HIGH_LOW_PRICE: str = "High price cannot be less than low price"
-    LOW_HIGH_PRICE: str = "Low price cannot be greater than high price"
+    FUTURE_DATE: str = "Price date cannot be in the future: key={}, value={}"
+    NEGATIVE_PRICE: str = "Price cannot be negative: key={}, value={}"
+    HIGH_LOW_PRICE: str = "High price cannot be less than low price: key={}, value={}"
+    LOW_HIGH_PRICE: str = (
+        "Low price cannot be greater than high price: key={}, value={}"
+    )
+    HIGH_OPEN_PRICE: str = "High price cannot be less than open price: key={}, value={}"
+    HIGH_CLOSE_PRICE: str = (
+        "High price cannot be less than close price: key={}, value={}"
+    )
+    LOW_OPEN_PRICE: str = (
+        "Low price cannot be greater than open price: key={}, value={}"
+    )
+    LOW_CLOSE_PRICE: str = (
+        "Low price cannot be greater than close price: key={}, value={}"
+    )
+
+    # Technical analysis errors
+    INSUFFICIENT_DATA_POINTS: str = f"Not enough data points for analysis. Minimum required: {PriceAnalysisConstants.MIN_DATA_POINTS}"
+    MA_PERIOD_TOO_LONG: str = f"Moving average period too long. Maximum allowed: {PriceAnalysisConstants.MAX_MA_PERIOD}"
+    RSI_PERIOD_TOO_SHORT: str = f"RSI period too short. Minimum required: {PriceAnalysisConstants.RSI_MIN_PERIODS}"
+
+    # Deletion validation
+    CONFIRM_DELETION: str = "Must confirm deletion by setting 'confirm' to true"
+    DAILY_PRICE_NOT_FOUND: str = "Daily price record not found"
+    INTRADAY_PRICE_NOT_FOUND: str = "Intraday price record not found"
+
+    # Recent data protection
+    RECENT_DAILY_DATA: str = (
+        "Cannot delete recent price data (less than 30 days old). "
+        "This data may be in use for active analyses."
+    )
+    RECENT_INTRADAY_DATA: str = (
+        "Cannot delete recent price data (less than 7 days old). "
+        "This data may be in use for active analyses."
+    )
 
 
 class TransactionError(ValidationError):
@@ -172,13 +255,14 @@ class TransactionError(ValidationError):
     SYMBOL_REQUIRED: str = "Stock symbol is required"
     INVALID_STATE: str = "Invalid transaction state: {}"
     SHARES_POSITIVE: str = "Shares must be greater than zero"
+    CONFIRM_DELETION: str = "Must confirm deletion by setting 'confirm' to true"
 
 
 class TradingServiceError(ValidationError):
     """Errors specific to the trading service module."""
 
     # Trading service validation error messages
-    INITIAL_BALANCE: str = "Initial balance must be greater than zero"
+    INITIAL_BALANCE: str = "Initial balance must be greater than zero: key={}, value={}"
     REQUIRED_FIELD: str = "Field '{}' is required"
     INSUFFICIENT_PRICE_DATA: str = "Not enough price data for stock {} to backtest"
     CREATE_SERVICE: str = "Could not create trading service: {}"
@@ -189,14 +273,22 @@ class TradingServiceError(ValidationError):
         "Cannot set mode to BUY when balance is at or below minimum"
     )
     DELETE_WITH_TRANSACTIONS: str = (
-        "Cannot delete trading service with active transactions. Cancel or complete them "
-        "first."
+        "Cannot delete trading service with active transactions. Cancel or complete "
+        "them first."
     )
     # Additional trading service validation errors
-    SYMBOL_REQUIRED: str = "Stock symbol is required"
-    INVALID_STATE: str = "Invalid service state: {}"
-    INVALID_MODE: str = "Invalid trading mode: {}"
-    ALLOCATION_PERCENT: str = "Allocation percent must be between 0 and {}"
+    SYMBOL_REQUIRED: str = "Stock symbol is required (key={}, value={})"
+    SYMBOL_LENGTH: str = f"Stock symbol must be {StockConstants.MIN_SYMBOL_LENGTH}-{StockConstants.MAX_SYMBOL_LENGTH} characters"
+    SYMBOL_FORMAT: str = "Stock symbol must contain only letters and numbers"
+    INVALID_STATE: str = "Invalid service state: key={}, value={}"
+    INVALID_MODE: str = "Invalid trading mode: key={}, value={}"
+    ALLOCATION_PERCENT: str = (
+        f"Allocation percent must be between {TradingServiceConstants.MIN_ALLOCATION_PERCENT} and {TradingServiceConstants.MAX_ALLOCATION_PERCENT}: "
+        "key={key}, value={value}"
+    )
+    BUY_THRESHOLD_NEGATIVE: str = f"Buy threshold must be non-negative (minimum: {TradingServiceConstants.MIN_BUY_THRESHOLD})"
+    SELL_THRESHOLD_NEGATIVE: str = f"Sell threshold must be non-negative (minimum: {TradingServiceConstants.MIN_SELL_THRESHOLD})"
+    CONFIRM_DELETION: str = "Must confirm deletion by setting 'confirm' to true"
 
 
 class AuthorizationError(APIError):
@@ -204,11 +296,12 @@ class AuthorizationError(APIError):
 
     # Common authorization error messages
     ADMIN_ONLY = "Only admins can grant admin privileges"
+    ACCOUNT_INACTIVE = "Account is inactive"
 
     def __init__(
         self,
         message: str = "Unauthorized access",
-        status_code: int = 401,
+        status_code: int = ApiConstants.HTTP_UNAUTHORIZED,
         payload: dict[str, any] | None = None,
     ) -> None:
         """Initialize authorization error.
@@ -232,7 +325,7 @@ class ResourceNotFoundError(APIError):
         self,
         resource_type: str,
         resource_id: str | int,
-        status_code: int = 404,
+        status_code: int = ApiConstants.HTTP_NOT_FOUND,
         payload: dict[str, any] | None = None,
     ) -> None:
         """Initialize resource not found error.
@@ -260,7 +353,7 @@ class BusinessLogicError(APIError):
     def __init__(
         self,
         message: str,
-        status_code: int = 400,
+        status_code: int = ApiConstants.HTTP_BAD_REQUEST,
         payload: dict[str, any] | None = None,
     ) -> None:
         """Initialize business logic error.
@@ -350,5 +443,5 @@ def handle_validation_error(errors: dict[str, any]) -> tuple[dict[str, any], int
         "error": True,
         "message": "Validation error",
         "validation_errors": errors,
-        "status_code": 400,
-    }, 400
+        "status_code": ApiConstants.HTTP_BAD_REQUEST,
+    }, ApiConstants.HTTP_BAD_REQUEST

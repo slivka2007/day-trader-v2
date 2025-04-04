@@ -1,6 +1,9 @@
+"""Stock model schemas.
+
+This module contains the schemas for the Stock model.
 """
-Stock model schemas.
-"""
+
+from __future__ import annotations
 
 from marshmallow import (
     ValidationError,
@@ -11,16 +14,19 @@ from marshmallow import (
     validates_schema,
 )
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
-from sqlalchemy import select
 
 from app.api.schemas import Schema
 from app.models import Stock
+from app.utils.constants import StockConstants
+from app.utils.errors import StockError
 
 
 class StockSchema(SQLAlchemyAutoSchema):
     """Schema for serializing/deserializing Stock models."""
 
     class Meta:
+        """Metadata options for the schema."""
+
         model = Stock
         include_relationships: bool = False
         load_instance: bool = True
@@ -29,7 +35,8 @@ class StockSchema(SQLAlchemyAutoSchema):
     # Add calculated fields
     has_services: fields.Method = fields.Method("check_has_services", dump_only=True)
     has_transactions: fields.Method = fields.Method(
-        "check_has_transactions", dump_only=True
+        "check_has_transactions",
+        dump_only=True,
     )
     price_count: fields.Method = fields.Method("count_prices", dump_only=True)
 
@@ -55,29 +62,42 @@ class StockSchema(SQLAlchemyAutoSchema):
     @validates("symbol")
     def validate_symbol(self, symbol: str) -> None:
         """Validate stock symbol format."""
-        if not symbol or len(symbol) > 10:
-            raise ValidationError("Stock symbol must be 1-10 characters")
+        if not symbol or len(symbol) > Stock.MAX_SYMBOL_LENGTH:
+            raise ValidationError(
+                StockError.SYMBOL_LENGTH.format(
+                    StockConstants.MIN_SYMBOL_LENGTH,
+                    StockConstants.MAX_SYMBOL_LENGTH,
+                ),
+            )
 
         if not symbol.isalnum():
-            raise ValidationError("Stock symbol must contain only letters and numbers")
+            raise ValidationError(StockError.SYMBOL_FORMAT)
 
     @validates("name")
     def validate_name(self, name: str) -> None:
         """Validate stock name."""
-        if name and len(name) > 200:
-            raise ValidationError("Stock name must be 200 characters or less")
+        if name and len(name) > StockConstants.MAX_NAME_LENGTH:
+            raise ValidationError(
+                StockError.NAME_LENGTH.format(StockConstants.MAX_NAME_LENGTH),
+            )
 
     @validates("sector")
     def validate_sector(self, sector: str) -> None:
         """Validate stock sector."""
-        if sector and len(sector) > 100:
-            raise ValidationError("Stock sector must be 100 characters or less")
+        if sector and len(sector) > StockConstants.MAX_SECTOR_LENGTH:
+            raise ValidationError(
+                StockError.SECTOR_LENGTH.format(StockConstants.MAX_SECTOR_LENGTH),
+            )
 
     @validates("description")
     def validate_description(self, description: str) -> None:
         """Validate stock description."""
-        if description and len(description) > 1000:
-            raise ValidationError("Stock description must be 1000 characters or less")
+        if description and len(description) > StockConstants.MAX_DESCRIPTION_LENGTH:
+            raise ValidationError(
+                StockError.DESCRIPTION_LENGTH.format(
+                    StockConstants.MAX_DESCRIPTION_LENGTH,
+                ),
+            )
 
 
 # Create an instance for easy importing
@@ -90,24 +110,31 @@ class StockInputSchema(Schema):
     """Schema for creating or updating a Stock."""
 
     symbol: fields.String = fields.String(
-        required=True, validate=validate.Length(min=1, max=10)
+        required=True,
+        validate=validate.Length(
+            min=StockConstants.MIN_SYMBOL_LENGTH,
+            max=StockConstants.MAX_SYMBOL_LENGTH,
+        ),
     )
     name: fields.String = fields.String(
-        allow_none=True, validate=validate.Length(max=200)
+        allow_none=True,
+        validate=validate.Length(max=StockConstants.MAX_NAME_LENGTH),
     )
     is_active: fields.Boolean = fields.Boolean(default=True)
     sector: fields.String = fields.String(
-        allow_none=True, validate=validate.Length(max=100)
+        allow_none=True,
+        validate=validate.Length(max=StockConstants.MAX_SECTOR_LENGTH),
     )
     description: fields.String = fields.String(
-        allow_none=True, validate=validate.Length(max=1000)
+        allow_none=True,
+        validate=validate.Length(max=StockConstants.MAX_DESCRIPTION_LENGTH),
     )
 
     @validates("symbol")
     def validate_symbol(self, symbol: str) -> None:
         """Validate stock symbol format."""
         if not symbol.isalnum():
-            raise ValidationError("Stock symbol must contain only letters and numbers")
+            raise ValidationError(StockError.SYMBOL_FORMAT)
 
     @post_load
     def make_stock(self, data: dict) -> Stock:
@@ -127,45 +154,13 @@ class StockDeleteSchema(Schema):
 
     @validates_schema
     def validate_deletion(self, data: dict) -> None:
-        """
-        Validate that deletion is properly confirmed and stock has no dependencies.
+        """Validate stock deletion.
+
+        This function validates that the deletion is properly confirmed and the stock
+        has no dependencies.
         """
         if not data.get("confirm"):
-            raise ValidationError("Must confirm deletion by setting 'confirm' to true")
-
-        # Check if stock has associated services or transactions
-        from app.models import Stock, TradingService, TradingTransaction
-        from app.services.session_manager import SessionManager
-
-        with SessionManager() as session:
-            # Find the stock by ID
-            stock: Stock | None = session.execute(
-                select(Stock).where(Stock.id == data["stock_id"])
-            ).scalar_one_or_none()
-            if not stock:
-                return  # Stock doesn't exist, let the resource handle this error
-
-            # Check if any trading services use this stock
-            services_count: int = session.execute(
-                select(TradingService).where(TradingService.stock_id == stock.id)
-            ).count()
-            if services_count > 0:
-                raise ValidationError(
-                    f"Cannot delete stock '{stock.symbol}' because it is used by "
-                    f"{services_count} trading service(s)"
-                )
-
-            # Check if any transactions are associated with this stock
-            transactions_count: int = session.execute(
-                select(TradingTransaction).where(
-                    TradingTransaction.stock_id == stock.id
-                )
-            ).count()
-            if transactions_count > 0:
-                raise ValidationError(
-                    f"Cannot delete stock '{stock.symbol}' because it has "
-                    f"{transactions_count} associated transaction(s)"
-                )
+            raise ValidationError(StockError.CONFIRM_DELETION)
 
 
 # Create instances for easy importing

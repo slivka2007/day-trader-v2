@@ -12,6 +12,7 @@ from sqlalchemy.orm import Mapped, relationship, validates
 
 from app.models.base import Base
 from app.models.enums import ServiceState, TradingMode
+from app.utils.constants import TradingServiceConstants
 from app.utils.errors import TradingServiceError
 
 if TYPE_CHECKING:
@@ -48,7 +49,7 @@ class TradingService(Base):
     __tablename__: str = "trading_services"
 
     # Constants
-    MAX_ALLOCATION_PERCENT: float = 100.0
+    MAX_ALLOCATION_PERCENT: float = TradingServiceConstants.MAX_ALLOCATION_PERCENT
 
     id: Mapped[int] = Column(Integer, primary_key=True)
     user_id: Mapped[int] = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -113,49 +114,71 @@ class TradingService(Base):
 
     # Validations
     @validates("stock_symbol")
-    def validate_stock_symbol(self, symbol: str) -> str:
+    def validate_stock_symbol(self, key: str, symbol: str) -> str:
         """Validate stock symbol."""
         if not symbol:
-            raise ValueError(TradingServiceError.SYMBOL_REQUIRED)
+            raise TradingServiceError(
+                TradingServiceError.SYMBOL_REQUIRED.format(key, symbol),
+            )
         return symbol.strip().upper()
 
     @validates("state")
-    def validate_state(self, state: str) -> str:
+    def validate_state(self, key: str, state: str) -> str:
         """Validate service state."""
         if state and not ServiceState.is_valid(state):
-            raise ValueError(TradingServiceError.INVALID_STATE.format(state))
+            raise TradingServiceError(
+                TradingServiceError.INVALID_STATE.format(key, state),
+            )
         return state
 
     @validates("mode")
-    def validate_mode(self, mode: str) -> str:
+    def validate_mode(self, key: str, mode: str) -> str:
         """Validate trading mode."""
         if mode and not TradingMode.is_valid(mode):
-            raise ValueError(TradingServiceError.INVALID_MODE.format(mode))
+            raise TradingServiceError(
+                TradingServiceError.INVALID_MODE.format(key, mode),
+            )
         return mode
 
     @validates("initial_balance")
-    def validate_initial_balance(self, value: float) -> float:
+    def validate_initial_balance(self, key: str, value: float) -> float:
         """Validate initial balance is positive."""
         if value is not None and value <= 0:
-            raise ValueError(TradingServiceError.INITIAL_BALANCE)
+            raise TradingServiceError(
+                TradingServiceError.INITIAL_BALANCE.format(key, value),
+            )
         return value
 
     @validates("allocation_percent")
-    def validate_allocation_percent(self, value: float) -> float:
+    def validate_allocation_percent(self, key: str, value: float) -> float:
         """Validate allocation percent is between 0 and MAX_ALLOCATION_PERCENT."""
         if value is not None and (value < 0 or value > self.MAX_ALLOCATION_PERCENT):
-            raise ValueError(
-                TradingServiceError.ALLOCATION_PERCENT.format(
-                    self.MAX_ALLOCATION_PERCENT,
-                ),
+            raise TradingServiceError(
+                TradingServiceError.ALLOCATION_PERCENT.format(key, value),
             )
         return value
 
     def __repr__(self) -> str:
         """Return string representation of the TradingService object."""
         return (
-            f"<TradingService(id={self.id}, symbol='{self.stock_symbol}', "
-            f"balance={self.current_balance})>"
+            f"<TradingService(id={self.id}, user_id={self.user_id}, "
+            f"stock_id={self.stock_id}, stock_symbol='{self.stock_symbol}', "
+            f"name='{self.name}', description='{self.description}', "
+            f"state={self.state}, mode={self.mode}, "
+            f"is_active={self.is_active}, "
+            f"initial_balance={self.initial_balance}, "
+            f"current_balance={self.current_balance}, "
+            f"minimum_balance={self.minimum_balance}, "
+            f"allocation_percent={self.allocation_percent}, "
+            f"buy_threshold={self.buy_threshold}, "
+            f"sell_threshold={self.sell_threshold}, "
+            f"stop_loss_percent={self.stop_loss_percent}, "
+            f"take_profit_percent={self.take_profit_percent}, "
+            f"current_shares={self.current_shares}, "
+            f"buy_count={self.buy_count}, "
+            f"sell_count={self.sell_count}, "
+            f"total_gain_loss={self.total_gain_loss}, "
+            f"transactions={len(self.transactions)})>"
         )
 
     # Properties for common conditions and calculations

@@ -25,6 +25,7 @@ from app.models.stock import Stock
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.stock_intraday_price import StockIntradayPrice
 from app.services.events import EventService
+from app.utils.constants import PriceAnalysisConstants
 from app.utils.current_datetime import get_current_date, get_current_datetime
 from app.utils.errors import BusinessLogicError, ResourceNotFoundError, ValidationError
 
@@ -36,21 +37,21 @@ class PriceService:
     """Service for stock price model operations."""
 
     # Constants for technical analysis
-    MIN_DATA_POINTS: int = 5
-    SHORT_MA_PERIOD: int = 5
-    MEDIUM_MA_PERIOD: int = 10
-    LONG_MA_PERIOD: int = 20
-    EXTENDED_MA_PERIOD: int = 50
-    MAX_MA_PERIOD: int = 200
+    MIN_DATA_POINTS: int = PriceAnalysisConstants.MIN_DATA_POINTS
+    SHORT_MA_PERIOD: int = PriceAnalysisConstants.SHORT_MA_PERIOD
+    MEDIUM_MA_PERIOD: int = PriceAnalysisConstants.MEDIUM_MA_PERIOD
+    LONG_MA_PERIOD: int = PriceAnalysisConstants.LONG_MA_PERIOD
+    EXTENDED_MA_PERIOD: int = PriceAnalysisConstants.EXTENDED_MA_PERIOD
+    MAX_MA_PERIOD: int = PriceAnalysisConstants.MAX_MA_PERIOD
 
     # RSI constants
-    RSI_OVERSOLD: int = 30
-    RSI_OVERBOUGHT: int = 70
-    RSI_MIN_PERIODS: int = 15
+    RSI_OVERSOLD: int = PriceAnalysisConstants.RSI_OVERSOLD
+    RSI_OVERBOUGHT: int = PriceAnalysisConstants.RSI_OVERBOUGHT
+    RSI_MIN_PERIODS: int = PriceAnalysisConstants.RSI_MIN_PERIODS
 
     # Constants for default periods
-    DEFAULT_MA_PERIOD: int = 20
-    DEFAULT_BB_PERIOD: int = 20
+    DEFAULT_MA_PERIOD: int = PriceAnalysisConstants.DEFAULT_MA_PERIOD
+    DEFAULT_BB_PERIOD: int = PriceAnalysisConstants.DEFAULT_BB_PERIOD
 
     @staticmethod
     def _raise_not_found(price_id: int, price_type: str = "Daily price record") -> None:

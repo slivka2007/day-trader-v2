@@ -90,7 +90,7 @@ class StockService:
         """
         stock: Stock | None = StockService.find_by_symbol(session, symbol)
         if not stock:
-            error_id = f"symbol '{symbol.upper()}'"
+            error_id: str = f"symbol '{symbol.upper()}'"
             StockService._raise_not_found(error_id, "Stock")
         return stock
 
@@ -260,7 +260,7 @@ class StockService:
             session.rollback()
             if isinstance(e, ValidationError):
                 raise
-            error_msg = f"Could not update stock: {e!s}"
+            error_msg: str = f"Could not update stock: {e!s}"
             StockService._raise_validation_error(error_msg, e)
         return stock
 

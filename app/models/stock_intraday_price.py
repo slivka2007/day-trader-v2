@@ -5,7 +5,7 @@ This model represents intraday (e.g., hourly or minute-by-minute) stock price da
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Column,
@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, relationship, validates
 
 from app.models.base import Base
-from app.models.enums import PriceSource
+from app.models.enums import IntradayInterval, PriceSource
 from app.utils.current_datetime import get_current_datetime
 from app.utils.errors import StockPriceError
 
@@ -53,13 +53,14 @@ class StockIntradayPrice(Base):
 
     __tablename__: str = "stock_intraday_prices"
 
-    # Constants for valid interval values
-    VALID_INTERVALS: ClassVar[list[int]] = [1, 5, 15, 30, 60]
-
     # Foreign keys and timestamp
     stock_id: Mapped[int] = Column(Integer, ForeignKey("stocks.id"), nullable=False)
     timestamp: Mapped[datetime] = Column(DateTime, nullable=False)
-    interval: Mapped[int] = Column(Integer, default=1, nullable=False)
+    interval: Mapped[int] = Column(
+        Integer,
+        default=IntradayInterval.ONE_MINUTE.value,
+        nullable=False,
+    )
 
     # Price data
     open_price: Mapped[float | None] = Column(Float, nullable=True)
@@ -90,31 +91,38 @@ class StockIntradayPrice(Base):
 
     # Validations
     @validates("source")
-    def validate_source(self, source: str) -> str:
+    def validate_source(self, key: str, source: str) -> str:
         """Validate price source."""
         if source and not PriceSource.is_valid(source):
-            raise ValueError(StockPriceError.INVALID_SOURCE.format(source))
+            raise StockPriceError(StockPriceError.INVALID_SOURCE.format(key, source))
         return source
 
     @validates("timestamp")
-    def validate_timestamp(self, timestamp: datetime) -> datetime:
+    def validate_timestamp(self, key: str, timestamp: datetime) -> datetime:
         """Validate timestamp is not in the future."""
         if timestamp and timestamp > get_current_datetime():
-            raise ValueError(StockPriceError.FUTURE_TIMESTAMP.format(timestamp))
+            raise StockPriceError(
+                StockPriceError.FUTURE_TIMESTAMP.format(key, timestamp),
+            )
         return timestamp
 
     @validates("interval")
-    def validate_interval(self, interval: int) -> int:
+    def validate_interval(self, key: str, interval: int) -> int:
         """Validate interval is one of the valid values."""
-        if interval not in self.VALID_INTERVALS:
-            raise ValueError(StockPriceError.INVALID_INTERVAL.format(interval))
+        if not IntradayInterval.is_valid_interval(interval):
+            raise StockPriceError(
+                StockPriceError.INVALID_INTERVAL.format(key, interval),
+            )
         return interval
 
     def __repr__(self) -> str:
         """Return string representation of the StockIntradayPrice object."""
         return (
             f"<StockIntradayPrice(id={self.id}, stock_id={self.stock_id}, "
-            f"timestamp={self.timestamp})>"
+            f"timestamp={self.timestamp}, interval={self.interval})>"
+            f"open_price={self.open_price}, high_price={self.high_price}, "
+            f"low_price={self.low_price}, close_price={self.close_price}, "
+            f"volume={self.volume}, source={self.source})>, stock={self.stock})>"
         )
 
     @property
@@ -141,3 +149,28 @@ class StockIntradayPrice(Base):
     def is_real_data(self) -> bool:
         """Check if the price data is from a real source (not simulated)."""
         return PriceSource.is_real(self.source)
+
+    @property
+    def is_delayed(self) -> bool:
+        """Check if the price data is delayed."""
+        return PriceSource.is_delayed(self.source)
+
+    @property
+    def is_simulated(self) -> bool:
+        """Check if the price data is simulated."""
+        return PriceSource.is_simulated(self.source)
+
+    @property
+    def is_historical(self) -> bool:
+        """Check if the price data is historical."""
+        return PriceSource.is_historical(self.source)
+
+    @property
+    def is_real_time(self) -> bool:
+        """Check if the price data is real-time."""
+        return PriceSource.is_real_time(self.source)
+
+    @property
+    def is_valid(self) -> bool:
+        """Check if the price data is valid."""
+        return PriceSource.is_valid(self.source)

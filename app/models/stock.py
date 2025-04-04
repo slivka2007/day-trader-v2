@@ -5,12 +5,14 @@ This model represents basic information about stocks, including symbols and name
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, String
 from sqlalchemy.orm import Mapped, relationship, validates
 
 from app.models.base import Base
+from app.utils.constants import StockConstants
 from app.utils.errors import StockError
 
 if TYPE_CHECKING:
@@ -43,7 +45,7 @@ class Stock(Base):
     __tablename__: str = "stocks"
 
     # Constants
-    MAX_SYMBOL_LENGTH: int = 10
+    MAX_SYMBOL_LENGTH: int = StockConstants.MAX_SYMBOL_LENGTH
 
     # Basic information
     symbol: Mapped[str] = Column(
@@ -84,24 +86,34 @@ class Stock(Base):
 
     # Validations
     @validates("symbol")
-    def validate_symbol(self, symbol: str) -> str:
+    def validate_symbol(self, key: str, symbol: str) -> str:
         """Validate stock symbol."""
         if not symbol:
-            raise ValueError(StockError.SYMBOL_REQUIRED)
+            raise StockError(StockError.SYMBOL_REQUIRED.format(key, symbol))
 
         # Convert to uppercase
         symbol: str = symbol.strip().upper()
 
         if len(symbol) > self.MAX_SYMBOL_LENGTH:
-            raise ValueError(StockError.SYMBOL_LENGTH.format(self.MAX_SYMBOL_LENGTH))
+            raise StockError(StockError.SYMBOL_LENGTH.format(key, symbol))
+
+        if not re.match(r"^[A-Z0-9]+$", symbol):
+            raise StockError(StockError.SYMBOL_FORMAT.format(key, symbol))
 
         return symbol
 
     def __repr__(self) -> str:
         """Return string representation of the Stock object."""
-        return f"<Stock(id={self.id}, symbol='{self.symbol}', name='{self.name}')>"
+        return (
+            f"<Stock(id={self.id}, symbol='{self.symbol}', name='{self.name}', "
+            f"sector='{self.sector}', description='{self.description}')>"
+            f"daily_prices={len(self.daily_prices)}, "
+            f"intraday_prices={len(self.intraday_prices)}, "
+            f"services={len(self.services)}, "
+            f"transactions={len(self.transactions)})>"
+        )
 
-    # Simple intrinsic business logic
+    @property
     def has_dependencies(self) -> bool:
         """Check if the stock has any dependencies.
 
@@ -111,4 +123,16 @@ class Stock(Base):
         """
         return (self.services is not None and len(self.services) > 0) or (
             self.transactions is not None and len(self.transactions) > 0
+        )
+
+    @property
+    def has_prices(self) -> bool:
+        """Check if the stock has any prices.
+
+        Returns:
+            True if stock has prices, False otherwise
+
+        """
+        return (self.daily_prices is not None and len(self.daily_prices) > 0) or (
+            self.intraday_prices is not None and len(self.intraday_prices) > 0
         )

@@ -1,8 +1,14 @@
-"""
-Stock Price model schemas.
+"""Stock Price model schemas.
+
+This module contains the schemas for the StockPrice model.
 """
 
-from datetime import date, datetime, timedelta
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from datetime import date, datetime
 
 from marshmallow import (
     ValidationError,
@@ -13,12 +19,16 @@ from marshmallow import (
     validates_schema,
 )
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
-from sqlalchemy import select
 
 from app.api.schemas import Schema
-from app.models import PriceSource, StockDailyPrice, StockIntradayPrice
-from app.services.session_manager import SessionManager
+from app.models import (
+    IntradayInterval,
+    PriceSource,
+    StockDailyPrice,
+    StockIntradayPrice,
+)
 from app.utils.current_datetime import get_current_date, get_current_datetime
+from app.utils.errors import StockPriceError
 
 
 # Base price schema with common validations
@@ -34,19 +44,19 @@ class BasePriceSchema(Schema):
         close_price: float | None = data.get("close_price")
 
         if high is not None and low is not None and high < low:
-            raise ValidationError("High price cannot be less than low price")
+            raise ValidationError(StockPriceError.HIGH_LOW_PRICE)
 
         if high is not None and open_price is not None and high < open_price:
-            raise ValidationError("High price cannot be less than open price")
+            raise ValidationError(StockPriceError.HIGH_OPEN_PRICE)
 
         if high is not None and close_price is not None and high < close_price:
-            raise ValidationError("High price cannot be less than close price")
+            raise ValidationError(StockPriceError.HIGH_CLOSE_PRICE)
 
         if low is not None and open_price is not None and low > open_price:
-            raise ValidationError("Low price cannot be greater than open price")
+            raise ValidationError(StockPriceError.LOW_OPEN_PRICE)
 
         if low is not None and close_price is not None and low > close_price:
-            raise ValidationError("Low price cannot be greater than close price")
+            raise ValidationError(StockPriceError.LOW_CLOSE_PRICE)
 
 
 # Daily price schemas
@@ -54,6 +64,8 @@ class StockDailyPriceSchema(SQLAlchemyAutoSchema):
     """Schema for serializing/deserializing StockDailyPrice models."""
 
     class Meta:
+        """Metadata options for the schema."""
+
         model = StockDailyPrice
         include_relationships: bool = False
         load_instance: bool = True
@@ -74,10 +86,7 @@ class StockDailyPriceSchema(SQLAlchemyAutoSchema):
     def validate_source(self, value: str) -> None:
         """Validate the source value."""
         if not PriceSource.is_valid(value):
-            valid_sources: list[str] = [str(s.value) for s in PriceSource]
-            raise ValidationError(
-                f"Invalid price source. Must be one of: {', '.join(valid_sources)}"
-            )
+            raise ValidationError(StockPriceError.INVALID_SOURCE.format(value))
 
 
 # Create instances for easy importing
@@ -91,18 +100,30 @@ class StockDailyPriceInputSchema(BasePriceSchema):
 
     price_date: fields.Date = fields.Date(required=True)
     open_price: fields.Float = fields.Float(
-        allow_none=True, validate=validate.Range(min=0)
+        allow_none=True,
+        validate=validate.Range(min=0),
     )
     high_price: fields.Float = fields.Float(
-        allow_none=True, validate=validate.Range(min=0)
+        allow_none=True,
+        validate=validate.Range(min=0),
     )
     low_price: fields.Float = fields.Float(
-        allow_none=True, validate=validate.Range(min=0)
+        allow_none=True,
+        validate=validate.Range(min=0),
     )
-    close_price = fields.Float(allow_none=True, validate=validate.Range(min=0))
-    adj_close = fields.Float(allow_none=True, validate=validate.Range(min=0))
-    volume = fields.Integer(allow_none=True, validate=validate.Range(min=0))
-    source = fields.String(
+    close_price: fields.Float = fields.Float(
+        allow_none=True,
+        validate=validate.Range(min=0),
+    )
+    adj_close: fields.Float = fields.Float(
+        allow_none=True,
+        validate=validate.Range(min=0),
+    )
+    volume: fields.Integer = fields.Integer(
+        allow_none=True,
+        validate=validate.Range(min=0),
+    )
+    source: fields.String = fields.String(
         validate=validate.OneOf([source.value for source in PriceSource]),
         default=PriceSource.HISTORICAL.value,
     )
@@ -111,10 +132,10 @@ class StockDailyPriceInputSchema(BasePriceSchema):
     def validate_price_date(self, price_date: date) -> None:
         """Validate price date."""
         if price_date > get_current_date():
-            raise ValidationError("Price date cannot be in the future")
+            raise ValidationError(StockPriceError.FUTURE_DATE.format(price_date))
 
     @post_load
-    def make_daily_price(self, data: dict, **kwargs) -> StockDailyPrice:
+    def make_daily_price(self, data: dict) -> StockDailyPrice:
         """Create a StockDailyPrice instance from validated data."""
         return StockDailyPrice.from_dict(data)
 
@@ -127,28 +148,10 @@ class StockDailyPriceDeleteSchema(Schema):
     price_id: fields.Integer = fields.Integer(required=True)
 
     @validates_schema
-    def validate_deletion(self, data: dict, **kwargs) -> None:
+    def validate_deletion(self, data: dict) -> None:
         """Validate deletion confirmation and check for dependencies."""
         if not data.get("confirm"):
-            raise ValidationError("Must confirm deletion by setting 'confirm' to true")
-
-        # Verify the price record exists and can be deleted
-        with SessionManager() as session:
-            price: StockDailyPrice | None = session.execute(
-                select(StockDailyPrice).where(StockDailyPrice.id == data["price_id"])
-            ).scalar_one_or_none()
-            if not price:
-                raise ValidationError("Daily price record not found")
-
-            # Check if this is recent data (within last 30 days)
-            # Recent data is often used for analysis and should be protected
-            thirty_days_ago: date = get_current_date() - timedelta(days=30)
-            price_date: date | None = price.__dict__.get("price_date")
-            if price_date is not None and price_date >= thirty_days_ago:
-                raise ValidationError(
-                    "Cannot delete recent price data (less than 30 days old). "
-                    "This data may be in use for active analyses."
-                )
+            raise ValidationError(StockPriceError.CONFIRM_DELETION)
 
 
 # Intraday price schemas
@@ -156,6 +159,8 @@ class StockIntradayPriceSchema(SQLAlchemyAutoSchema):
     """Schema for serializing/deserializing StockIntradayPrice models."""
 
     class Meta:
+        """Metadata options for the schema."""
+
         model = StockIntradayPrice
         include_relationships: bool = False
         load_instance: bool = True
@@ -175,17 +180,14 @@ class StockIntradayPriceSchema(SQLAlchemyAutoSchema):
     @validates("interval")
     def validate_interval(self, value: int) -> None:
         """Validate the interval value."""
-        if value not in [1, 5, 15, 30, 60]:
-            raise ValidationError("Interval must be one of: 1, 5, 15, 30, 60")
+        if value not in IntradayInterval.valid_values():
+            raise ValidationError(StockPriceError.INVALID_INTERVAL.format(value))
 
     @validates("source")
     def validate_source(self, value: str) -> None:
         """Validate the source value."""
         if not PriceSource.is_valid(value):
-            valid_sources: list[str] = [str(s.value) for s in PriceSource]
-            raise ValidationError(
-                f"Invalid price source. Must be one of: {', '.join(valid_sources)}"
-            )
+            raise ValidationError(StockPriceError.INVALID_SOURCE.format(value))
 
 
 # Create instances for easy importing
@@ -199,22 +201,28 @@ class StockIntradayPriceInputSchema(BasePriceSchema):
 
     timestamp: fields.DateTime = fields.DateTime(required=True)
     interval: fields.Integer = fields.Integer(
-        validate=validate.OneOf([1, 5, 15, 30, 60]), default=1
+        validate=validate.OneOf(IntradayInterval.valid_values()),
+        default=IntradayInterval.ONE_MINUTE.value,
     )
     open_price: fields.Float = fields.Float(
-        allow_none=True, validate=validate.Range(min=0)
+        allow_none=True,
+        validate=validate.Range(min=0),
     )
     high_price: fields.Float = fields.Float(
-        allow_none=True, validate=validate.Range(min=0)
+        allow_none=True,
+        validate=validate.Range(min=0),
     )
     low_price: fields.Float = fields.Float(
-        allow_none=True, validate=validate.Range(min=0)
+        allow_none=True,
+        validate=validate.Range(min=0),
     )
     close_price: fields.Float = fields.Float(
-        allow_none=True, validate=validate.Range(min=0)
+        allow_none=True,
+        validate=validate.Range(min=0),
     )
     volume: fields.Integer = fields.Integer(
-        allow_none=True, validate=validate.Range(min=0)
+        allow_none=True,
+        validate=validate.Range(min=0),
     )
     source: fields.String = fields.String(
         validate=validate.OneOf([source.value for source in PriceSource]),
@@ -225,7 +233,7 @@ class StockIntradayPriceInputSchema(BasePriceSchema):
     def validate_timestamp(self, timestamp: datetime) -> None:
         """Validate timestamp."""
         if timestamp > get_current_datetime():
-            raise ValidationError("Timestamp cannot be in the future")
+            raise ValidationError(StockPriceError.FUTURE_TIMESTAMP.format(timestamp))
 
     @post_load
     def make_intraday_price(self, data: dict) -> StockIntradayPrice:
@@ -237,34 +245,14 @@ class StockIntradayPriceInputSchema(BasePriceSchema):
 class StockIntradayPriceDeleteSchema(Schema):
     """Schema for confirming intraday price deletion."""
 
-    confirm = fields.Boolean(required=True)
-    price_id = fields.Integer(required=True)
+    confirm: fields.Boolean = fields.Boolean(required=True)
+    price_id: fields.Integer = fields.Integer(required=True)
 
     @validates_schema
     def validate_deletion(self, data: dict) -> None:
         """Validate deletion confirmation and check for dependencies."""
         if not data.get("confirm"):
-            raise ValidationError("Must confirm deletion by setting 'confirm' to true")
-
-        # Verify the price record exists and can be deleted
-        with SessionManager() as session:
-            price: StockIntradayPrice | None = session.execute(
-                select(StockIntradayPrice).where(
-                    StockIntradayPrice.id == data["price_id"]
-                )
-            ).scalar_one_or_none()
-            if not price:
-                raise ValidationError("Intraday price record not found")
-
-            # Check if this is recent data (within last 7 days)
-            # Recent data is often used for analysis and should be protected
-            seven_days_ago: date = get_current_date() - timedelta(days=7)
-            timestamp: datetime | None = price.timestamp
-            if timestamp is not None and timestamp.date() >= seven_days_ago:
-                raise ValidationError(
-                    "Cannot delete recent price data (less than 7 days old). "
-                    "This data may be in use for active analyses."
-                )
+            raise ValidationError(StockPriceError.CONFIRM_DELETION)
 
 
 # Create instances for easy importing

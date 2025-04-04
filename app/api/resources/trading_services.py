@@ -1,6 +1,4 @@
-"""
-Trading Services API resources.
-"""
+"""Trading Services API resources."""
 
 from typing import Literal
 
@@ -39,12 +37,13 @@ service_model: Model | OrderedModel = api.model(
         "mode": fields.String(description="Trading mode (BUY or SELL)"),
         "is_active": fields.Boolean(description="Whether the service is active"),
         "initial_balance": fields.Float(
-            required=True, description="Initial fund balance"
+            required=True,
+            description="Initial fund balance",
         ),
         "current_balance": fields.Float(description="Current fund balance"),
         "minimum_balance": fields.Float(description="Minimum fund balance to maintain"),
         "allocation_percent": fields.Float(
-            description="Percentage of funds to allocate per trade"
+            description="Percentage of funds to allocate per trade",
         ),
         "buy_threshold": fields.Float(description="Buy threshold percentage"),
         "sell_threshold": fields.Float(description="Sell threshold percentage"),
@@ -57,10 +56,12 @@ service_model: Model | OrderedModel = api.model(
         "created_at": fields.DateTime(description="Creation timestamp"),
         "updated_at": fields.DateTime(description="Last update timestamp"),
         "is_profitable": fields.Boolean(
-            readonly=True, description="Whether the service is profitable"
+            readonly=True,
+            description="Whether the service is profitable",
         ),
         "performance_pct": fields.Float(
-            readonly=True, description="Performance as percentage of initial balance"
+            readonly=True,
+            description="Performance as percentage of initial balance",
         ),
     },
 )
@@ -83,10 +84,12 @@ service_list_model: Model | OrderedModel = api.model(
     "ServiceList",
     {
         "items": fields.List(
-            fields.Nested(service_model), description="List of services"
+            fields.Nested(service_model),
+            description="List of services",
         ),
         "pagination": fields.Nested(
-            pagination_model, description="Pagination information"
+            pagination_model,
+            description="Pagination information",
         ),
     },
 )
@@ -96,7 +99,8 @@ decision_model: Model | OrderedModel = api.model(
     "TradingDecision",
     {
         "should_proceed": fields.Boolean(
-            required=True, description="Whether the trading operation should proceed"
+            required=True,
+            description="Whether the trading operation should proceed",
         ),
         "reason": fields.String(required=True, description="Reason for the decision"),
         "timestamp": fields.DateTime(required=True, description="Decision timestamp"),
@@ -138,7 +142,7 @@ class ServiceList(Resource):
             query: list[TradingService] = (
                 (
                     session.execute(
-                        select(TradingService).where(TradingService.user_id == user.id)
+                        select(TradingService).where(TradingService.user_id == user.id),
                     )
                 )
                 .scalars()
@@ -163,29 +167,31 @@ class ServiceList(Resource):
             {
                 "name": fields.String(required=True, description="Service name"),
                 "stock_symbol": fields.String(
-                    required=True, description="Stock ticker symbol"
+                    required=True,
+                    description="Stock ticker symbol",
                 ),
                 "description": fields.String(description="Service description"),
                 "initial_balance": fields.Float(
-                    required=True, description="Initial fund balance"
+                    required=True,
+                    description="Initial fund balance",
                 ),
                 "minimum_balance": fields.Float(
-                    description="Minimum fund balance to maintain"
+                    description="Minimum fund balance to maintain",
                 ),
                 "allocation_percent": fields.Float(
-                    description="Percentage of funds to allocate per trade"
+                    description="Percentage of funds to allocate per trade",
                 ),
                 "buy_threshold": fields.Float(description="Buy threshold percentage"),
                 "sell_threshold": fields.Float(description="Sell threshold percentage"),
                 "stop_loss_percent": fields.Float(description="Stop loss percentage"),
                 "take_profit_percent": fields.Float(
-                    description="Take profit percentage"
+                    description="Take profit percentage",
                 ),
                 "is_active": fields.Boolean(
-                    description="Whether the service is active"
+                    description="Whether the service is active",
                 ),
             },
-        )
+        ),
     )
     @api.marshal_with(service_model)
     @api.response(201, "Service created")
@@ -200,7 +206,7 @@ class ServiceList(Resource):
         except ValidationError as err:
             error_messages = getattr(err, "messages", {})
             current_app.logger.warning(
-                f"Validation error in service creation: {error_messages}"
+                f"Validation error in service creation: {error_messages}",
             )
             raise ValidationError("Invalid service data", errors=error_messages)
 
@@ -222,20 +228,20 @@ class ServiceList(Resource):
 
             except ValidationError as e:
                 current_app.logger.warning(
-                    f"Validation error creating service: {str(e)}"
+                    f"Validation error creating service: {e!s}",
                 )
                 raise
             except BusinessLogicError as e:
-                current_app.logger.error(f"Business logic error: {str(e)}")
+                current_app.logger.error(f"Business logic error: {e!s}")
                 raise
             except IntegrityError as e:
-                current_app.logger.error(f"Database integrity error: {str(e)}")
+                current_app.logger.error(f"Database integrity error: {e!s}")
                 raise BusinessLogicError(
-                    "Could not create service due to database constraints"
+                    "Could not create service due to database constraints",
                 )
             except Exception as e:
-                current_app.logger.error(f"Unexpected error creating service: {str(e)}")
-                raise BusinessLogicError(f"Could not create service: {str(e)}")
+                current_app.logger.error(f"Unexpected error creating service: {e!s}")
+                raise BusinessLogicError(f"Could not create service: {e!s}")
 
 
 @api.route("/search")
@@ -266,37 +272,18 @@ class ServiceSearch(Resource):
 
             # Search services using the service layer
             services = TradingServiceService.search_services(
-                session, user.id.scalar(), search_query
+                session,
+                user.id.scalar(),
+                search_query,
             )
 
-            # Apply pagination to the result list
-            total = len(services)
-            page = int(request.args.get("page", 1))
-            page_size = min(int(request.args.get("page_size", 20)), 100)
-            start = (page - 1) * page_size
-            end = min(start + page_size, total)
-
-            paginated_services = services[start:end]
-
-            # Construct pagination info
-            total_pages = (total + page_size - 1) // page_size
-            has_next = page < total_pages
-            has_prev = page > 1
-
-            pagination = {
-                "page": page,
-                "page_size": page_size,
-                "total_items": total,
-                "total_pages": total_pages,
-                "has_next": has_next,
-                "has_prev": has_prev,
-            }
+            # Apply pagination using the utility function
+            result = apply_pagination(services)
 
             # Serialize the results
-            return {
-                "items": services_schema.dump(paginated_services),
-                "pagination": pagination,
-            }
+            result["items"] = services_schema.dump(result["items"])
+
+            return result
 
 
 @api.route("/<int:id>")
@@ -322,7 +309,9 @@ class ServiceItem(Resource):
 
             # Verify ownership and get service
             service = TradingServiceService.verify_ownership(
-                session, id, user.id.scalar()
+                session,
+                id,
+                user.id.scalar(),
             )
             return service_schema.dump(service)
 
@@ -335,22 +324,22 @@ class ServiceItem(Resource):
                 "description": fields.String(description="Service description"),
                 "stock_symbol": fields.String(description="Stock ticker symbol"),
                 "is_active": fields.Boolean(
-                    description="Whether the service is active"
+                    description="Whether the service is active",
                 ),
                 "minimum_balance": fields.Float(
-                    description="Minimum fund balance to maintain"
+                    description="Minimum fund balance to maintain",
                 ),
                 "allocation_percent": fields.Float(
-                    description="Percentage of funds to allocate per trade"
+                    description="Percentage of funds to allocate per trade",
                 ),
                 "buy_threshold": fields.Float(description="Buy threshold percentage"),
                 "sell_threshold": fields.Float(description="Sell threshold percentage"),
                 "stop_loss_percent": fields.Float(description="Stop loss percentage"),
                 "take_profit_percent": fields.Float(
-                    description="Take profit percentage"
+                    description="Take profit percentage",
                 ),
             },
-        )
+        ),
     )
     @api.marshal_with(service_model)
     @api.response(200, "Service updated")
@@ -369,7 +358,7 @@ class ServiceItem(Resource):
         except ValidationError as err:
             error_messages = getattr(err, "messages", {})
             current_app.logger.warning(
-                f"Validation error in service update: {error_messages}"
+                f"Validation error in service update: {error_messages}",
             )
             raise ValidationError("Invalid service data", errors=error_messages)
 
@@ -381,27 +370,31 @@ class ServiceItem(Resource):
 
             # Verify ownership and get service
             service = TradingServiceService.verify_ownership(
-                session, id, user.id.scalar()
+                session,
+                id,
+                user.id.scalar(),
             )
 
             try:
                 # Update the service using the service layer
                 result = TradingServiceService.update_service(
-                    session, service, cast(Dict[str, Any], validated_data)
+                    session,
+                    service,
+                    cast(Dict[str, Any], validated_data),
                 )
                 return service_schema.dump(result)
 
             except ValidationError as e:
                 current_app.logger.warning(
-                    f"Validation error updating service: {str(e)}"
+                    f"Validation error updating service: {e!s}",
                 )
                 raise
             except BusinessLogicError as e:
-                current_app.logger.error(f"Business logic error: {str(e)}")
+                current_app.logger.error(f"Business logic error: {e!s}")
                 raise
             except Exception as e:
-                current_app.logger.error(f"Error updating service: {str(e)}")
-                raise BusinessLogicError(f"Could not update service: {str(e)}")
+                current_app.logger.error(f"Error updating service: {e!s}")
+                raise BusinessLogicError(f"Could not update service: {e!s}")
 
     @api.doc("delete_service")
     @api.response(204, "Service deleted")
@@ -420,7 +413,9 @@ class ServiceItem(Resource):
 
             # Verify ownership and get service
             service = TradingServiceService.verify_ownership(
-                session, id, user.id.scalar()
+                session,
+                id,
+                user.id.scalar(),
             )
 
             try:
@@ -430,12 +425,12 @@ class ServiceItem(Resource):
 
             except BusinessLogicError as e:
                 current_app.logger.warning(
-                    f"Business logic error deleting service: {str(e)}"
+                    f"Business logic error deleting service: {e!s}",
                 )
                 raise
             except Exception as e:
-                current_app.logger.error(f"Unexpected error deleting service: {str(e)}")
-                raise BusinessLogicError(f"Could not delete service: {str(e)}")
+                current_app.logger.error(f"Unexpected error deleting service: {e!s}")
+                raise BusinessLogicError(f"Could not delete service: {e!s}")
 
 
 @api.route("/<int:id>/state")
@@ -450,10 +445,11 @@ class ServiceStateResource(Resource):
             "StateChange",
             {
                 "state": fields.String(
-                    required=True, description="New state (ACTIVE, INACTIVE, etc.)"
-                )
+                    required=True,
+                    description="New state (ACTIVE, INACTIVE, etc.)",
+                ),
             },
-        )
+        ),
     )
     @api.response(200, "State changed")
     @api.response(400, "Invalid state")
@@ -467,7 +463,8 @@ class ServiceStateResource(Resource):
 
         if "state" not in data:
             raise ValidationError(
-                "Missing required field", errors={"state": ["Field is required"]}
+                "Missing required field",
+                errors={"state": ["Field is required"]},
             )
 
         with SessionManager() as session:
@@ -478,27 +475,31 @@ class ServiceStateResource(Resource):
 
             # Verify ownership and get service
             service = TradingServiceService.verify_ownership(
-                session, id, user.id.scalar()
+                session,
+                id,
+                user.id.scalar(),
             )
 
             try:
                 # Change service state using the service layer
                 result = TradingServiceService.change_state(
-                    session, service, data["state"]
+                    session,
+                    service,
+                    data["state"],
                 )
                 return service_schema.dump(result)
 
             except ValidationError as e:
                 current_app.logger.warning(
-                    f"Validation error changing service state: {str(e)}"
+                    f"Validation error changing service state: {e!s}",
                 )
                 raise
             except BusinessLogicError as e:
-                current_app.logger.error(f"Business logic error: {str(e)}")
+                current_app.logger.error(f"Business logic error: {e!s}")
                 raise
             except Exception as e:
-                current_app.logger.error(f"Error changing service state: {str(e)}")
-                raise BusinessLogicError(f"Could not change service state: {str(e)}")
+                current_app.logger.error(f"Error changing service state: {e!s}")
+                raise BusinessLogicError(f"Could not change service state: {e!s}")
 
 
 @api.route("/<int:id>/mode")
@@ -513,10 +514,11 @@ class ServiceModeResource(Resource):
             "ModeChange",
             {
                 "mode": fields.String(
-                    required=True, description="New mode (BUY, SELL, etc.)"
-                )
+                    required=True,
+                    description="New mode (BUY, SELL, etc.)",
+                ),
             },
-        )
+        ),
     )
     @api.response(200, "Mode changed")
     @api.response(400, "Invalid mode")
@@ -530,7 +532,8 @@ class ServiceModeResource(Resource):
 
         if "mode" not in data:
             raise ValidationError(
-                "Missing required field", errors={"mode": ["Field is required"]}
+                "Missing required field",
+                errors={"mode": ["Field is required"]},
             )
 
         with SessionManager() as session:
@@ -541,27 +544,31 @@ class ServiceModeResource(Resource):
 
             # Verify ownership and get service
             service = TradingServiceService.verify_ownership(
-                session, id, user.id.scalar()
+                session,
+                id,
+                user.id.scalar(),
             )
 
             try:
                 # Change service mode using the service layer
                 result = TradingServiceService.change_mode(
-                    session, service, data["mode"]
+                    session,
+                    service,
+                    data["mode"],
                 )
                 return service_schema.dump(result)
 
             except ValidationError as e:
                 current_app.logger.warning(
-                    f"Validation error changing service mode: {str(e)}"
+                    f"Validation error changing service mode: {e!s}",
                 )
                 raise
             except BusinessLogicError as e:
-                current_app.logger.error(f"Business logic error: {str(e)}")
+                current_app.logger.error(f"Business logic error: {e!s}")
                 raise
             except Exception as e:
-                current_app.logger.error(f"Error changing service mode: {str(e)}")
-                raise BusinessLogicError(f"Could not change service mode: {str(e)}")
+                current_app.logger.error(f"Error changing service mode: {e!s}")
+                raise BusinessLogicError(f"Could not change service mode: {e!s}")
 
 
 @api.route("/<int:id>/toggle")
@@ -586,7 +593,9 @@ class ServiceToggle(Resource):
 
             # Verify ownership and get service
             service = TradingServiceService.verify_ownership(
-                session, id, user.id.scalar()
+                session,
+                id,
+                user.id.scalar(),
             )
 
             try:
@@ -595,11 +604,11 @@ class ServiceToggle(Resource):
                 return service_schema.dump(result)
 
             except BusinessLogicError as e:
-                current_app.logger.error(f"Business logic error: {str(e)}")
+                current_app.logger.error(f"Business logic error: {e!s}")
                 raise
             except Exception as e:
-                current_app.logger.error(f"Error toggling service: {str(e)}")
-                raise BusinessLogicError(f"Could not toggle service: {str(e)}")
+                current_app.logger.error(f"Error toggling service: {e!s}")
+                raise BusinessLogicError(f"Could not toggle service: {e!s}")
 
 
 @api.route("/<int:id>/check-buy")
@@ -626,27 +635,32 @@ class ServiceCheckBuy(Resource):
 
             # Verify ownership and get service
             service = TradingServiceService.verify_ownership(
-                session, id, user.id.scalar()
+                session,
+                id,
+                user.id.scalar(),
             )
 
             try:
                 # Get current price
                 current_price = TradingServiceService.get_current_price(
-                    session, service.stock_symbol.scalar()
+                    session,
+                    service.stock_symbol.scalar(),
                 )
 
                 # Check buy condition using the service layer
                 decision = TradingServiceService.check_buy_condition(
-                    session, service, current_price
+                    session,
+                    service,
+                    current_price,
                 )
                 return decision
 
             except BusinessLogicError as e:
-                current_app.logger.error(f"Business logic error: {str(e)}")
+                current_app.logger.error(f"Business logic error: {e!s}")
                 raise
             except Exception as e:
-                current_app.logger.error(f"Error checking buy condition: {str(e)}")
-                raise BusinessLogicError(f"Could not check buy condition: {str(e)}")
+                current_app.logger.error(f"Error checking buy condition: {e!s}")
+                raise BusinessLogicError(f"Could not check buy condition: {e!s}")
 
 
 @api.route("/<int:id>/check-sell")
@@ -673,24 +687,29 @@ class ServiceCheckSell(Resource):
 
             # Verify ownership and get service
             service = TradingServiceService.verify_ownership(
-                session, id, user.id.scalar()
+                session,
+                id,
+                user.id.scalar(),
             )
 
             try:
                 # Get current price
                 current_price = TradingServiceService.get_current_price(
-                    session, service.stock_symbol.scalar()
+                    session,
+                    service.stock_symbol.scalar(),
                 )
 
                 # Check sell condition using the service layer
                 decision = TradingServiceService.check_sell_condition(
-                    session, service, current_price
+                    session,
+                    service,
+                    current_price,
                 )
                 return decision
 
             except BusinessLogicError as e:
-                current_app.logger.error(f"Business logic error: {str(e)}")
+                current_app.logger.error(f"Business logic error: {e!s}")
                 raise
             except Exception as e:
-                current_app.logger.error(f"Error checking sell condition: {str(e)}")
-                raise BusinessLogicError(f"Could not check sell condition: {str(e)}")
+                current_app.logger.error(f"Error checking sell condition: {e!s}")
+                raise BusinessLogicError(f"Could not check sell condition: {e!s}")

@@ -1,5 +1,4 @@
-"""
-API resources for the Day Trader application.
+"""API resources for the Day Trader application.
 
 This package contains REST API resources using Flask-RESTX.
 """
@@ -7,9 +6,6 @@ This package contains REST API resources using Flask-RESTX.
 # Common imports for resources
 from flask import current_app, request
 from flask_restx import Api, Namespace, Resource, abort, fields
-
-# Database session management
-from sqlalchemy.orm import Session
 
 from app.api.resources.auth import api as auth_api
 from app.api.resources.stock_prices import api as stock_prices_api
@@ -20,23 +16,23 @@ from app.api.resources.system import api as system_api
 from app.api.resources.trading_services import api as trading_services_api
 from app.api.resources.trading_transactions import api as trading_transactions_api
 from app.api.resources.users import api as users_api
-from app.services.database import get_db_session
+from app.services.session_manager import SessionManager
 
 # Make common imports available
-__all__ = [
+__all__: list[str] = [
     "Namespace",
     "Resource",
-    "fields",
+    "SessionManager",
     "abort",
-    "request",
-    "current_app",
-    "get_db_session",
-    "register_resources",
     "api_resources",
+    "current_app",
+    "fields",
+    "register_resources",
+    "request",
 ]
 
 # Create an aggregated list of resources for easy importing
-api_resources = [
+api_resources: list[Namespace] = [
     stocks_api,
     stock_prices_api,
     trading_services_api,
@@ -47,12 +43,12 @@ api_resources = [
 ]
 
 
-def register_resources(api: Api):
-    """
-    Register all REST API resources with the provided API instance.
+def register_resources(api: Api) -> None:
+    """Register all REST API resources with the provided API instance.
 
     Args:
         api: The Flask-RESTX API instance
+
     """
     for resource in api_resources:
         api.add_namespace(resource)

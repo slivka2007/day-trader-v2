@@ -1,20 +1,28 @@
-"""Trading Transaction model schemas."""
+"""Trading Transaction model schemas.
+
+This module contains the schemas for the TradingTransaction model.
+"""
 
 from typing import Literal
 
 from marshmallow import ValidationError, fields, validate, validates, validates_schema
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
-from sqlalchemy import select
 
 from app.api.schemas import Schema
 from app.models import TradingTransaction, TransactionState
-from app.services.session_manager import SessionManager
+from app.utils.constants import StockConstants
+from app.utils.errors import StockError, TransactionError
 
 
 class TradingTransactionSchema(SQLAlchemyAutoSchema):
-    """Schema for serializing/deserializing TradingTransaction models."""
+    """Schema for serializing/deserializing TradingTransaction models.
+
+    This schema is used to serialize and deserialize TradingTransaction models.
+    """
 
     class Meta:
+        """Metadata options for the TradingTransaction schema."""
+
         model = TradingTransaction
         include_relationships = False
         load_instance = True
@@ -62,38 +70,34 @@ class TradingTransactionSchema(SQLAlchemyAutoSchema):
     def validate_purchase_price(self, value: float) -> None:
         """Validate purchase price is positive."""
         if value <= 0:
-            raise ValidationError("Purchase price must be greater than 0")
+            raise ValidationError(TransactionError.PRICE_POSITIVE)
 
     @validates("shares")
     def validate_shares(self, value: float) -> None:
         """Validate shares is positive."""
         if value <= 0:
-            raise ValidationError("Number of shares must be greater than 0")
+            raise ValidationError(TransactionError.SHARES_POSITIVE)
 
     @validates("sale_price")
     def validate_sale_price(self, value: float) -> None:
         """Validate sale price is positive."""
         if value is not None and value <= 0:
-            raise ValidationError("Sale price must be greater than 0")
+            raise ValidationError(TransactionError.PRICE_POSITIVE)
 
     @validates("stock_symbol")
     def validate_stock_symbol(self, value: str) -> None:
         """Validate stock symbol."""
-        if not value or len(value) > 10:
-            raise ValidationError("Stock symbol must be 1-10 characters")
+        if not value or len(value) > StockConstants.MAX_SYMBOL_LENGTH:
+            raise ValidationError(StockError.SYMBOL_LENGTH)
 
         if not value.isalnum():
-            raise ValidationError("Stock symbol must contain only letters and numbers")
+            raise ValidationError(StockError.SYMBOL_FORMAT)
 
     @validates("state")
     def validate_state(self, value: str) -> None:
         """Validate transaction state."""
         if value and not TransactionState.is_valid(value):
-            valid_states: list[str] = TransactionState.values()
-            raise ValidationError(
-                f"Invalid transaction state: {value}. Valid states are: "
-                f"{', '.join(valid_states)}",
-            )
+            raise ValidationError(TransactionError.INVALID_STATE.format(value))
 
 
 # Create instances for easy importing
@@ -114,7 +118,7 @@ class TransactionCompleteSchema(Schema):
     def validate_sale_price(self, value: float) -> None:
         """Validate sale price is valid."""
         if value <= 0:
-            raise ValidationError("Sale price must be greater than 0")
+            raise ValidationError(TransactionError.PRICE_POSITIVE)
 
     @validates_schema
     def validate_transaction_state(self) -> None:
@@ -144,31 +148,11 @@ class TransactionCreateSchema(Schema):
     @validates("stock_symbol")
     def validate_stock_symbol(self, value: str) -> None:
         """Validate stock symbol."""
-        if not value or len(value) > 10:
-            raise ValidationError("Stock symbol must be 1-10 characters")
+        if not value or len(value) > StockConstants.MAX_SYMBOL_LENGTH:
+            raise ValidationError(StockError.SYMBOL_LENGTH)
 
         if not value.isalnum():
-            raise ValidationError("Stock symbol must contain only letters and numbers")
-
-    @validates_schema
-    def validate_service_state(self, data: dict) -> None:
-        """Validate the service is in a state where it can buy."""
-        from app.models import TradingService
-
-        with SessionManager() as session:
-            service: TradingService | None = session.execute(
-                select(TradingService).where(TradingService.id == data["service_id"]),
-            ).scalar_one_or_none()
-            if not service:
-                raise ValidationError("Service not found")
-            if not service.can_buy:
-                raise ValidationError(
-                    "Service cannot make purchases in its current state",
-                )
-
-            # If stock symbol not provided, use the one from service
-            if "stock_symbol" not in data or not data["stock_symbol"]:
-                data["stock_symbol"] = service.stock_symbol
+            raise ValidationError(StockError.SYMBOL_FORMAT)
 
 
 # Schema for cancelling a transaction
@@ -199,20 +183,7 @@ class TransactionDeleteSchema(Schema):
     def validate_deletion(self, data: dict) -> None:
         """Validate deletion confirmation."""
         if not data.get("confirm"):
-            raise ValidationError("Must confirm deletion by setting 'confirm' to true")
-
-        # Check if the transaction is in a state that allows deletion
-        with SessionManager() as session:
-            transaction: TradingTransaction | None = session.execute(
-                select(TradingTransaction).where(
-                    TradingTransaction.id == data["transaction_id"],
-                ),
-            ).scalar_one_or_none()
-            if not transaction:
-                raise ValidationError("Transaction not found")
-
-            if transaction.state != TransactionState.CANCELLED:
-                raise ValidationError("Cannot delete an open or closed transaction")
+            raise ValidationError(TransactionError.CONFIRM_DELETION)
 
 
 # Create instances for easy importing

@@ -29,10 +29,10 @@ class ServiceState(EnumBase):
     - ERROR: Service encountered an error and needs attention
     """
 
-    ACTIVE = auto()
-    INACTIVE = auto()
-    PAUSED = auto()
-    ERROR = auto()
+    ACTIVE: str = auto()
+    INACTIVE: str = auto()
+    PAUSED: str = auto()
+    ERROR: str = auto()
 
     @classmethod
     def active_states(cls) -> set[str]:
@@ -58,6 +58,11 @@ class ServiceState(EnumBase):
     def is_error(cls, state: str) -> bool:
         """Check if the given state is considered in an error state."""
         return state in cls.ERROR.value
+
+    @classmethod
+    def is_valid(cls, state: str) -> bool:
+        """Check if the given state is valid."""
+        return state in cls.values()
 
 
 class ServiceAction(EnumBase):
@@ -93,9 +98,9 @@ class TradingMode(EnumBase):
     - HOLD: Service is holding current positions without buying or selling
     """
 
-    BUY = auto()
-    SELL = auto()
-    HOLD = auto()
+    BUY: str = auto()
+    SELL: str = auto()
+    HOLD: str = auto()
 
     @classmethod
     def is_buy(cls, mode: str) -> bool:
@@ -137,9 +142,9 @@ class TransactionState(EnumBase):
     - CANCELLED: Transaction cancelled before completion
     """
 
-    OPEN = auto()  # Purchase executed, not yet sold
-    CLOSED = auto()  # Fully executed (purchased and sold)
-    CANCELLED = auto()  # Transaction cancelled
+    OPEN: str = auto()  # Purchase executed, not yet sold
+    CLOSED: str = auto()  # Fully executed (purchased and sold)
+    CANCELLED: str = auto()  # Transaction cancelled
 
     @classmethod
     def is_open(cls, state: str) -> bool:
@@ -186,10 +191,10 @@ class PriceSource(EnumBase):
     - HISTORICAL: Historical price data from past periods
     """
 
-    REAL_TIME = auto()
-    DELAYED = auto()
-    SIMULATED = auto()
-    HISTORICAL = auto()
+    REAL_TIME: str = auto()
+    DELAYED: str = auto()
+    SIMULATED: str = auto()
+    HISTORICAL: str = auto()
 
     @classmethod
     def is_delayed(cls, source: str) -> bool:
@@ -217,6 +222,11 @@ class PriceSource(EnumBase):
         return source in {cls.REAL_TIME.value, cls.DELAYED.value, cls.HISTORICAL.value}
 
     @classmethod
+    def is_valid(cls, source: str) -> bool:
+        """Check if the price source is valid."""
+        return source in cls.values()
+
+    @classmethod
     def for_display(cls) -> dict[str, str]:
         """Get a dictionary of sources with display-friendly names."""
         return {
@@ -225,6 +235,53 @@ class PriceSource(EnumBase):
             cls.SIMULATED.value: "Simulated",
             cls.HISTORICAL.value: "Historical",
         }
+
+
+class IntradayInterval(EnumBase):
+    """Valid intervals for intraday price data.
+
+    Represents the allowed time intervals for intraday price data:
+
+    - ONE_MINUTE: 1-minute interval
+    - FIVE_MINUTES: 5-minute interval
+    - FIFTEEN_MINUTES: 15-minute interval
+    - THIRTY_MINUTES: 30-minute interval
+    - ONE_HOUR: 60-minute (1-hour) interval
+    """
+
+    ONE_MINUTE: int = 1
+    FIVE_MINUTES: int = 5
+    FIFTEEN_MINUTES: int = 15
+    THIRTY_MINUTES: int = 30
+    ONE_HOUR: int = 60
+
+    @classmethod
+    def valid_values(cls) -> list[int]:
+        """Get a list of all valid interval values in minutes."""
+        return [
+            cls.ONE_MINUTE.value,
+            cls.FIVE_MINUTES.value,
+            cls.FIFTEEN_MINUTES.value,
+            cls.THIRTY_MINUTES.value,
+            cls.ONE_HOUR.value,
+        ]
+
+    @classmethod
+    def is_valid_interval(cls, interval: int) -> bool:
+        """Check if the given interval value is valid."""
+        return interval in cls.valid_values()
+
+    @classmethod
+    def get_name(cls, interval: int) -> str:
+        """Get a human-readable name for an interval value."""
+        names: dict[int, str] = {
+            cls.ONE_MINUTE.value: "1 Minute",
+            cls.FIVE_MINUTES.value: "5 Minutes",
+            cls.FIFTEEN_MINUTES.value: "15 Minutes",
+            cls.THIRTY_MINUTES.value: "30 Minutes",
+            cls.ONE_HOUR.value: "1 Hour",
+        }
+        return names.get(interval, f"{interval} Minutes")
 
 
 # Additional enumerations can be added here as needed
@@ -241,12 +298,12 @@ class AnalysisTimeframe(EnumBase):
     - YEARLY: Year-to-year analysis
     """
 
-    INTRADAY = auto()
-    DAILY = auto()
-    WEEKLY = auto()
-    MONTHLY = auto()
-    QUARTERLY = auto()
-    YEARLY = auto()
+    INTRADAY: str = auto()
+    DAILY: str = auto()
+    WEEKLY: str = auto()
+    MONTHLY: str = auto()
+    QUARTERLY: str = auto()
+    YEARLY: str = auto()
 
     @classmethod
     def is_intraday(cls, timeframe: str) -> bool:

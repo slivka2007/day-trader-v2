@@ -19,11 +19,10 @@ from marshmallow import (
     validates_schema,
 )
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
-from sqlalchemy import select
 
 from app.api.schemas import Schema
 from app.models import User
-from app.services.session_manager import SessionManager
+from app.utils.constants import UserConstants
 from app.utils.current_datetime import get_current_datetime
 from app.utils.errors import ValidationError
 
@@ -79,14 +78,6 @@ class UserSchema(SQLAlchemyAutoSchema):
         if not re.match(r"^[a-zA-Z0-9_]+$", username):
             raise ValidationError(ValidationError.INVALID_USERNAME)
 
-        # Check if username already exists
-        with SessionManager() as session:
-            existing_user: User | None = session.execute(
-                select(User).where(User.username == username),
-            ).scalar_one_or_none()
-            if existing_user:
-                raise ValidationError(ValidationError.USERNAME_EXISTS.format(username))
-
 
 # Create instances for easy importing
 user_schema = UserSchema()
@@ -115,25 +106,6 @@ class UserCreateSchema(Schema):
         """Validate username format."""
         if not re.match(r"^[a-zA-Z0-9_]+$", username):
             raise ValidationError(ValidationError.INVALID_USERNAME)
-
-        # Check if username already exists
-        with SessionManager() as session:
-            existing_user: User | None = session.execute(
-                select(User).where(User.username == username),
-            ).scalar_one_or_none()
-            if existing_user:
-                raise ValidationError(ValidationError.USERNAME_EXISTS.format(username))
-
-    @validates("email")
-    def validate_email(self, email: str) -> None:
-        """Validate email format and uniqueness."""
-        # Check if email already exists
-        with SessionManager() as session:
-            existing_user: User | None = session.execute(
-                select(User).where(User.email == email),
-            ).scalar_one_or_none()
-            if existing_user:
-                raise ValidationError(ValidationError.EMAIL_EXISTS.format(email))
 
     @validates("password")
     def validate_password(self, password: str) -> None:
@@ -173,9 +145,16 @@ class UserCreateSchema(Schema):
 class UserUpdateSchema(Schema):
     """Schema for updating an existing User."""
 
-    username: fields.String = fields.String(validate=validate.Length(min=3, max=50))
+    username: fields.String = fields.String(
+        validate=validate.Length(
+            min=UserConstants.MIN_USERNAME_LENGTH,
+            max=UserConstants.MAX_USERNAME_LENGTH,
+        ),
+    )
     email: fields.Email = fields.Email()
-    password: fields.String = fields.String(validate=validate.Length(min=8))
+    password: fields.String = fields.String(
+        validate=validate.Length(min=UserConstants.MIN_PASSWORD_LENGTH),
+    )
     password_confirm: fields.String = fields.String()
     is_active: fields.Boolean = fields.Boolean()
     is_admin: fields.Boolean = fields.Boolean()
@@ -225,21 +204,6 @@ class UserDeleteSchema(Schema):
         if not data.get("confirm"):
             raise ValidationError(ValidationError.MUST_CONFIRM)
 
-        # Verify the user exists and password is correct
-        with SessionManager() as session:
-            user: User | None = session.execute(
-                select(User).where(User.id == data["user_id"]),
-            ).scalar_one_or_none()
-            if not user:
-                raise ValidationError(ValidationError.USER_NOT_FOUND)
-
-            if not user.verify_password(data["password"]):
-                raise ValidationError(ValidationError.INVALID_PASSWORD)
-
-            # Check if user has active services
-            if user.services and any(service.is_active for service in user.services):
-                raise ValidationError(ValidationError.ACTIVE_SERVICES)
-
 
 # Schema for user login
 class UserLoginSchema(Schema):
@@ -247,20 +211,6 @@ class UserLoginSchema(Schema):
 
     username: fields.String = fields.String(required=True)
     password: fields.String = fields.String(required=True)
-
-    @validates_schema
-    def validate_credentials(self, data: dict) -> None:
-        """Validate username exists."""
-        with SessionManager() as session:
-            user: User | None = session.execute(
-                select(User).where(User.username == data.get("username")),
-            ).scalar_one_or_none()
-            if not user:
-                raise ValidationError(ValidationError.INVALID_CREDENTIALS)
-
-            # We only validate that the username exists here
-            # The actual password verification will be done in the resource
-            # to prevent timing attacks
 
 
 # Schema for changing password

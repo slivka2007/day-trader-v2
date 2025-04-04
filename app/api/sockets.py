@@ -14,7 +14,9 @@ from typing import Callable
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.exceptions import HTTPException
 
+from app.utils.constants import ApiConstants
 from app.utils.current_datetime import get_current_datetime
+from app.utils.errors import APIError, ValidationError
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -25,7 +27,7 @@ active_connections: dict[str, any] = {}
 # Standardized error response
 def create_error_response(
     message: str,
-    code: int = 400,
+    code: int = ApiConstants.HTTP_BAD_REQUEST,
     details: dict | None = None,
 ) -> dict:
     """Create a standardized error response for WebSocket events.
@@ -76,8 +78,19 @@ def socketio_handler(event_name: str) -> Callable:
                 )
                 error_response: dict = create_error_response(
                     message=str(e),
-                    code=400,
+                    code=ApiConstants.HTTP_BAD_REQUEST,
                     details={"event": event_name},
+                )
+                emit("error", error_response)
+            except ValidationError as e:
+                logger.exception(
+                    "Validation error in '%s' handler",
+                    event_name,
+                )
+                error_response: dict = create_error_response(
+                    message=e.message,
+                    code=e.status_code,
+                    details={"event": event_name, **e.to_dict()},
                 )
                 emit("error", error_response)
             except HTTPException as e:
@@ -91,6 +104,17 @@ def socketio_handler(event_name: str) -> Callable:
                     details={"event": event_name},
                 )
                 emit("error", error_response)
+            except APIError as e:
+                logger.exception(
+                    "API error in '%s' handler",
+                    event_name,
+                )
+                error_response: dict = create_error_response(
+                    message=e.message,
+                    code=e.status_code,
+                    details={"event": event_name, **e.to_dict()},
+                )
+                emit("error", error_response)
             except RuntimeError as e:
                 logger.exception(
                     "Runtime error in '%s' handler",
@@ -98,7 +122,7 @@ def socketio_handler(event_name: str) -> Callable:
                 )
                 error_response: dict = create_error_response(
                     message=str(e),
-                    code=500,
+                    code=ApiConstants.HTTP_INTERNAL_SERVER_ERROR,
                     details={"event": event_name},
                 )
                 emit("error", error_response)
@@ -116,7 +140,7 @@ def register_connection_handlers(socketio: SocketIO) -> None:
     def handle_connect() -> None:
         """Handle client connection."""
         logger.info("Client connected to WebSocket")
-        emit("connection_response", {"status": "connected"})
+        emit("connection_response", {"status": ApiConstants.STATUS_SUCCESS})
 
     @socketio.on("disconnect")
     @socketio_handler("disconnect")
@@ -138,7 +162,11 @@ def register_room_handlers(socketio: SocketIO) -> None:
         room: str = data["room"]
         logger.info("Client joining room: %s", room)
         join_room(room)
-        emit("join_response", {"status": "joined", "room": room}, to=room)
+        emit(
+            "join_response",
+            {"status": ApiConstants.STATUS_SUCCESS, "room": room},
+            to=room,
+        )
 
     @socketio.on("leave")
     @socketio_handler("leave")
@@ -150,7 +178,7 @@ def register_room_handlers(socketio: SocketIO) -> None:
         room: str = data["room"]
         logger.info("Client leaving room: %s", room)
         leave_room(room)
-        emit("leave_response", {"status": "left", "room": room})
+        emit("leave_response", {"status": ApiConstants.STATUS_SUCCESS, "room": room})
 
 
 def register_service_handlers(socketio: SocketIO) -> None:
@@ -175,7 +203,11 @@ def register_service_handlers(socketio: SocketIO) -> None:
         join_room(room)
         emit(
             "watch_response",
-            {"status": "watching", "type": "service", "id": service_id},
+            {
+                "status": ApiConstants.STATUS_SUCCESS,
+                "type": "service",
+                "id": service_id,
+            },
         )
 
     @socketio.on("join_services")
@@ -209,7 +241,7 @@ def register_stock_handlers(socketio: SocketIO) -> None:
         join_room(room)
         emit(
             "watch_response",
-            {"status": "watching", "type": "stock", "symbol": symbol},
+            {"status": ApiConstants.STATUS_SUCCESS, "type": "stock", "symbol": symbol},
         )
 
     @socketio.on("join_price_updates")
@@ -241,7 +273,10 @@ def register_user_handlers(socketio: SocketIO) -> None:
         room: str = f"user_{user_id}"
         logger.info("Client watching user ID: %s", user_id)
         join_room(room)
-        emit("watch_response", {"status": "watching", "type": "user", "id": user_id})
+        emit(
+            "watch_response",
+            {"status": ApiConstants.STATUS_SUCCESS, "type": "user", "id": user_id},
+        )
 
     @socketio.on("join_users")
     @socketio_handler("join_users")

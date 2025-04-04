@@ -82,41 +82,41 @@ class StockDailyPrice(Base):
 
     # Validations
     @validates("source")
-    def validate_source(self, source: str) -> str:
+    def validate_source(self, key: str, source: str) -> str:
         """Validate price source."""
         if source and not PriceSource.is_valid(source):
-            raise ValueError(StockPriceError.INVALID_SOURCE.format(source))
+            raise StockPriceError(StockPriceError.INVALID_SOURCE.format(key, source))
         return source
 
     @validates("price_date")
-    def validate_price_date(self, price_date: date) -> date:
+    def validate_price_date(self, key: str, price_date: date) -> date:
         """Validate price date is not in the future."""
         if price_date and price_date > get_current_date():
-            raise ValueError(StockPriceError.FUTURE_DATE.format(price_date))
+            raise StockPriceError(StockPriceError.FUTURE_DATE.format(key, price_date))
         return price_date
 
     @validates("high_price", "low_price", "open_price", "close_price", "adj_close")
-    def validate_prices(self, _key: str, value: float) -> float:
+    def validate_prices(self, key: str, value: float) -> float:
         """Validate price values."""
         if value is not None and value < 0:
-            raise ValueError(StockPriceError.NEGATIVE_PRICE.format(_key))
+            raise StockPriceError(StockPriceError.NEGATIVE_PRICE.format(key, value))
 
         # Check high_price >= low_price if both are being set
         if (
-            _key == "high_price"
+            key == "high_price"
             and value is not None
             and self.low_price is not None
             and value < self.low_price
         ):
-            raise ValueError(StockPriceError.HIGH_LOW_PRICE)
+            raise StockPriceError(StockPriceError.HIGH_LOW_PRICE.format(key, value))
 
         if (
-            _key == "low_price"
+            key == "low_price"
             and value is not None
             and self.high_price is not None
             and value > self.high_price
         ):
-            raise ValueError(StockPriceError.LOW_HIGH_PRICE)
+            raise StockPriceError(StockPriceError.LOW_HIGH_PRICE.format(key, value))
 
         return value
 
@@ -124,7 +124,10 @@ class StockDailyPrice(Base):
         """Return string representation of the StockDailyPrice object."""
         return (
             f"<StockDailyPrice(id={self.id}, stock_id={self.stock_id}, "
-            f"date={self.price_date})>"
+            f"date={self.price_date}, open_price={self.open_price}, "
+            f"high_price={self.high_price}, low_price={self.low_price}, "
+            f"close_price={self.close_price}, adj_close={self.adj_close}, "
+            f"volume={self.volume}, source={self.source})>, stock={self.stock})>"
         )
 
     @property
@@ -147,6 +150,7 @@ class StockDailyPrice(Base):
             else (self.close_price - self.open_price) / self.open_price * 100
         )
 
+    @property
     def is_real_data(self) -> bool:
         """Check if the price data is from a real source (not simulated)."""
         return PriceSource.is_real(self.source)

@@ -1,6 +1,11 @@
+"""System API resources.
+
+This module provides API endpoints for system health checks, information, and
+WebSocket documentation.
+
 """
-System API resources.
-"""
+
+from __future__ import annotations
 
 import platform
 import sys
@@ -8,10 +13,11 @@ import sys
 from flask import current_app, request
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields
 
+from app.services.events import EventService
 from app.utils.current_datetime import get_current_datetime
 
 # Create namespace
-api = Namespace("system", description="System information and operations")
+api: Namespace = Namespace("system", description="System information and operations")
 
 # Define API models
 health_model: Model | OrderedModel = api.model(
@@ -48,7 +54,7 @@ websocket_event_model: Model | OrderedModel = api.model(
         "name": fields.String(description="Event name"),
         "description": fields.String(description="Event description"),
         "direction": fields.String(
-            description="Direction (server-to-client or client-to-server)"
+            description="Direction (server-to-client or client-to-server)",
         ),
         "payload": fields.String(description="Example payload"),
         "rooms": fields.List(fields.String, description="Applicable rooms (if any)"),
@@ -62,7 +68,8 @@ websocket_room_model: Model | OrderedModel = api.model(
         "description": fields.String(description="Room description"),
         "subscribe_event": fields.String(description="Event to emit to join this room"),
         "events": fields.List(
-            fields.String, description="Events broadcast to this room"
+            fields.String,
+            description="Events broadcast to this room",
         ),
     },
 )
@@ -121,8 +128,6 @@ class WebSocketTest(Resource):
         timestamp: str = get_current_datetime().isoformat()
 
         # Use EventService to emit the test event
-        from app.services.events import EventService
-
         EventService.emit_test(
             message=message,
             room="test",  # Use a dedicated test room

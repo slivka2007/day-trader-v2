@@ -23,6 +23,7 @@ from app.services.events import EventService
 from app.services.price_service import PriceService
 from app.services.stock_service import StockService
 from app.services.transaction_service import TransactionService
+from app.utils.constants import TradingServiceConstants
 from app.utils.current_datetime import get_current_date, get_current_datetime
 from app.utils.errors import (
     AuthorizationError,
@@ -49,11 +50,11 @@ class TradingServiceService:
     """
 
     # Resource types
-    RESOURCE_TRADING_SERVICE: str = "TradingService"
-    RESOURCE_STOCK: str = "Stock"
+    RESOURCE_TRADING_SERVICE: str = TradingServiceConstants.RESOURCE_TRADING_SERVICE
+    RESOURCE_STOCK: str = TradingServiceConstants.RESOURCE_STOCK
 
     # Constants
-    MIN_DAYS_FOR_SMA: int = 20  # Minimum days required for SMA calculation
+    MIN_DAYS_FOR_SMA: int = TradingServiceConstants.MIN_DAYS_FOR_SMA
 
     @dataclass
     class BacktestDayParams:

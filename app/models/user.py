@@ -12,6 +12,7 @@ from sqlalchemy.orm import Mapped, relationship, validates
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.models.base import Base
+from app.utils.constants import UserConstants
 from app.utils.current_datetime import get_current_datetime
 from app.utils.errors import UserError
 
@@ -39,9 +40,9 @@ class User(Base):
     __tablename__: str = "users"
 
     # Constants
-    MIN_USERNAME_LENGTH: int = 3
-    MAX_USERNAME_LENGTH: int = 50
-    MIN_PASSWORD_LENGTH: int = 8
+    MIN_USERNAME_LENGTH: int = UserConstants.MIN_USERNAME_LENGTH
+    MAX_USERNAME_LENGTH: int = UserConstants.MAX_USERNAME_LENGTH
+    MIN_PASSWORD_LENGTH: int = UserConstants.MIN_PASSWORD_LENGTH
 
     id: Mapped[int] = Column(Integer, primary_key=True)
     username: Mapped[str] = Column(
@@ -122,6 +123,10 @@ class User(Base):
     def verify_password(self, password: str) -> bool:
         """Verify password."""
         return check_password_hash(self.password_hash, password)
+
+    def update_last_login(self) -> None:
+        """Update the last login timestamp to current time."""
+        self.last_login = get_current_datetime()
 
     @property
     def has_active_services(self) -> bool:

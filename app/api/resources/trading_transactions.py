@@ -1,6 +1,4 @@
-"""
-Trading Transactions API resources.
-"""
+"""Trading Transactions API resources."""
 
 import logging
 from typing import Literal
@@ -10,26 +8,20 @@ from flask_jwt_extended import jwt_required
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields
 from sqlalchemy import select
 
+from app.api.schemas import ValidationError
 from app.api.schemas.trading_transaction import (
     transaction_cancel_schema,
     transaction_complete_schema,
     transaction_create_schema,
     transaction_schema,
 )
-from app.models import TradingService, TradingTransaction, TransactionState, User
-from app.services.session_manager import SessionManager
+from app.exceptions import AuthorizationError, BusinessLogicError, ResourceNotFoundError
+from app.models import SessionManager, TradingService, TradingTransaction, User
+from app.models.enums import TransactionState
+from app.services.auth_service import get_current_user, verify_resource_ownership
 from app.services.transaction_service import TransactionService
-from app.utils.auth import (
-    get_current_user,
-    require_ownership,
-    verify_resource_ownership,
-)
-from app.utils.errors import (
-    AuthorizationError,
-    BusinessLogicError,
-    ResourceNotFoundError,
-    ValidationError,
-)
+from app.utils.decorators import require_ownership
+from app.utils.query_utils import apply_pagination
 
 # Set up logging
 logger: logging.Logger = logging.getLogger(__name__)
@@ -43,7 +35,8 @@ transaction_model: Model | OrderedModel = api.model(
     {
         "id": fields.Integer(readonly=True, description="The transaction identifier"),
         "service_id": fields.Integer(
-            required=True, description="The trading service identifier"
+            required=True,
+            description="The trading service identifier",
         ),
         "stock_id": fields.Integer(description="The stock identifier"),
         "stock_symbol": fields.String(description="Stock ticker symbol"),
@@ -58,10 +51,10 @@ transaction_model: Model | OrderedModel = api.model(
         "created_at": fields.DateTime(description="Creation timestamp"),
         "updated_at": fields.DateTime(description="Last update timestamp"),
         "is_complete": fields.Boolean(
-            description="Whether the transaction is complete"
+            description="Whether the transaction is complete",
         ),
         "is_profitable": fields.Boolean(
-            description="Whether the transaction is profitable"
+            description="Whether the transaction is profitable",
         ),
         "duration_days": fields.Integer(description="Duration of transaction in days"),
         "total_cost": fields.Float(description="Total cost of the purchase"),
@@ -79,12 +72,14 @@ transaction_create_model: Model | OrderedModel = api.model(
     "TransactionCreate",
     {
         "service_id": fields.Integer(
-            required=True, description="The trading service identifier"
+            required=True,
+            description="The trading service identifier",
         ),
         "stock_symbol": fields.String(required=True, description="The stock symbol"),
         "shares": fields.Float(required=True, description="Number of shares"),
         "purchase_price": fields.Float(
-            required=True, description="Purchase price per share"
+            required=True,
+            description="Purchase price per share",
         ),
     },
 )
@@ -99,7 +94,8 @@ transaction_list_model: Model | OrderedModel = api.model(
     "TransactionList",
     {
         "items": fields.List(
-            fields.Nested(transaction_model), description="List of transactions"
+            fields.Nested(transaction_model),
+            description="List of transactions",
         ),
         "pagination": fields.Nested(
             api.model(
@@ -110,13 +106,13 @@ transaction_list_model: Model | OrderedModel = api.model(
                     "total_items": fields.Integer(description="Total number of items"),
                     "total_pages": fields.Integer(description="Total number of pages"),
                     "has_next": fields.Boolean(
-                        description="Whether there is a next page"
+                        description="Whether there is a next page",
                     ),
                     "has_prev": fields.Boolean(
-                        description="Whether there is a previous page"
+                        description="Whether there is a previous page",
                     ),
                 },
-            )
+            ),
         ),
     },
 )
@@ -152,7 +148,7 @@ class TransactionList(Resource):
             # Get services owned by this user
             user_services: list[TradingService] = (
                 session.execute(
-                    select(TradingService).where(TradingService.user_id == user.id)
+                    select(TradingService).where(TradingService.user_id == user.id),
                 )
                 .scalars()
                 .all()
@@ -190,11 +186,14 @@ class TransactionList(Resource):
                     # Get transactions for a specific service
                     if "state" in filters:
                         transactions: list[any] = TransactionService.get_by_service(
-                            session, filters["service_id"], filters["state"]
+                            session,
+                            filters["service_id"],
+                            filters["state"],
                         )
                     else:
                         transactions: list[any] = TransactionService.get_by_service(
-                            session, filters["service_id"]
+                            session,
+                            filters["service_id"],
                         )
 
                     all_transactions.extend(transactions)
@@ -203,11 +202,14 @@ class TransactionList(Resource):
                     for service_id in service_ids:
                         if "state" in filters:
                             transactions: list[any] = TransactionService.get_by_service(
-                                session, int(service_id), filters["state"]
+                                session,
+                                int(service_id),
+                                filters["state"],
                             )
                         else:
                             transactions: list[any] = TransactionService.get_by_service(
-                                session, int(service_id)
+                                session,
+                                int(service_id),
                             )
 
                         all_transactions.extend(transactions)
@@ -234,41 +236,21 @@ class TransactionList(Resource):
                     reverse=(sort_order.lower() == "desc"),
                 )
 
-                # Apply pagination - handle list instead of query
-                if isinstance(all_transactions, list):
-                    # Get pagination parameters
-                    page: int = request.args.get("page", 1, type=int)
-                    page_size: int = min(
-                        request.args.get("page_size", 20, type=int), 100
-                    )
+                # Apply pagination using the utility function
+                result = apply_pagination(all_transactions)
 
-                    # Manual pagination for list
-                    start: int = (page - 1) * page_size
-                    end: int = start + page_size
-                    items: list[any] = all_transactions[start:end]
-                    total: int = len(all_transactions)
+                # Serialize the results
+                result["items"] = transactions_schema.dump(result["items"])
 
-                    paginated_data: dict[str, any] = {
-                        "items": items,
-                        "pagination": {
-                            "page": page,
-                            "page_size": page_size,
-                            "total_items": total,
-                            "total_pages": (total + page_size - 1) // page_size,
-                            "has_next": end < total,
-                            "has_prev": start > 0,
-                        },
-                    }
-
-                return paginated_data
+                return result
 
             except ValidationError as e:
-                logger.warning(f"Validation error listing transactions: {str(e)}")
+                logger.warning(f"Validation error listing transactions: {e!s}")
                 raise
             except Exception as e:
-                logger.error(f"Error listing transactions: {str(e)}")
+                logger.error(f"Error listing transactions: {e!s}")
                 raise BusinessLogicError(
-                    f"Could not list transactions: {str(e)}"
+                    f"Could not list transactions: {e!s}",
                 ) from e
 
     @api.doc("create_transaction")
@@ -287,9 +269,10 @@ class TransactionList(Resource):
         try:
             validated_data: dict[str, any] = transaction_create_schema.load(data or {})
         except ValidationError as err:
-            logger.warning(f"Validation error creating transaction: {str(err)}")
+            logger.warning(f"Validation error creating transaction: {err!s}")
             raise ValidationError(
-                "Invalid transaction data", errors={"general": [str(err)]}
+                "Invalid transaction data",
+                errors={"general": [str(err)]},
             ) from err
 
         # Safety check to ensure validated_data is a dictionary
@@ -329,18 +312,18 @@ class TransactionList(Resource):
                 return transaction_schema.dump(transaction), 201
 
             except ValidationError as e:
-                logger.warning(f"Validation error creating transaction: {str(e)}")
+                logger.warning(f"Validation error creating transaction: {e!s}")
                 raise
             except ResourceNotFoundError as e:
-                logger.warning(f"Resource not found: {str(e)}")
+                logger.warning(f"Resource not found: {e!s}")
                 raise
             except BusinessLogicError as e:
-                logger.error(f"Business logic error: {str(e)}")
+                logger.error(f"Business logic error: {e!s}")
                 raise
             except Exception as e:
-                logger.error(f"Error creating transaction: {str(e)}")
+                logger.error(f"Error creating transaction: {e!s}")
                 raise BusinessLogicError(
-                    f"Could not create transaction: {str(e)}"
+                    f"Could not create transaction: {e!s}",
                 ) from e
 
 
@@ -367,7 +350,9 @@ class TransactionItem(Resource):
 
             # Verify ownership and get transaction
             transaction: TradingTransaction = TransactionService.verify_ownership(
-                session, id, user.id
+                session,
+                id,
+                user.id,
             )
             return transaction_schema.dump(transaction)
 
@@ -395,15 +380,15 @@ class TransactionItem(Resource):
                 return "", 204
 
             except ResourceNotFoundError as e:
-                logger.warning(f"Resource not found: {str(e)}")
+                logger.warning(f"Resource not found: {e!s}")
                 raise
             except BusinessLogicError as e:
-                logger.error(f"Business logic error: {str(e)}")
+                logger.error(f"Business logic error: {e!s}")
                 raise
             except Exception as e:
-                logger.error(f"Error deleting transaction: {str(e)}")
+                logger.error(f"Error deleting transaction: {e!s}")
                 raise BusinessLogicError(
-                    f"Could not delete transaction: {str(e)}"
+                    f"Could not delete transaction: {e!s}",
                 ) from e
 
 
@@ -432,9 +417,10 @@ class TransactionComplete(Resource):
             data_dict: dict[str, any] = data if isinstance(data, dict) else {}
             validated_data: dict[str, any] = transaction_complete_schema.load(data_dict)
         except ValidationError as err:
-            logger.warning(f"Validation error completing transaction: {str(err)}")
+            logger.warning(f"Validation error completing transaction: {err!s}")
             raise ValidationError(
-                "Invalid sale data", errors={"general": [str(err)]}
+                "Invalid sale data",
+                errors={"general": [str(err)]},
             ) from err
 
         # Safely access sale_price and convert to Decimal
@@ -444,11 +430,13 @@ class TransactionComplete(Resource):
                 sale_price: float = float(str(sale_price_value))
             else:
                 raise ValidationError(
-                    "Missing sale price", errors={"sale_price": ["Field is required"]}
+                    "Missing sale price",
+                    errors={"sale_price": ["Field is required"]},
                 )
         else:
             raise ValidationError(
-                "Missing sale price", errors={"sale_price": ["Field is required"]}
+                "Missing sale price",
+                errors={"sale_price": ["Field is required"]},
             )
 
         with SessionManager() as session:
@@ -468,18 +456,18 @@ class TransactionComplete(Resource):
                 return transaction_schema.dump(transaction)
 
             except ValidationError as e:
-                logger.warning(f"Validation error completing transaction: {str(e)}")
+                logger.warning(f"Validation error completing transaction: {e!s}")
                 raise
             except ResourceNotFoundError as e:
-                logger.warning(f"Resource not found: {str(e)}")
+                logger.warning(f"Resource not found: {e!s}")
                 raise
             except BusinessLogicError as e:
-                logger.error(f"Business logic error: {str(e)}")
+                logger.error(f"Business logic error: {e!s}")
                 raise
             except Exception as e:
-                logger.error(f"Error completing transaction: {str(e)}")
+                logger.error(f"Error completing transaction: {e!s}")
                 raise BusinessLogicError(
-                    f"Could not complete transaction: {str(e)}"
+                    f"Could not complete transaction: {e!s}",
                 ) from e
 
 
@@ -508,9 +496,10 @@ class TransactionCancel(Resource):
             data_dict: dict[str, any] = data if isinstance(data, dict) else {}
             validated_data: dict[str, any] = transaction_cancel_schema.load(data_dict)
         except ValidationError as err:
-            logger.warning(f"Validation error cancelling transaction: {str(err)}")
+            logger.warning(f"Validation error cancelling transaction: {err!s}")
             raise ValidationError(
-                "Invalid cancellation data", errors={"general": [str(err)]}
+                "Invalid cancellation data",
+                errors={"general": [str(err)]},
             ) from err
 
         # Safely access reason
@@ -530,23 +519,25 @@ class TransactionCancel(Resource):
             try:
                 # Cancel the transaction using the service layer
                 transaction: TradingTransaction = TransactionService.cancel_transaction(
-                    session, id, reason
+                    session,
+                    id,
+                    reason,
                 )
                 return transaction_schema.dump(transaction)
 
             except ValidationError as e:
-                logger.warning(f"Validation error cancelling transaction: {str(e)}")
+                logger.warning(f"Validation error cancelling transaction: {e!s}")
                 raise
             except ResourceNotFoundError as e:
-                logger.warning(f"Resource not found: {str(e)}")
+                logger.warning(f"Resource not found: {e!s}")
                 raise
             except BusinessLogicError as e:
-                logger.error(f"Business logic error: {str(e)}")
+                logger.error(f"Business logic error: {e!s}")
                 raise
             except Exception as e:
-                logger.error(f"Error cancelling transaction: {str(e)}")
+                logger.error(f"Error cancelling transaction: {e!s}")
                 raise BusinessLogicError(
-                    f"Could not cancel transaction: {str(e)}"
+                    f"Could not cancel transaction: {e!s}",
                 ) from e
 
 
@@ -573,14 +564,14 @@ class ServiceTransactions(Resource):
     @jwt_required()
     @require_ownership("service")
     def get(
-        self, service_id: int
+        self,
+        service_id: int,
     ) -> tuple[any | list[any] | list | dict, Literal[200]]:
         """Get all transactions for a specific trading service."""
         with SessionManager() as session:
-            # Check if service exists and belongs to user
-            # (require_ownership decorator already verifies ownership)
+            # Verify service exists
             service: TradingService | None = session.execute(
-                select(TradingService).where(TradingService.id == service_id)
+                select(TradingService).where(TradingService.id == service_id),
             ).scalar_one_or_none()
             if not service:
                 raise ResourceNotFoundError(
@@ -588,34 +579,35 @@ class ServiceTransactions(Resource):
                     resource_id=service_id,
                 )
 
-            # Get transactions for this service
-            state: str | None = request.args.get("state")
-
             try:
-                # Use service layer to get transactions
+                # Parse query parameters
+                state: str | None = request.args.get("state")
+                if state and not TransactionState.is_valid(state):
+                    raise ValidationError(f"Invalid transaction state: {state}")
+
+                # Get transactions for this service
                 if state:
-                    transactions: list[TradingTransaction] = (
-                        TransactionService.get_by_service(session, service_id, state)
+                    transactions: list[any] = TransactionService.get_by_service(
+                        session,
+                        service_id,
+                        state,
                     )
                 else:
-                    transactions: list[TradingTransaction] = (
-                        TransactionService.get_by_service(session, service_id)
+                    transactions: list[any] = TransactionService.get_by_service(
+                        session,
+                        service_id,
                     )
 
-                # Apply sorting
+                # Get sort parameters
                 sort_field: str = request.args.get("sort", "purchase_date")
                 sort_order: str = request.args.get("order", "desc")
 
-                # Sort using a safer approach
+                # Define a sort key getter that handles missing attributes
                 def get_sort_key(t: any) -> any:
                     # Get attribute safely or use purchase_date as fallback
-                    try:
-                        val: any | None = getattr(t, sort_field, None)
-                        if val is None:
-                            val = getattr(t, "purchase_date", None)
-                        return val
-                    except Exception:
-                        return None
+                    if hasattr(t, sort_field):
+                        return getattr(t, sort_field)
+                    return t.purchase_date
 
                 # Sort the transactions with explicit list casting
                 transactions = sorted(
@@ -624,41 +616,21 @@ class ServiceTransactions(Resource):
                     reverse=(sort_order.lower() == "desc"),
                 )
 
-                # Apply pagination - handle list instead of query
-                if isinstance(transactions, list):
-                    # Get pagination parameters
-                    page: int = request.args.get("page", 1, type=int)
-                    page_size: int = min(
-                        request.args.get("page_size", 20, type=int), 100
-                    )
+                # Apply pagination using the utility function
+                result = apply_pagination(transactions)
 
-                    # Manual pagination for list
-                    start: int = (page - 1) * page_size
-                    end: int = start + page_size
-                    items: list[any] = transactions[start:end]
-                    total: int = len(transactions)
+                # Serialize the results
+                result["items"] = transactions_schema.dump(result["items"])
 
-                    paginated_data: dict[str, any] = {
-                        "items": items,
-                        "pagination": {
-                            "page": page,
-                            "page_size": page_size,
-                            "total_items": total,
-                            "total_pages": (total + page_size - 1) // page_size,
-                            "has_next": end < total,
-                            "has_prev": start > 0,
-                        },
-                    }
-
-                return paginated_data
+                return result
 
             except ValidationError as e:
-                logger.warning(f"Validation error listing transactions: {str(e)}")
+                logger.warning(f"Validation error listing transactions: {e!s}")
                 raise
             except Exception as e:
-                logger.error(f"Error listing transactions: {str(e)}")
+                logger.error(f"Error listing transactions: {e!s}")
                 raise BusinessLogicError(
-                    f"Could not list transactions: {str(e)}"
+                    f"Could not list transactions: {e!s}",
                 ) from e
 
 
@@ -673,7 +645,7 @@ class TransactionNotes(Resource):
         api.model(
             "TransactionNotes",
             {"notes": fields.String(required=True, description="Transaction notes")},
-        )
+        ),
     )
     @api.marshal_with(transaction_model)
     @api.response(200, "Notes updated")
@@ -689,7 +661,8 @@ class TransactionNotes(Resource):
         # Check if data is None or doesn't contain notes
         if data is None or not isinstance(data, dict) or "notes" not in data:
             raise ValidationError(
-                "Missing required field", errors={"notes": ["Field is required"]}
+                "Missing required field",
+                errors={"notes": ["Field is required"]},
             )
 
         with SessionManager() as session:
@@ -710,12 +683,12 @@ class TransactionNotes(Resource):
                 return transaction_schema.dump(transaction)
 
             except ResourceNotFoundError as e:
-                logger.warning(f"Resource not found: {str(e)}")
+                logger.warning(f"Resource not found: {e!s}")
                 raise
             except Exception as e:
-                logger.error(f"Error updating transaction notes: {str(e)}")
+                logger.error(f"Error updating transaction notes: {e!s}")
                 raise BusinessLogicError(
-                    f"Could not update transaction notes: {str(e)}"
+                    f"Could not update transaction notes: {e!s}",
                 ) from e
 
 
@@ -732,14 +705,15 @@ class TransactionMetrics(Resource):
     @jwt_required()
     @require_ownership("service")
     def get(
-        self, service_id: int
+        self,
+        service_id: int,
     ) -> tuple[any | list[any] | list | dict, Literal[200]]:
         """Get metrics for transactions of a service"""
         with SessionManager() as session:
             # Check if service exists and belongs to user
             # (require_ownership decorator already verifies ownership)
             service: TradingService | None = session.execute(
-                select(TradingService).where(TradingService.id == service_id)
+                select(TradingService).where(TradingService.id == service_id),
             ).scalar_one_or_none()
             if not service:
                 raise ResourceNotFoundError(
@@ -751,13 +725,14 @@ class TransactionMetrics(Resource):
                 # Calculate metrics using the service layer
                 metrics: dict[str, any] = (
                     TransactionService.calculate_transaction_metrics(
-                        session, service_id
+                        session,
+                        service_id,
                     )
                 )
                 return metrics
 
             except Exception as e:
-                logger.error(f"Error calculating transaction metrics: {str(e)}")
+                logger.error(f"Error calculating transaction metrics: {e!s}")
                 raise BusinessLogicError(
-                    f"Could not calculate transaction metrics: {str(e)}"
+                    f"Could not calculate transaction metrics: {e!s}",
                 ) from e
