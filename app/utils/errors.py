@@ -25,6 +25,18 @@ logger: logging.Logger = logging.getLogger(__name__)
 class APIError(Exception):
     """Base class for API errors with status code and payload."""
 
+    # Data provider error messages
+    FETCH_STOCK_INFO_ERROR: str = "Failed to fetch stock info"
+    FETCH_INTRADAY_DATA_ERROR: str = "Failed to fetch intraday data"
+    FETCH_DAILY_DATA_ERROR: str = "Failed to fetch daily data"
+    PROCESS_STOCK_DATA_ERROR: str = "Failed to process stock data"
+    PROCESS_INTRADAY_DATA_ERROR: str = "Failed to process intraday data"
+    PROCESS_DAILY_DATA_ERROR: str = "Failed to process daily data"
+    NO_PRICE_DATA_ERROR: str = "No price data available"
+    NO_DAILY_PRICE_DATA_ERROR: str = "No daily price data available"
+    LATEST_PRICE_ERROR: str = "Failed to get latest price"
+    LATEST_DAILY_PRICE_ERROR: str = "Failed to get latest daily price"
+
     def __init__(
         self,
         message: str,

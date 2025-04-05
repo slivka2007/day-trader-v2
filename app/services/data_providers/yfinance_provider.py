@@ -5,14 +5,41 @@ from the Yahoo Finance API and map it to the application's database models.
 """
 
 import logging
+from json.decoder import JSONDecodeError
+from urllib.error import HTTPError, URLError
 
 import pandas as pd
 import yfinance as yf
 
-from app.deprecated.config.constants import SUPPORTED_SYMBOLS
-from app.deprecated.exceptions.exceptions import DataFetchError, InvalidSymbolError
+from app.utils.errors import APIError, StockError
+from app.utils.validators import validate_stock_symbol
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _raise_api_error(
+    error_type: str,
+    symbol: str,
+    exception: Exception,
+    message: str,
+) -> None:
+    """Raise an API error with consistent formatting and logging.
+
+    Args:
+        error_type: Error type constant from APIError class
+        symbol: Stock symbol related to the error
+        exception: Original exception being handled
+        message: Log message to use
+
+    Raises:
+        APIError: With appropriate payload and exception chaining
+
+    """
+    logger.exception(message, symbol)
+    raise APIError(
+        error_type,
+        payload={"symbol": symbol, "error": str(exception)},
+    ) from exception
 
 
 def get_stock_info(symbol: str) -> dict[str, any]:
@@ -25,24 +52,19 @@ def get_stock_info(symbol: str) -> dict[str, any]:
         Dictionary containing stock information
 
     Raises:
-        InvalidSymbolError: If the symbol is invalid or not found
-        DataFetchError: If there's an error fetching data from Yahoo Finance
+        StockError: If the symbol is invalid or not found
+        APIError: If there's an error fetching data from Yahoo Finance
 
     """
-    logger.info(f"Fetching stock info for {symbol}")
+    logger.info("Fetching stock info for %s", symbol)
 
     try:
-        # Normalize symbol
-        symbol = symbol.upper()
-
-        # Validate symbol against supported symbols
-        if symbol not in SUPPORTED_SYMBOLS:
-            logger.error(f"Invalid stock symbol: {symbol}")
-            raise InvalidSymbolError(f"Stock symbol {symbol} is not supported")
+        # Validate and normalize symbol
+        symbol = validate_stock_symbol(symbol, StockError)
 
         # Get stock info from Yahoo Finance
-        ticker = yf.Ticker(symbol)
-        info = ticker.info
+        ticker: yf.Ticker = yf.Ticker(symbol)
+        info: dict[str, any] = ticker.info
 
         # Return relevant information
         return {
@@ -60,9 +82,23 @@ def get_stock_info(symbol: str) -> dict[str, any]:
                 else 0.0
             ),
         }
-    except Exception as e:
-        logger.error(f"Error fetching stock info for {symbol}: {e!s}")
-        raise DataFetchError(f"Failed to fetch stock info for {symbol}: {e!s}")
+    except StockError:
+        # Re-raise stock validation errors
+        raise
+    except (HTTPError, URLError, ConnectionError) as e:
+        _raise_api_error(
+            APIError.FETCH_STOCK_INFO_ERROR,
+            symbol,
+            e,
+            "Network error fetching stock info for %s",
+        )
+    except (ValueError, KeyError, JSONDecodeError, AttributeError) as e:
+        _raise_api_error(
+            APIError.PROCESS_STOCK_DATA_ERROR,
+            symbol,
+            e,
+            "Data processing error for %s",
+        )
 
 
 def get_intraday_data(
@@ -77,35 +113,34 @@ def get_intraday_data(
         interval: The time interval between data points (default: '1m')
                  Options: '1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h'
         period: The time period to fetch data for (default: '1d')
-                Options: '1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', '10y', 'ytd', 'max'
+                Options: '1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', '10y',
+                'ytd', 'max'
 
     Returns:
         List of dictionaries containing intraday price data
 
     Raises:
-        InvalidSymbolError: If the symbol is invalid or not found
-        DataFetchError: If there's an error fetching data from Yahoo Finance
+        StockError: If the symbol is invalid or not found
+        APIError: If there's an error fetching data from Yahoo Finance
 
     """
     logger.info(
-        f"Fetching intraday data for {symbol} with interval {interval} for period {period}",
+        "Fetching intraday data for %s with interval %s for period %s",
+        symbol,
+        interval,
+        period,
     )
 
     try:
-        # Normalize symbol
-        symbol = symbol.upper()
-
-        # Validate symbol against supported symbols
-        if symbol not in SUPPORTED_SYMBOLS:
-            logger.error(f"Invalid stock symbol: {symbol}")
-            raise InvalidSymbolError(f"Stock symbol {symbol} is not supported")
+        # Validate and normalize symbol
+        symbol = validate_stock_symbol(symbol, StockError)
 
         # Get intraday data from Yahoo Finance
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period=period, interval=interval)
+        ticker: yf.Ticker = yf.Ticker(symbol)
+        hist: pd.DataFrame = ticker.history(period=period, interval=interval)
 
         # Convert to list of dictionaries
-        result = []
+        result: list[dict[str, any]] = []
         for timestamp, row in hist.iterrows():
             result.append(
                 {
@@ -120,10 +155,24 @@ def get_intraday_data(
                 },
             )
 
-        return result
-    except Exception as e:
-        logger.error(f"Error fetching intraday data for {symbol}: {e!s}")
-        raise DataFetchError(f"Failed to fetch intraday data for {symbol}: {e!s}")
+    except StockError:
+        # Re-raise stock validation errors
+        raise
+    except (HTTPError, URLError, ConnectionError) as e:
+        _raise_api_error(
+            APIError.FETCH_INTRADAY_DATA_ERROR,
+            symbol,
+            e,
+            "Network error fetching intraday data for %s",
+        )
+    except (ValueError, KeyError, AttributeError, TypeError) as e:
+        _raise_api_error(
+            APIError.PROCESS_INTRADAY_DATA_ERROR,
+            symbol,
+            e,
+            "Data processing error for %s",
+        )
+    return result
 
 
 def get_latest_price(symbol: str) -> dict[str, any]:
@@ -136,24 +185,43 @@ def get_latest_price(symbol: str) -> dict[str, any]:
         Dictionary containing the latest price data
 
     Raises:
-        InvalidSymbolError: If the symbol is invalid or not found
-        DataFetchError: If there's an error fetching data
+        StockError: If the symbol is invalid or not found
+        APIError: If there's an error fetching data
 
     """
-    logger.info(f"Getting latest price for {symbol}")
+    logger.info("Getting latest price for %s", symbol)
 
     try:
         # Get intraday data (most recent 1 minute)
-        intraday_data = get_intraday_data(symbol, interval="1m", period="1d")
+        intraday_data: list[dict[str, any]] = get_intraday_data(
+            symbol,
+            interval="1m",
+            period="1d",
+        )
 
         # Return the most recent data point
         if intraday_data:
             return intraday_data[-1]
-        raise DataFetchError(f"No price data available for {symbol}")
+        raise _raise_api_error(
+            APIError.NO_PRICE_DATA_ERROR,
+            symbol,
+            None,
+            "No price data available for %s",
+        )
 
-    except Exception as e:
-        logger.error(f"Error getting latest price for {symbol}: {e!s}")
-        raise DataFetchError(f"Failed to get latest price for {symbol}: {e!s}")
+    except StockError:
+        # Re-raise stock validation errors
+        raise
+    except APIError:
+        # Re-raise API errors
+        raise
+    except (IndexError, KeyError, TypeError) as e:
+        _raise_api_error(
+            APIError.LATEST_PRICE_ERROR,
+            symbol,
+            e,
+            "Data processing error for %s",
+        )
 
 
 def get_daily_data(symbol: str, period: str = "1y") -> list[dict[str, any]]:
@@ -168,27 +236,22 @@ def get_daily_data(symbol: str, period: str = "1y") -> list[dict[str, any]]:
         List of dictionaries containing daily price data
 
     Raises:
-        InvalidSymbolError: If the symbol is invalid or not found
-        DataFetchError: If there's an error fetching data from Yahoo Finance
+        StockError: If the symbol is invalid or not found
+        APIError: If there's an error fetching data from Yahoo Finance
 
     """
-    logger.info(f"Fetching daily data for {symbol} for period {period}")
+    logger.info("Fetching daily data for %s for period %s", symbol, period)
 
     try:
-        # Normalize symbol
-        symbol = symbol.upper()
-
-        # Validate symbol against supported symbols
-        if symbol not in SUPPORTED_SYMBOLS:
-            logger.error(f"Invalid stock symbol: {symbol}")
-            raise InvalidSymbolError(f"Stock symbol {symbol} is not supported")
+        # Validate and normalize symbol
+        symbol = validate_stock_symbol(symbol, StockError)
 
         # Get daily data from Yahoo Finance
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period=period, interval="1d")
+        ticker: yf.Ticker = yf.Ticker(symbol)
+        hist: pd.DataFrame = ticker.history(period=period, interval="1d")
 
         # Convert to list of dictionaries
-        result = []
+        result: list[dict[str, any]] = []
         for timestamp, row in hist.iterrows():
             result.append(
                 {
@@ -206,10 +269,24 @@ def get_daily_data(symbol: str, period: str = "1y") -> list[dict[str, any]]:
                 },
             )
 
-        return result
-    except Exception as e:
-        logger.error(f"Error fetching daily data for {symbol}: {e!s}")
-        raise DataFetchError(f"Failed to fetch daily data for {symbol}: {e!s}")
+    except StockError:
+        # Re-raise stock validation errors
+        raise
+    except (HTTPError, URLError, ConnectionError) as e:
+        _raise_api_error(
+            APIError.FETCH_DAILY_DATA_ERROR,
+            symbol,
+            e,
+            "Network error fetching daily data for %s",
+        )
+    except (ValueError, KeyError, AttributeError, TypeError) as e:
+        _raise_api_error(
+            APIError.PROCESS_DAILY_DATA_ERROR,
+            symbol,
+            e,
+            "Data processing error for %s",
+        )
+    return result
 
 
 def get_latest_daily_price(symbol: str) -> dict[str, any]:
@@ -222,76 +299,36 @@ def get_latest_daily_price(symbol: str) -> dict[str, any]:
         Dictionary containing the latest daily price data
 
     Raises:
-        InvalidSymbolError: If the symbol is invalid or not found
-        DataFetchError: If there's an error fetching data
+        StockError: If the symbol is invalid or not found
+        APIError: If there's an error fetching data
 
     """
-    logger.info(f"Getting latest daily price for {symbol}")
+    logger.info("Getting latest daily price for %s", symbol)
 
     try:
         # Get daily data (most recent)
-        daily_data = get_daily_data(symbol, period="5d")
+        daily_data: list[dict[str, any]] = get_daily_data(symbol, period="5d")
 
         # Return the most recent data point
         if daily_data:
             return daily_data[-1]
-        raise DataFetchError(f"No daily price data available for {symbol}")
+        raise _raise_api_error(
+            APIError.NO_DAILY_PRICE_DATA_ERROR,
+            symbol,
+            None,
+            "No daily price data available for %s",
+        )
 
-    except Exception as e:
-        logger.error(f"Error getting latest daily price for {symbol}: {e!s}")
-        raise DataFetchError(f"Failed to get latest daily price for {symbol}: {e!s}")
-
-
-def update_stock_model(symbol: str) -> tuple[Stock, bool]:
-    """Update or create a Stock model with the latest information.
-
-    Args:
-        symbol: The ticker symbol of the stock
-
-    Returns:
-        Tuple of (Stock model, is_created flag)
-
-    Raises:
-        DataFetchError: If there's an error fetching data
-
-    """
-    logger.info(f"Updating stock model for {symbol}")
-
-    try:
-        # Get stock info
-        stock_info = get_stock_info(symbol)
-
-        # Create or update stock in the database
-        session = get_session()
-        stock = session.query(Stock).filter(Stock.symbol == symbol).first()
-
-        is_created = False
-        if not stock:
-            logger.info(f"Creating new stock entry for {symbol}")
-            stock = Stock(
-                symbol=stock_info["symbol"],
-                name=stock_info["name"],
-                sector=stock_info["sector"],
-                description=stock_info.get("industry", ""),
-            )
-            session.add(stock)
-            is_created = True
-        else:
-            logger.info(f"Updating existing stock entry for {symbol}")
-            stock.name = stock_info["name"]
-            stock.sector = stock_info["sector"]
-            stock.description = stock_info.get("industry", "")
-
-        try:
-            session.commit()
-            return stock, is_created
-        except SQLAlchemyError as e:
-            session.rollback()
-            logger.error(f"Database error updating stock {symbol}: {e!s}")
-            raise DataFetchError(
-                f"Failed to update stock {symbol} in database: {e!s}",
-            )
-
-    except Exception as e:
-        logger.error(f"Error updating stock model for {symbol}: {e!s}")
-        raise DataFetchError(f"Failed to update stock model for {symbol}: {e!s}")
+    except StockError:
+        # Re-raise stock validation errors
+        raise
+    except APIError:
+        # Re-raise API errors
+        raise
+    except (IndexError, KeyError, TypeError) as e:
+        _raise_api_error(
+            APIError.LATEST_DAILY_PRICE_ERROR,
+            symbol,
+            e,
+            "Data processing error for %s",
+        )

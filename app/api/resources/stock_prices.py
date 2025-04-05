@@ -17,7 +17,6 @@ from typing import NoReturn
 from flask import current_app, request
 from flask_jwt_extended import jwt_required
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields
-from sqlalchemy import select
 
 from app.api.schemas.stock_price import (
     daily_price_input_schema,
@@ -282,53 +281,42 @@ class StockDailyPrices(Resource):
             # Verify stock exists
             stock: Stock = StockService.get_or_404(session, stock_id)
 
-            # Get base query for this stock's daily prices
-            daily_prices: list[StockDailyPrice] = (
-                session.execute(
-                    select(StockDailyPrice).where(
-                        StockDailyPrice.stock_id == stock_id,
-                    ),
-                )
-                .scalars()
-                .all()
-            )
+            # Parse date filters
+            start_date: any = None
+            end_date: any = None
 
-            # Apply date filters if provided
             if "start_date" in request.args:
                 try:
-                    start_date: datetime.date = (
-                        datetime.strptime(
-                            request.args["start_date"],
-                            "%Y-%m-%d",
-                        )
-                        .astimezone(TIMEZONE)
-                        .date()
-                    )
-                    daily_prices = [
-                        price
-                        for price in daily_prices
-                        if price.price_date >= start_date
-                    ]
+                    start_date = _validate_price_date(request.args["start_date"])
                 except ValueError as err:
                     raise ValidationError(StockPriceError.INVALID_DATE_FORMAT) from err
 
             if "end_date" in request.args:
                 try:
-                    end_date: datetime.date = (
-                        datetime.strptime(
-                            request.args["end_date"],
-                            "%Y-%m-%d",
-                        )
-                        .astimezone(TIMEZONE)
-                        .date()
-                    )
-                    daily_prices = [
-                        price for price in daily_prices if price.price_date <= end_date
-                    ]
+                    end_date = _validate_price_date(request.args["end_date"])
                 except ValueError as err:
                     raise ValidationError(StockPriceError.INVALID_DATE_FORMAT) from err
 
-            # Apply other filters
+            # Get price data using the service
+            if start_date or end_date:
+                daily_prices: list[StockDailyPrice] = (
+                    PriceService.get_daily_prices_by_date_range(
+                        session=session,
+                        stock_id=stock_id,
+                        start_date=(
+                            start_date or datetime.astimezone(TIMEZONE).min.date()
+                        ),
+                        end_date=end_date,
+                    )
+                )
+            else:
+                # Default to getting the last 30 days of prices
+                daily_prices = PriceService.get_latest_daily_prices(
+                    session=session,
+                    stock_id=stock_id,
+                )
+
+            # Apply additional filters
             daily_prices = apply_filters(daily_prices, StockDailyPrice)
 
             # Default sort by date descending if not specified
@@ -449,30 +437,14 @@ class StockIntradayPrices(Resource):
             # Verify stock exists
             stock: Stock = StockService.get_or_404(session, stock_id)
 
-            # Get base query for this stock's intraday prices
-            intraday_prices: list[StockIntradayPrice] = (
-                session.execute(
-                    select(StockIntradayPrice).where(
-                        StockIntradayPrice.stock_id == stock_id,
-                    ),
-                )
-                .scalars()
-                .all()
-            )
+            # Parse timestamp filters
+            start_time = None
+            end_time = None
+            interval_val = IntradayInterval.ONE_MINUTE.value
 
-            # Apply timestamp filters if provided
             if "start_time" in request.args:
                 try:
-                    # Add timezone info to avoid naive datetime warning
-                    start_time: datetime.datetime = datetime.strptime(
-                        request.args["start_time"],
-                        "%Y-%m-%d %H:%M:%S",
-                    ).replace(tzinfo=TIMEZONE)
-                    intraday_prices = [
-                        price
-                        for price in intraday_prices
-                        if price.timestamp >= start_time
-                    ]
+                    start_time = _validate_timestamp(request.args["start_time"])
                 except ValueError as err:
                     raise ValidationError(
                         StockPriceError.INVALID_DATETIME_FORMAT,
@@ -480,16 +452,7 @@ class StockIntradayPrices(Resource):
 
             if "end_time" in request.args:
                 try:
-                    # Add timezone info to avoid naive datetime warning
-                    end_time: datetime.datetime = datetime.strptime(
-                        request.args["end_time"],
-                        "%Y-%m-%d %H:%M:%S",
-                    ).replace(tzinfo=TIMEZONE)
-                    intraday_prices = [
-                        price
-                        for price in intraday_prices
-                        if price.timestamp <= end_time
-                    ]
+                    end_time = _validate_timestamp(request.args["end_time"])
                 except ValueError as err:
                     raise ValidationError(
                         StockPriceError.INVALID_DATETIME_FORMAT,
@@ -498,18 +461,30 @@ class StockIntradayPrices(Resource):
             # Apply interval filter if provided
             if "interval" in request.args:
                 try:
-                    interval = int(request.args["interval"])
-                    if interval not in [1, 5, 15, 30, 60]:
-                        _raise_invalid_interval(interval)
-                    intraday_prices = [
-                        price for price in intraday_prices if price.interval == interval
-                    ]
+                    interval_val = int(request.args["interval"])
+                    if interval_val not in IntradayInterval.valid_values():
+                        _raise_invalid_interval(interval_val)
                 except ValueError as err:
-                    raise ValidationError(
-                        StockPriceError.INVALID_INTERVAL,
-                    ) from err
+                    raise ValidationError(StockPriceError.INVALID_INTERVAL) from err
 
-            # Apply other filters
+            # Get price data using the service
+            if start_time or end_time:
+                intraday_prices = PriceService.get_intraday_prices_by_time_range(
+                    session=session,
+                    stock_id=stock_id,
+                    start_time=start_time or datetime.min.replace(tzinfo=TIMEZONE),
+                    end_time=end_time,
+                    interval=interval_val,
+                )
+            else:
+                # Default to getting the last 8 hours of prices
+                intraday_prices = PriceService.get_latest_intraday_prices(
+                    session=session,
+                    stock_id=stock_id,
+                    interval=interval_val,
+                )
+
+            # Apply additional filters
             intraday_prices = apply_filters(intraday_prices, StockIntradayPrice)
 
             # Default sort by timestamp descending if not specified
@@ -616,6 +591,7 @@ class DailyPriceItem(Resource):
     def get(self, price_id: int) -> dict[str, any]:
         """Get a daily price record by ID."""
         with SessionManager() as session:
+            # Use the service to get the price record
             price: StockDailyPrice = PriceService.get_daily_price_or_404(
                 session,
                 price_id,
@@ -658,6 +634,8 @@ class DailyPriceItem(Resource):
                 "Validation error updating price record",
             )
             raise e from e
+        except ResourceNotFoundError as e:
+            raise e from e
         except BusinessLogicError as e:
             current_app.logger.exception("Business logic error")
             raise e from e
@@ -680,9 +658,13 @@ class DailyPriceItem(Resource):
                 PriceService.delete_daily_price(session, price_id)
                 return "", ApiConstants.HTTP_NO_CONTENT
 
+        except ResourceNotFoundError as e:
+            raise e from e
         except ValidationError as e:
+            current_app.logger.exception("Validation error deleting price record")
             raise BusinessLogicError(str(e)) from e
         except BusinessLogicError as e:
+            current_app.logger.exception("Business logic error")
             raise e from e
         except Exception as e:
             current_app.logger.exception("Error deleting price record")
@@ -702,6 +684,7 @@ class IntradayPriceItem(Resource):
     def get(self, price_id: int) -> dict[str, any]:
         """Get an intraday price record by ID."""
         with SessionManager() as session:
+            # Use the service to get the price record
             price: StockIntradayPrice = PriceService.get_intraday_price_or_404(
                 session,
                 price_id,
@@ -746,6 +729,8 @@ class IntradayPriceItem(Resource):
                 "Validation error updating price record",
             )
             raise e from e
+        except ResourceNotFoundError as e:
+            raise e from e
         except BusinessLogicError as e:
             current_app.logger.exception("Business logic error")
             raise e from e
@@ -768,9 +753,13 @@ class IntradayPriceItem(Resource):
                 PriceService.delete_intraday_price(session, price_id)
                 return "", ApiConstants.HTTP_NO_CONTENT
 
+        except ResourceNotFoundError as e:
+            raise e from e
         except ValidationError as e:
+            current_app.logger.exception("Validation error deleting price record")
             raise BusinessLogicError(str(e)) from e
         except BusinessLogicError as e:
+            current_app.logger.exception("Business logic error")
             raise e from e
         except Exception as e:
             current_app.logger.exception("Error deleting price record")
