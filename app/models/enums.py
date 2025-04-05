@@ -29,40 +29,41 @@ class ServiceState(EnumBase):
     - ERROR: Service encountered an error and needs attention
     """
 
+    #
+    # Enum values
+    #
     ACTIVE: str = auto()
     INACTIVE: str = auto()
     PAUSED: str = auto()
     ERROR: str = auto()
 
+    #
+    # Helper methods
+    #
     @classmethod
     def active_states(cls) -> set[str]:
         """Get the set of states where the service is considered operational."""
-        return cls.ACTIVE.value
+        return {cls.ACTIVE.value}
 
     @classmethod
     def is_active(cls, state: str) -> bool:
         """Check if the given state is considered active/operational."""
-        return state in cls.active_states()
+        return state == cls.ACTIVE.value
 
     @classmethod
     def is_paused(cls, state: str) -> bool:
         """Check if the given state is considered paused."""
-        return state in cls.PAUSED.value
+        return state == cls.PAUSED.value
 
     @classmethod
     def is_inactive(cls, state: str) -> bool:
         """Check if the given state is considered inactive."""
-        return state in cls.INACTIVE.value
+        return state == cls.INACTIVE.value
 
     @classmethod
     def is_error(cls, state: str) -> bool:
         """Check if the given state is considered in an error state."""
-        return state in cls.ERROR.value
-
-    @classmethod
-    def is_valid(cls, state: str) -> bool:
-        """Check if the given state is valid."""
-        return state in cls.values()
+        return state == cls.ERROR.value
 
 
 class ServiceAction(EnumBase):
@@ -74,9 +75,15 @@ class ServiceAction(EnumBase):
     - CHECK_SELL: Check for a sell opportunity
     """
 
-    CHECK_BUY = auto()
-    CHECK_SELL = auto()
+    #
+    # Enum values
+    #
+    CHECK_BUY: str = auto()
+    CHECK_SELL: str = auto()
 
+    #
+    # Helper methods
+    #
     @classmethod
     def is_check_buy(cls, action: str) -> bool:
         """Check if the given action is a check for a buy opportunity."""
@@ -98,10 +105,16 @@ class TradingMode(EnumBase):
     - HOLD: Service is holding current positions without buying or selling
     """
 
+    #
+    # Enum values
+    #
     BUY: str = auto()
     SELL: str = auto()
     HOLD: str = auto()
 
+    #
+    # Helper methods
+    #
     @classmethod
     def is_buy(cls, mode: str) -> bool:
         """Check if the given mode is a buy mode."""
@@ -142,10 +155,16 @@ class TransactionState(EnumBase):
     - CANCELLED: Transaction cancelled before completion
     """
 
+    #
+    # Enum values
+    #
     OPEN: str = auto()  # Purchase executed, not yet sold
     CLOSED: str = auto()  # Fully executed (purchased and sold)
     CANCELLED: str = auto()  # Transaction cancelled
 
+    #
+    # Helper methods
+    #
     @classmethod
     def is_open(cls, state: str) -> bool:
         """Check if the given state is an open transaction."""
@@ -168,10 +187,7 @@ class TransactionState(EnumBase):
 
     @classmethod
     def is_terminal(cls, state: str) -> bool:
-        """Check if the transaction is in a terminal state.
-
-        (cannot be changed further).
-        """
+        """Check if the transaction is in a terminal state (cannot be changed)."""
         return state in cls.terminal_states()
 
     @classmethod
@@ -191,11 +207,17 @@ class PriceSource(EnumBase):
     - HISTORICAL: Historical price data from past periods
     """
 
+    #
+    # Enum values
+    #
     REAL_TIME: str = auto()
     DELAYED: str = auto()
     SIMULATED: str = auto()
     HISTORICAL: str = auto()
 
+    #
+    # Helper methods
+    #
     @classmethod
     def is_delayed(cls, source: str) -> bool:
         """Check if the price source is delayed."""
@@ -213,18 +235,13 @@ class PriceSource(EnumBase):
 
     @classmethod
     def is_real_time(cls, source: str) -> bool:
-        """Check if the price source provides real market data (not simulated)."""
+        """Check if the price source provides real-time market data."""
         return source == cls.REAL_TIME.value
 
     @classmethod
     def is_real(cls, source: str) -> bool:
         """Check if the price source provides real market data (not simulated)."""
         return source in {cls.REAL_TIME.value, cls.DELAYED.value, cls.HISTORICAL.value}
-
-    @classmethod
-    def is_valid(cls, source: str) -> bool:
-        """Check if the price source is valid."""
-        return source in cls.values()
 
     @classmethod
     def for_display(cls) -> dict[str, str]:
@@ -249,12 +266,18 @@ class IntradayInterval(EnumBase):
     - ONE_HOUR: 60-minute (1-hour) interval
     """
 
+    #
+    # Enum values
+    #
     ONE_MINUTE: int = 1
     FIVE_MINUTES: int = 5
     FIFTEEN_MINUTES: int = 15
     THIRTY_MINUTES: int = 30
     ONE_HOUR: int = 60
 
+    #
+    # Helper methods
+    #
     @classmethod
     def valid_values(cls) -> list[int]:
         """Get a list of all valid interval values in minutes."""
@@ -284,7 +307,6 @@ class IntradayInterval(EnumBase):
         return names.get(interval, f"{interval} Minutes")
 
 
-# Additional enumerations can be added here as needed
 class AnalysisTimeframe(EnumBase):
     """Timeframes for analysis.
 
@@ -298,6 +320,9 @@ class AnalysisTimeframe(EnumBase):
     - YEARLY: Year-to-year analysis
     """
 
+    #
+    # Enum values
+    #
     INTRADAY: str = auto()
     DAILY: str = auto()
     WEEKLY: str = auto()
@@ -305,6 +330,9 @@ class AnalysisTimeframe(EnumBase):
     QUARTERLY: str = auto()
     YEARLY: str = auto()
 
+    #
+    # Helper methods
+    #
     @classmethod
     def is_intraday(cls, timeframe: str) -> bool:
         """Check if the given timeframe is intraday."""

@@ -183,7 +183,7 @@ class EventService:
             action: The action that occurred (e.g., 'created', 'completed', 'cancelled')
             transaction_data: The transaction data
             service_id: The associated service ID
-            additional_data: Any additional data to include in the payload
+            additional_data: Additional data to include in the payload
 
         """
         payload: dict[str, any] = {"action": action, "transaction": transaction_data}

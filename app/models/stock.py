@@ -1,11 +1,11 @@
 """Stock model.
 
-This model represents basic information about stocks, including symbols and names.
+This module defines the Stock model which represents basic information about
+traded securities, including symbols, names, and sector data.
 """
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, String
@@ -14,6 +14,7 @@ from sqlalchemy.orm import Mapped, relationship, validates
 from app.models.base import Base
 from app.utils.constants import StockConstants
 from app.utils.errors import StockError
+from app.utils.validators import validate_max_length, validate_stock_symbol
 
 if TYPE_CHECKING:
     from app.models.stock_daily_price import StockDailyPrice
@@ -40,12 +41,28 @@ class Stock(Base):
         services: Services trading this stock
         transactions: Transactions for this stock
 
+    Properties:
+        has_dependencies: Whether the stock has any trading services or transactions
+        has_prices: Whether the stock has any price data (daily or intraday)
+
     """
 
+    #
+    # SQLAlchemy configuration
+    #
     __tablename__: str = "stocks"
 
+    #
     # Constants
+    #
     MAX_SYMBOL_LENGTH: int = StockConstants.MAX_SYMBOL_LENGTH
+    MAX_NAME_LENGTH: int = StockConstants.MAX_NAME_LENGTH
+    MAX_SECTOR_LENGTH: int = StockConstants.MAX_SECTOR_LENGTH
+    MAX_DESCRIPTION_LENGTH: int = StockConstants.MAX_DESCRIPTION_LENGTH
+
+    #
+    # Column definitions
+    #
 
     # Basic information
     symbol: Mapped[str] = Column(
@@ -54,12 +71,17 @@ class Stock(Base):
         nullable=False,
         index=True,
     )
-    name: Mapped[str | None] = Column(String(200), nullable=True)
+    name: Mapped[str | None] = Column(String(MAX_NAME_LENGTH), nullable=True)
     is_active: Mapped[bool] = Column(Boolean, default=True, nullable=False)
-    sector: Mapped[str | None] = Column(String(100), nullable=True)
-    description: Mapped[str | None] = Column(String(1000), nullable=True)
+    sector: Mapped[str | None] = Column(String(MAX_SECTOR_LENGTH), nullable=True)
+    description: Mapped[str | None] = Column(
+        String(MAX_DESCRIPTION_LENGTH),
+        nullable=True,
+    )
 
+    #
     # Relationships
+    #
     daily_prices: Mapped[list[StockDailyPrice]] = relationship(
         "StockDailyPrice",
         back_populates="stock",
@@ -84,38 +106,119 @@ class Stock(Base):
         back_populates="stock",
     )
 
-    # Validations
-    @validates("symbol")
-    def validate_symbol(self, key: str, symbol: str) -> str:
-        """Validate stock symbol."""
-        if not symbol:
-            raise StockError(StockError.SYMBOL_REQUIRED.format(key, symbol))
-
-        # Convert to uppercase
-        symbol: str = symbol.strip().upper()
-
-        if len(symbol) > self.MAX_SYMBOL_LENGTH:
-            raise StockError(StockError.SYMBOL_LENGTH.format(key, symbol))
-
-        if not re.match(r"^[A-Z0-9]+$", symbol):
-            raise StockError(StockError.SYMBOL_FORMAT.format(key, symbol))
-
-        return symbol
-
+    #
+    # Magic methods
+    #
     def __repr__(self) -> str:
         """Return string representation of the Stock object."""
         return (
             f"<Stock(id={self.id}, symbol='{self.symbol}', name='{self.name}', "
-            f"sector='{self.sector}', description='{self.description}')>"
-            f"daily_prices={len(self.daily_prices)}, "
-            f"intraday_prices={len(self.intraday_prices)}, "
-            f"services={len(self.services)}, "
-            f"transactions={len(self.transactions)})>"
+            f"active={self.is_active})>"
         )
 
+    #
+    # Validation methods
+    #
+    @validates("symbol")
+    def validate_symbol(self, key: str, symbol: str) -> str:
+        """Validate stock symbol.
+
+        Args:
+            key: The attribute name being validated
+            symbol: The symbol value to validate
+
+        Returns:
+            The validated symbol (converted to uppercase)
+
+        Raises:
+            StockError: If the symbol is invalid, empty, or has an invalid format
+
+        """
+        return validate_stock_symbol(
+            symbol=symbol,
+            error_class=StockError,
+            key=key,
+            max_length=self.MAX_SYMBOL_LENGTH,
+        )
+
+    @validates("name")
+    def validate_name(self, key: str, name: str | None) -> str | None:
+        """Validate stock name.
+
+        Args:
+            key: The attribute name being validated
+            name: The name value to validate
+
+        Returns:
+            The validated name
+
+        Raises:
+            StockError: If the name exceeds the maximum length
+
+        """
+        return validate_max_length(
+            value=name,
+            max_length=self.MAX_NAME_LENGTH,
+            error_class=StockError,
+            key=key,
+            error_attr="NAME_LENGTH",
+        )
+
+    @validates("sector")
+    def validate_sector(self, key: str, sector: str | None) -> str | None:
+        """Validate stock sector.
+
+        Args:
+            key: The attribute name being validated
+            sector: The sector value to validate
+
+        Returns:
+            The validated sector
+
+        Raises:
+            StockError: If the sector exceeds the maximum length
+
+        """
+        return validate_max_length(
+            value=sector,
+            max_length=self.MAX_SECTOR_LENGTH,
+            error_class=StockError,
+            key=key,
+            error_attr="SECTOR_LENGTH",
+        )
+
+    @validates("description")
+    def validate_description(self, key: str, description: str | None) -> str | None:
+        """Validate stock description.
+
+        Args:
+            key: The attribute name being validated
+            description: The description value to validate
+
+        Returns:
+            The validated description
+
+        Raises:
+            StockError: If the description exceeds the maximum length
+
+        """
+        return validate_max_length(
+            value=description,
+            max_length=self.MAX_DESCRIPTION_LENGTH,
+            error_class=StockError,
+            key=key,
+            error_attr="DESCRIPTION_LENGTH",
+        )
+
+    #
+    # Properties
+    #
     @property
     def has_dependencies(self) -> bool:
         """Check if the stock has any dependencies.
+
+        Dependencies include services using this stock or transactions
+        involving this stock.
 
         Returns:
             True if stock has dependencies, False otherwise
@@ -127,10 +230,12 @@ class Stock(Base):
 
     @property
     def has_prices(self) -> bool:
-        """Check if the stock has any prices.
+        """Check if the stock has any price data.
+
+        Checks for both daily and intraday price data.
 
         Returns:
-            True if stock has prices, False otherwise
+            True if stock has price data, False otherwise
 
         """
         return (self.daily_prices is not None and len(self.daily_prices) > 0) or (

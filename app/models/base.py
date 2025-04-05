@@ -15,10 +15,10 @@ from enum import Enum
 
 from sqlalchemy import Column, DateTime, Integer
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import ColumnProperty, Session, class_mapper
+from sqlalchemy.orm import ColumnProperty, class_mapper
 
 from app.utils.current_datetime import get_current_datetime
-from app.utils.errors import ResourceNotFoundError, ValidationError
+from app.utils.errors import ValidationError
 
 # Set up logging
 logger: logging.Logger = logging.getLogger(__name__)
@@ -41,6 +41,21 @@ class Base(DeclarativeBase):
 
     """
 
+    #
+    # Class constants
+    #
+
+    # Error message constants for base model operations
+    UNKNOWN_COLUMN_ERROR: str = "Unknown column '{}' for {}"
+    CREATE_FROM_DICT_ERROR: str = "Could not create {} from data: {}"
+    UPDATE_FIELD_ERROR: str = "Cannot update field '{}': not allowed"
+    MULTIPLE_FIELDS_ERROR: str = "Cannot update restricted fields"
+    SERIALIZATION_ERROR: str = "Error serializing {} to JSON"
+
+    #
+    # SQLAlchemy configuration
+    #
+
     __abstract__ = True
 
     # Primary key for all models
@@ -55,6 +70,10 @@ class Base(DeclarativeBase):
         nullable=False,
     )
 
+    #
+    # Magic methods
+    #
+
     def __repr__(self) -> str:
         """Return string representation of a model.
 
@@ -62,44 +81,23 @@ class Base(DeclarativeBase):
             String representation showing class name and ID
 
         """
-        return f"<{self.__class__.__name__}(id={self.id})>"
+        return (
+            f"<{self.__class__.__name__}(id={self.id}, "
+            f"created_at={self.created_at}, updated_at={self.updated_at})>"
+        )
 
-    @classmethod
-    def get_by_id(cls, session: Session, record_id: int) -> Base | None:
-        """Get a record by its ID.
-
-        Args:
-            session: Database session
-            record_id: Record ID
+    def __str__(self) -> str:
+        """Return a user-friendly string representation of a model.
 
         Returns:
-            Model instance if found, None otherwise
+            Human-readable string representation focusing on the model's identity
 
         """
-        return session.query(cls).filter(cls.id == record_id).first()
+        return f"{self.__class__.__name__} #{self.id}"
 
-    @classmethod
-    def get_or_404(cls, session: Session, record_id: int) -> Base:
-        """Get a record by its ID or raise ResourceNotFoundError.
-
-        Args:
-            session: Database session
-            record_id: Record ID
-
-        Returns:
-            Model instance
-
-        Raises:
-            ResourceNotFoundError: If record not found
-
-        """
-        record: Base | None = cls.get_by_id(session, record_id)
-        if not record:
-            raise ResourceNotFoundError(
-                resource_type=cls.__name__,
-                resource_id=record_id,
-            )
-        return record
+    #
+    # Serialization methods
+    #
 
     def to_dict(
         self,
@@ -126,7 +124,7 @@ class Base(DeclarativeBase):
         for column in self.__table__.columns:
             if column.name in exclude:
                 continue
-            result[column.name] = self._serialize_value(column.name)
+            result[column.name] = self._serialize_value(getattr(self, column.name))
 
         # Add relationships if requested
         if include_relationships:
@@ -139,7 +137,7 @@ class Base(DeclarativeBase):
                 if relationship.back_populates or relationship.backref:
                     continue
 
-                related_obj: any = self.relationship.key
+                related_obj: any = getattr(self, relationship.key)
 
                 if related_obj is None:
                     result[relationship.key] = None
@@ -181,7 +179,7 @@ class Base(DeclarativeBase):
             )
         except (TypeError, ValueError, OverflowError):
             logger.exception(
-                "Error serializing %s to JSON",
+                self.SERIALIZATION_ERROR,
                 self.__class__.__name__,
             )
             return json.dumps({"error": "Serialization error", "id": self.id})
@@ -203,7 +201,7 @@ class Base(DeclarativeBase):
         if isinstance(value, datetime):
             return value.isoformat()
 
-        if isinstance(value, Decimal | float):
+        if isinstance(value, (Decimal, float)):
             return float(value)
 
         if isinstance(value, Enum):
@@ -214,56 +212,9 @@ class Base(DeclarativeBase):
 
         return value
 
-    @classmethod
-    def from_dict(cls, data: dict[str, any], *, ignore_unknown: bool = True) -> any:
-        """Create a new instance from a dictionary.
-
-        Args:
-            data: Dictionary containing model data
-            ignore_unknown: Whether to ignore keys that don't match model columns
-
-        Returns:
-            A new instance of the model
-
-        Raises:
-            ValidationError: If required data is missing or invalid and ignore_unknown
-            is False
-
-        """
-        # Get column names
-        columns: set[str] = {c.key for c in class_mapper(cls).columns}
-
-        # Filter data to only include valid columns
-        valid_data: dict[str, any] = {}
-        for key, value in data.items():
-            if key in columns:
-                valid_data[key] = value
-            elif not ignore_unknown:
-                error_msg: str = f"Unknown column '{key}' for {cls.__name__}"
-                raise ValidationError(error_msg)
-            else:
-                continue
-
-        try:
-            return cls(**valid_data)
-        except Exception as e:
-            logger.exception("Error creating %s from dict", cls.__name__)
-            error_msg = f"Could not create {cls.__name__} from data: {e!s}"
-            raise ValidationError(error_msg) from e
-
-    @classmethod
-    def get_columns(cls) -> list[str]:
-        """Get a list of column names for this model.
-
-        Returns:
-            List of column names
-
-        """
-        return [
-            prop.key
-            for prop in class_mapper(cls).iterate_properties
-            if isinstance(prop, ColumnProperty)
-        ]
+    #
+    # Instance methods
+    #
 
     def update_from_dict(
         self,
@@ -297,6 +248,9 @@ class Base(DeclarativeBase):
         # Track if anything was updated
         updated: bool = False
 
+        # Track validation errors
+        validation_errors: dict[str, str] = {}
+
         # Update fields
         for key, value in data.items():
             # Skip non-existent columns
@@ -305,16 +259,79 @@ class Base(DeclarativeBase):
 
             # Check if field is allowed
             if key not in allowed_fields:
-                error_msg = f"Cannot update field '{key}': not allowed"
-                raise ValidationError(error_msg)
+                error_msg = self.UPDATE_FIELD_ERROR.format(key)
+                validation_errors[key] = error_msg
+                continue
 
             # Update if value is different
-            current_value: any = self.key
+            current_value: any = getattr(self, key)
             if current_value != value:
-                self.key: any = value
+                setattr(self, key, value)
                 updated = True
 
+        # Raise exception if there were validation errors
+        if validation_errors:
+            raise ValidationError(
+                self.MULTIPLE_FIELDS_ERROR,
+                errors=validation_errors,
+            )
+
         return updated
+
+    #
+    # Class methods
+    #
+
+    @classmethod
+    def from_dict(cls, data: dict[str, any], *, ignore_unknown: bool = True) -> any:
+        """Create a new instance from a dictionary.
+
+        Args:
+            data: Dictionary containing model data
+            ignore_unknown: Whether to ignore keys that don't match model columns
+
+        Returns:
+            A new instance of the model
+
+        Raises:
+            ValidationError: If required data is missing or invalid and ignore_unknown
+            is False
+
+        """
+        # Get column names
+        columns: set[str] = {c.key for c in class_mapper(cls).columns}
+
+        # Filter data to only include valid columns
+        valid_data: dict[str, any] = {}
+        for key, value in data.items():
+            if key in columns:
+                valid_data[key] = value
+            elif not ignore_unknown:
+                error_msg: str = cls.UNKNOWN_COLUMN_ERROR.format(key, cls.__name__)
+                errors: dict[str, str] = {key: error_msg}
+                raise ValidationError(error_msg, errors=errors)
+
+        try:
+            return cls(**valid_data)
+        except Exception as e:
+            logger.exception("Error creating %s from dict", cls.__name__)
+            error_msg = cls.CREATE_FROM_DICT_ERROR.format(cls.__name__, str(e))
+            errors: dict[str, str] = {"data": error_msg}
+            raise ValidationError(error_msg, errors=errors) from e
+
+    @classmethod
+    def get_columns(cls) -> list[str]:
+        """Get a list of column names for this model.
+
+        Returns:
+            List of column names
+
+        """
+        return [
+            prop.key
+            for prop in class_mapper(cls).iterate_properties
+            if isinstance(prop, ColumnProperty)
+        ]
 
 
 class EnumBase(str, Enum):
@@ -334,14 +351,29 @@ class EnumBase(str, Enum):
 
     """
 
-    @classmethod
-    def _generate_next_value_(cls, name: str) -> str:
-        """Generate enum values as uppercase of the enum name."""
-        return name.upper()
+    #
+    # Class constants
+    #
+
+    # Error message constants for enum operations
+    INVALID_VALUE_ERROR: str = "Invalid value '{}' for {}"
+
+    #
+    # Magic methods
+    #
 
     def __str__(self) -> str:
         """Return the string value of the enum."""
         return self.value
+
+    #
+    # Class methods
+    #
+
+    @classmethod
+    def _generate_next_value_(cls, name: str) -> str:
+        """Generate enum values as uppercase of the enum name."""
+        return name.upper()
 
     @classmethod
     def from_string(cls, value: str) -> EnumBase:
@@ -359,7 +391,7 @@ class EnumBase(str, Enum):
         """
 
         def _raise_invalid_value(val: str, err: Exception | None = None) -> None:
-            error_msg: str = f"Invalid value '{val}' for {cls.__name__}"
+            error_msg: str = cls.INVALID_VALUE_ERROR.format(val, cls.__name__)
             if err:
                 raise ValueError(error_msg) from err
             raise ValueError(error_msg)
@@ -397,6 +429,7 @@ class EnumBase(str, Enum):
 
         """
         try:
-            return bool(cls.from_string(value))
+            cls.from_string(value)
         except ValueError:
             return False
+        return True

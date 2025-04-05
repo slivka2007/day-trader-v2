@@ -12,6 +12,22 @@ import logging
 logger: logging.Logger = logging.getLogger(__name__)
 
 
+# Common validation constants shared across modules
+class ValidationConstants:
+    """Validation constants used across different modules."""
+
+    # Common minimum/maximum values
+    MIN_NAME_LENGTH: int = 1
+    MAX_NAME_LENGTH: int = 100
+
+    # Common percentage bounds
+    MIN_PERCENT: float = 0.0
+    MAX_PERCENT: float = 100.0
+
+    # Default values
+    DEFAULT_THRESHOLD: float = 0.0
+
+
 # User related constants
 class UserConstants:
     """User-related constants."""
@@ -42,20 +58,20 @@ class TradingServiceConstants:
 
     # Constants
     MIN_DAYS_FOR_SMA: int = 20  # Minimum days required for SMA calculation
-    MIN_NAME_LENGTH: int = 1
-    MAX_NAME_LENGTH: int = 100
-    DEFAULT_ALLOCATION_PERCENT: float = 100.0
-    DEFAULT_BUY_THRESHOLD: float = 0.0
-    DEFAULT_SELL_THRESHOLD: float = 0.0
-    DEFAULT_STOP_LOSS_PERCENT: float = 0.0
-    DEFAULT_TAKE_PROFIT_PERCENT: float = 0.0
-    MAX_ALLOCATION_PERCENT: float = 100.0
-    MIN_ALLOCATION_PERCENT: float = 0.0
-    MIN_MINIMUM_BALANCE: float = 0.0
-    MIN_BUY_THRESHOLD: float = 0.0
-    MIN_SELL_THRESHOLD: float = 0.0
-    MIN_STOP_LOSS_PERCENT: float = 0.0
-    MIN_TAKE_PROFIT_PERCENT: float = 0.0
+    MIN_NAME_LENGTH: int = ValidationConstants.MIN_NAME_LENGTH
+    MAX_NAME_LENGTH: int = ValidationConstants.MAX_NAME_LENGTH
+    DEFAULT_ALLOCATION_PERCENT: float = ValidationConstants.MAX_PERCENT
+    DEFAULT_BUY_THRESHOLD: float = ValidationConstants.DEFAULT_THRESHOLD
+    DEFAULT_SELL_THRESHOLD: float = ValidationConstants.DEFAULT_THRESHOLD
+    DEFAULT_STOP_LOSS_PERCENT: float = ValidationConstants.DEFAULT_THRESHOLD
+    DEFAULT_TAKE_PROFIT_PERCENT: float = ValidationConstants.DEFAULT_THRESHOLD
+    MAX_ALLOCATION_PERCENT: float = ValidationConstants.MAX_PERCENT
+    MIN_ALLOCATION_PERCENT: float = ValidationConstants.MIN_PERCENT
+    MIN_MINIMUM_BALANCE: float = ValidationConstants.MIN_PERCENT
+    MIN_BUY_THRESHOLD: float = ValidationConstants.DEFAULT_THRESHOLD
+    MIN_SELL_THRESHOLD: float = ValidationConstants.DEFAULT_THRESHOLD
+    MIN_STOP_LOSS_PERCENT: float = ValidationConstants.DEFAULT_THRESHOLD
+    MIN_TAKE_PROFIT_PERCENT: float = ValidationConstants.DEFAULT_THRESHOLD
 
 
 # Price analysis constants

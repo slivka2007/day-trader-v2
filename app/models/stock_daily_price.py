@@ -1,6 +1,7 @@
 """Daily price model.
 
-This model represents end-of-day stock price data.
+This module defines the StockDailyPrice model which represents end-of-day stock price
+data.
 """
 
 from __future__ import annotations
@@ -20,8 +21,12 @@ from sqlalchemy.orm import Mapped, relationship, validates
 
 from app.models.base import Base
 from app.models.enums import PriceSource
-from app.utils.current_datetime import get_current_date
 from app.utils.errors import StockPriceError
+from app.utils.validators import (
+    validate_enum_value,
+    validate_non_negative_value,
+    validate_not_future_date,
+)
 
 if TYPE_CHECKING:
     from datetime import date
@@ -49,9 +54,28 @@ class StockDailyPrice(Base):
         source: Source of this price data
         stock: Relationship to the parent Stock
 
+    Properties:
+        change: Price change from open to close (close_price - open_price)
+        change_percent: Percentage price change from open to close
+        is_real_data: Whether price data is from a real source (not simulated)
+        trading_range: Trading range for the day (high_price - low_price)
+        trading_range_percent: Trading range as a percentage of low price
+
     """
 
+    #
+    # SQLAlchemy configuration
+    #
     __tablename__: str = "stock_daily_prices"
+
+    # Constraints
+    __table_args__: tuple[UniqueConstraint] = (
+        UniqueConstraint("stock_id", "price_date", name="uix_stock_daily_date"),
+    )
+
+    #
+    # Column definitions
+    #
 
     # Foreign keys and date
     stock_id: Mapped[int] = Column(Integer, ForeignKey("stocks.id"), nullable=False)
@@ -72,34 +96,95 @@ class StockDailyPrice(Base):
         nullable=False,
     )
 
-    # Relationship
+    #
+    # Relationships
+    #
     stock: Mapped[Stock] = relationship("Stock", back_populates="daily_prices")
 
-    # Constraints
-    __table_args__: tuple[UniqueConstraint] = (
-        UniqueConstraint("stock_id", "price_date", name="uix_stock_daily_date"),
-    )
+    #
+    # Magic methods
+    #
+    def __repr__(self) -> str:
+        """Return string representation of the StockDailyPrice object."""
+        return (
+            f"<StockDailyPrice(id={self.id}, stock_id={self.stock_id}, "
+            f"date={self.price_date}, close={self.close_price}, "
+            f"source={self.source})>"
+        )
 
-    # Validations
+    #
+    # Validation methods
+    #
     @validates("source")
     def validate_source(self, key: str, source: str) -> str:
-        """Validate price source."""
-        if source and not PriceSource.is_valid(source):
-            raise StockPriceError(StockPriceError.INVALID_SOURCE.format(key, source))
-        return source
+        """Validate price source.
+
+        Args:
+            key: The attribute name being validated
+            source: The source value to validate
+
+        Returns:
+            The validated source value
+
+        Raises:
+            StockPriceError: If the source value is not valid
+
+        """
+        return validate_enum_value(
+            value=source,
+            enum_class=PriceSource,
+            error_class=StockPriceError,
+            key=key,
+            error_attr="INVALID_SOURCE",
+        )
 
     @validates("price_date")
     def validate_price_date(self, key: str, price_date: date) -> date:
-        """Validate price date is not in the future."""
-        if price_date and price_date > get_current_date():
-            raise StockPriceError(StockPriceError.FUTURE_DATE.format(key, price_date))
-        return price_date
+        """Validate price date is not in the future.
+
+        Args:
+            key: The attribute name being validated
+            price_date: The date value to validate
+
+        Returns:
+            The validated date value
+
+        Raises:
+            StockPriceError: If the date is in the future
+
+        """
+        return validate_not_future_date(
+            date_value=price_date,
+            error_class=StockPriceError,
+            key=key,
+            error_attr="FUTURE_DATE",
+        )
 
     @validates("high_price", "low_price", "open_price", "close_price", "adj_close")
     def validate_prices(self, key: str, value: float) -> float:
-        """Validate price values."""
-        if value is not None and value < 0:
-            raise StockPriceError(StockPriceError.NEGATIVE_PRICE.format(key, value))
+        """Validate price values.
+
+        Ensures prices are non-negative and maintains logical relationships
+        between high and low prices.
+
+        Args:
+            key: The attribute name being validated
+            value: The price value to validate
+
+        Returns:
+            The validated price value
+
+        Raises:
+            StockPriceError: If the price value is invalid
+
+        """
+        # First validate that the price is non-negative
+        value = validate_non_negative_value(
+            value=value,
+            error_class=StockPriceError,
+            key=key,
+            error_attr="NEGATIVE_PRICE",
+        )
 
         # Check high_price >= low_price if both are being set
         if (
@@ -108,7 +193,9 @@ class StockDailyPrice(Base):
             and self.low_price is not None
             and value < self.low_price
         ):
-            raise StockPriceError(StockPriceError.HIGH_LOW_PRICE.format(key, value))
+            raise StockPriceError(
+                StockPriceError.HIGH_LOW_PRICE.format(key=key, value=value),
+            )
 
         if (
             key == "low_price"
@@ -116,20 +203,15 @@ class StockDailyPrice(Base):
             and self.high_price is not None
             and value > self.high_price
         ):
-            raise StockPriceError(StockPriceError.LOW_HIGH_PRICE.format(key, value))
+            raise StockPriceError(
+                StockPriceError.LOW_HIGH_PRICE.format(key=key, value=value),
+            )
 
         return value
 
-    def __repr__(self) -> str:
-        """Return string representation of the StockDailyPrice object."""
-        return (
-            f"<StockDailyPrice(id={self.id}, stock_id={self.stock_id}, "
-            f"date={self.price_date}, open_price={self.open_price}, "
-            f"high_price={self.high_price}, low_price={self.low_price}, "
-            f"close_price={self.close_price}, adj_close={self.adj_close}, "
-            f"volume={self.volume}, source={self.source})>, stock={self.stock})>"
-        )
-
+    #
+    # Properties
+    #
     @property
     def change(self) -> float | None:
         """Calculate the change in price from open to close."""
@@ -154,3 +236,21 @@ class StockDailyPrice(Base):
     def is_real_data(self) -> bool:
         """Check if the price data is from a real source (not simulated)."""
         return PriceSource.is_real(self.source)
+
+    @property
+    def trading_range(self) -> float | None:
+        """Calculate the trading range (high - low) for the day."""
+        return (
+            None
+            if self.high_price is None or self.low_price is None
+            else self.high_price - self.low_price
+        )
+
+    @property
+    def trading_range_percent(self) -> float | None:
+        """Calculate the trading range as a percentage of the low price."""
+        return (
+            None
+            if self.high_price is None or self.low_price is None or self.low_price == 0
+            else (self.high_price - self.low_price) / self.low_price * 100
+        )

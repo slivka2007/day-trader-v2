@@ -58,11 +58,43 @@ class APIError(Exception):
         return result
 
 
+# Common validation error messages that can be shared across different error types
+class CommonErrorMessages:
+    """Common error messages that can be shared across validation error types."""
+
+    # Common field validation
+    FIELD_REQUIRED: str = "Field '{}' is required"
+
+    # Symbol validation
+    SYMBOL_REQUIRED: str = "Stock symbol is required"
+    SYMBOL_LENGTH: str = (
+        "Stock symbol must be between {} and {} characters: key={}, value={}"
+    )
+    SYMBOL_FORMAT: str = "Stock symbol must contain only letters and numbers"
+
+    # Price validation
+    NEGATIVE_PRICE: str = "Price cannot be negative: key={}, value={}"
+    PRICE_POSITIVE: str = "Price must be greater than zero: key={}, value={}"
+
+    # Date/time validation
+    FUTURE_DATE: str = "Date cannot be in the future: key={}, value={}"
+    FUTURE_TIMESTAMP: str = "Timestamp cannot be in the future: key={}, value={}"
+    INVALID_DATE_FORMAT: str = "Invalid date format. Use YYYY-MM-DD"
+    INVALID_DATETIME_FORMAT: str = "Invalid datetime format. Use YYYY-MM-DD HH:MM:SS"
+
+    # Email validation
+    EMAIL_REQUIRED: str = "Email is required: key={}, value={}"
+    EMAIL_FORMAT: str = "Invalid email format: key={}, value={}"
+
+    # Deletion confirmation
+    CONFIRM_DELETION: str = "Must confirm deletion by setting 'confirm' to true"
+
+
 class ValidationError(APIError):
     """Error raised when validation fails."""
 
-    # Common validation error messages
-    FIELD_REQUIRED: str = "Field '{}' is required"
+    # Core validation messages - using common messages where possible
+    FIELD_REQUIRED: str = CommonErrorMessages.FIELD_REQUIRED
     USERNAME_EXISTS: str = "Username '{}' already exists"
     EMAIL_EXISTS: str = "Email '{}' already exists"
     INVALID_PASSWORD: str = "Current password is incorrect"  # noqa: S105
@@ -85,16 +117,16 @@ class ValidationError(APIError):
     ACTIVE_SERVICES: str = "Cannot delete: active services"
     INVALID_CREDENTIALS: str = "Invalid username or password"
 
-    # Stock price validation specific messages
+    # Date and price validation - using common messages
     MISSING_PRICE_DATE: str = "Missing or invalid price_date"
     MISSING_PRICE_TIMESTAMP: str = "Missing or invalid price_timestamp"
     MISSING_PRICE_INTERVAL: str = "Missing or invalid price_interval"
-    INVALID_DATE_FORMAT: str = "Invalid date format. Use YYYY-MM-DD"
-    INVALID_DATETIME_FORMAT: str = "Invalid datetime format. Use YYYY-MM-DD HH:MM:SS"
+    INVALID_DATE_FORMAT: str = CommonErrorMessages.INVALID_DATE_FORMAT
+    INVALID_DATETIME_FORMAT: str = CommonErrorMessages.INVALID_DATETIME_FORMAT
 
     # Transaction validation specific messages
-    SHARES_POSITIVE: str = "Shares must be greater than zero"
-    PRICE_POSITIVE: str = "Purchase price must be greater than zero"
+    SHARES_POSITIVE: str = "Shares must be greater than zero: key={}, value={}"
+    PRICE_POSITIVE: str = CommonErrorMessages.PRICE_POSITIVE
     INSUFFICIENT_FUNDS: str = (
         "Insufficient funds. Required: ${:.2f}, Available: ${:.2f}"
     )
@@ -110,17 +142,13 @@ class ValidationError(APIError):
     TRANSACTION_NOT_CANCELLABLE: str = (
         "Transaction cannot be cancelled because it is in state: {}"
     )
-    INVALID_STATE: str = "Invalid transaction state: {}"
+    INVALID_STATE: str = "Invalid transaction state: key={}, value={}"
     USER_NOT_OWNER: str = "User {} does not own the service for transaction {}"
     CREATE_BUY_ERROR: str = "Could not create buy transaction: {}"
     COMPLETE_ERROR: str = "Could not complete transaction: {}"
     CANCEL_ERROR: str = "Could not cancel transaction: {}"
     DELETE_ERROR: str = "Could not delete transaction: {}"
     UPDATE_NOTES_ERROR: str = "Could not update transaction notes: {}"
-
-    # New validation error messages
-    INVALID_DATE_FORMAT = "Invalid date format. Use YYYY-MM-DD"
-    INVALID_DATETIME_FORMAT = "Invalid datetime format. Use YYYY-MM-DD HH:MM:SS"
 
     def __init__(
         self,
@@ -142,20 +170,33 @@ class ValidationError(APIError):
 class UserError(ValidationError):
     """Errors specific to user model and operations."""
 
-    # User model validation errors
-    USERNAME_REQUIRED: str = "Username is required"
-    USERNAME_LENGTH: str = f"Username must be between {UserConstants.MIN_USERNAME_LENGTH} and {UserConstants.MAX_USERNAME_LENGTH} characters"
-    USERNAME_FORMAT: str = (
-        "Username can only contain letters, numbers, underscores, and hyphens"
+    # User model validation errors - using common messages where possible
+    USERNAME_REQUIRED: str = "Username is required: key={}, value={}"
+    USERNAME_LENGTH: str = (
+        f"Username must be between {UserConstants.MIN_USERNAME_LENGTH} "
+        f"and {UserConstants.MAX_USERNAME_LENGTH} characters: "
+        "key={key}, value={value}"
     )
-    USERNAME_REQUIREMENTS: str = f"Username ({UserConstants.MIN_USERNAME_LENGTH}-{UserConstants.MAX_USERNAME_LENGTH} characters, letters, numbers, underscores, hyphens)"
-    EMAIL_REQUIRED: str = "Email is required"
-    EMAIL_FORMAT: str = "Invalid email format"
-    PASSWORD_REQUIRED: str = "Password is required"  # noqa: S105
+    USERNAME_FORMAT: str = (
+        "Username can only contain letters, numbers, underscores, and hyphens: "
+        "key={key}, value={value}"
+    )
+    USERNAME_REQUIREMENTS: str = (
+        f"Username ({UserConstants.MIN_USERNAME_LENGTH}-"
+        f"{UserConstants.MAX_USERNAME_LENGTH} characters, "
+        "letters, numbers, underscores, hyphens): "
+        "key={key}, value={value}"
+    )
+    EMAIL_REQUIRED: str = CommonErrorMessages.EMAIL_REQUIRED
+    EMAIL_FORMAT: str = CommonErrorMessages.EMAIL_FORMAT
+    PASSWORD_REQUIRED: str = "Password is required:"  # noqa: S105
     PASSWORD_LENGTH: str = (
         f"Password must be at least {UserConstants.MIN_PASSWORD_LENGTH} characters"
     )
-    PASSWORD_REQUIREMENTS: str = f"Password (min {UserConstants.MIN_PASSWORD_LENGTH} chars, uppercase, lowercase, number required)"
+    PASSWORD_REQUIREMENTS: str = (
+        f"Password (min {UserConstants.MIN_PASSWORD_LENGTH} chars, "
+        "uppercase, lowercase, number required)"
+    )
     PASSWORD_COMPLEXITY: str = (
         "Password must contain at least one uppercase letter, "  # noqa: S105
         "one lowercase letter, and one digit"
@@ -166,14 +207,14 @@ class UserError(ValidationError):
 class StockError(ValidationError):
     """Errors specific to stock model and operations."""
 
-    # Stock model validation errors
+    # Stock model validation errors - using common messages where possible
     SYMBOL_EXISTS: str = "Stock with symbol already exists: key={}, value={}"
-    SYMBOL_REQUIRED: str = "Stock symbol is required"
+    SYMBOL_REQUIRED: str = CommonErrorMessages.SYMBOL_REQUIRED
     SYMBOL_LENGTH: str = (
         f"Stock symbol must be {StockConstants.MAX_SYMBOL_LENGTH} "
         "characters or less: key={{key}}, value={{value}}"
     )
-    SYMBOL_FORMAT: str = "Stock symbol must contain only letters and numbers"
+    SYMBOL_FORMAT: str = CommonErrorMessages.SYMBOL_FORMAT
     NAME_LENGTH: str = (
         f"Stock name must be {StockConstants.MAX_NAME_LENGTH} "
         "characters or less: key={{key}}, value={{value}}"
@@ -186,7 +227,7 @@ class StockError(ValidationError):
         f"Stock description must be {StockConstants.MAX_DESCRIPTION_LENGTH} "
         "characters or less: key={{key}}, value={{value}}"
     )
-    CONFIRM_DELETION: str = "Must confirm deletion by setting 'confirm' to true"
+    CONFIRM_DELETION: str = CommonErrorMessages.CONFIRM_DELETION
     HAS_SERVICES: str = (
         "Cannot delete stock '{}' because it is used by {} trading service(s): "
         "key={}, value={}"
@@ -200,18 +241,14 @@ class StockError(ValidationError):
 class StockPriceError(ValidationError):
     """Errors specific to stock price models and operations."""
 
-    # Stock price validation errors (common)
+    # Stock price validation errors - using common messages where possible
     INVALID_SOURCE: str = "Invalid price source: key={}, value={}"
-
-    # Intraday price validation errors
-    FUTURE_TIMESTAMP: str = "Timestamp cannot be in the future: key={}, value={}"
+    FUTURE_TIMESTAMP: str = CommonErrorMessages.FUTURE_TIMESTAMP
+    FUTURE_DATE: str = CommonErrorMessages.FUTURE_DATE
     INVALID_INTERVAL: str = (
         "Invalid interval key={}, value={}. Must be one of: 1, 5, 15, 30, 60"
     )
-
-    # Daily price validation errors
-    FUTURE_DATE: str = "Price date cannot be in the future: key={}, value={}"
-    NEGATIVE_PRICE: str = "Price cannot be negative: key={}, value={}"
+    NEGATIVE_PRICE: str = CommonErrorMessages.NEGATIVE_PRICE
     HIGH_LOW_PRICE: str = "High price cannot be less than low price: key={}, value={}"
     LOW_HIGH_PRICE: str = (
         "Low price cannot be greater than high price: key={}, value={}"
@@ -228,12 +265,21 @@ class StockPriceError(ValidationError):
     )
 
     # Technical analysis errors
-    INSUFFICIENT_DATA_POINTS: str = f"Not enough data points for analysis. Minimum required: {PriceAnalysisConstants.MIN_DATA_POINTS}"
-    MA_PERIOD_TOO_LONG: str = f"Moving average period too long. Maximum allowed: {PriceAnalysisConstants.MAX_MA_PERIOD}"
-    RSI_PERIOD_TOO_SHORT: str = f"RSI period too short. Minimum required: {PriceAnalysisConstants.RSI_MIN_PERIODS}"
+    INSUFFICIENT_DATA_POINTS: str = (
+        f"Not enough data points for analysis. Minimum "
+        f"required: {PriceAnalysisConstants.MIN_DATA_POINTS}"
+    )
+    MA_PERIOD_TOO_LONG: str = (
+        f"Moving average period too long. Maximum allowed: "
+        f"{PriceAnalysisConstants.MAX_MA_PERIOD}"
+    )
+    RSI_PERIOD_TOO_SHORT: str = (
+        f"RSI period too short. Minimum required: "
+        f"{PriceAnalysisConstants.RSI_MIN_PERIODS}"
+    )
 
-    # Deletion validation
-    CONFIRM_DELETION: str = "Must confirm deletion by setting 'confirm' to true"
+    # Deletion validation - using common messages
+    CONFIRM_DELETION: str = CommonErrorMessages.CONFIRM_DELETION
     DAILY_PRICE_NOT_FOUND: str = "Daily price record not found"
     INTRADAY_PRICE_NOT_FOUND: str = "Intraday price record not found"
 
@@ -251,19 +297,21 @@ class StockPriceError(ValidationError):
 class TransactionError(ValidationError):
     """Errors specific to trading transaction model and operations."""
 
-    # Transaction model validation errors
-    SYMBOL_REQUIRED: str = "Stock symbol is required"
+    # Transaction model validation errors - using common messages
+    SYMBOL_REQUIRED: str = CommonErrorMessages.SYMBOL_REQUIRED
     INVALID_STATE: str = "Invalid transaction state: {}"
     SHARES_POSITIVE: str = "Shares must be greater than zero"
-    CONFIRM_DELETION: str = "Must confirm deletion by setting 'confirm' to true"
+    CONFIRM_DELETION: str = CommonErrorMessages.CONFIRM_DELETION
 
 
 class TradingServiceError(ValidationError):
     """Errors specific to the trading service module."""
 
-    # Trading service validation error messages
+    # Trading service validation error messages - using common messages where possible
     INITIAL_BALANCE: str = "Initial balance must be greater than zero: key={}, value={}"
-    REQUIRED_FIELD: str = "Field '{}' is required"
+    CURRENT_BALANCE: str = "Current balance must be greater than zero: key={}, value={}"
+    MINIMUM_BALANCE: str = "Minimum balance must be non-negative: key={}, value={}"
+    REQUIRED_FIELD: str = CommonErrorMessages.FIELD_REQUIRED
     INSUFFICIENT_PRICE_DATA: str = "Not enough price data for stock {} to backtest"
     CREATE_SERVICE: str = "Could not create trading service: {}"
     UPDATE_SERVICE: str = "Could not update trading service: {}"
@@ -276,19 +324,31 @@ class TradingServiceError(ValidationError):
         "Cannot delete trading service with active transactions. Cancel or complete "
         "them first."
     )
-    # Additional trading service validation errors
-    SYMBOL_REQUIRED: str = "Stock symbol is required (key={}, value={})"
-    SYMBOL_LENGTH: str = f"Stock symbol must be {StockConstants.MIN_SYMBOL_LENGTH}-{StockConstants.MAX_SYMBOL_LENGTH} characters"
-    SYMBOL_FORMAT: str = "Stock symbol must contain only letters and numbers"
+    SYMBOL_REQUIRED: str = CommonErrorMessages.SYMBOL_REQUIRED
+    SYMBOL_LENGTH: str = CommonErrorMessages.SYMBOL_LENGTH.format(
+        StockConstants.MIN_SYMBOL_LENGTH,
+        StockConstants.MAX_SYMBOL_LENGTH,
+        key="{key}",
+        value="{value}",
+    )
+    SYMBOL_FORMAT: str = CommonErrorMessages.SYMBOL_FORMAT
     INVALID_STATE: str = "Invalid service state: key={}, value={}"
     INVALID_MODE: str = "Invalid trading mode: key={}, value={}"
     ALLOCATION_PERCENT: str = (
-        f"Allocation percent must be between {TradingServiceConstants.MIN_ALLOCATION_PERCENT} and {TradingServiceConstants.MAX_ALLOCATION_PERCENT}: "
+        f"Allocation percent must be between "
+        f"{TradingServiceConstants.MIN_ALLOCATION_PERCENT} "
+        f"and {TradingServiceConstants.MAX_ALLOCATION_PERCENT}: "
         "key={key}, value={value}"
     )
-    BUY_THRESHOLD_NEGATIVE: str = f"Buy threshold must be non-negative (minimum: {TradingServiceConstants.MIN_BUY_THRESHOLD})"
-    SELL_THRESHOLD_NEGATIVE: str = f"Sell threshold must be non-negative (minimum: {TradingServiceConstants.MIN_SELL_THRESHOLD})"
-    CONFIRM_DELETION: str = "Must confirm deletion by setting 'confirm' to true"
+    BUY_THRESHOLD_NEGATIVE: str = (
+        f"Buy threshold must be non-negative (minimum: "
+        f"{TradingServiceConstants.MIN_BUY_THRESHOLD})"
+    )
+    SELL_THRESHOLD_NEGATIVE: str = (
+        f"Sell threshold must be non-negative (minimum: "
+        f"{TradingServiceConstants.MIN_SELL_THRESHOLD})"
+    )
+    CONFIRM_DELETION: str = CommonErrorMessages.CONFIRM_DELETION
 
 
 class AuthorizationError(APIError):

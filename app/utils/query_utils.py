@@ -49,18 +49,6 @@ def apply_pagination(
         # Get items for current page
         items: list[any] = query[start:end]
 
-    # Handle SQLAlchemy Query
-    else:
-        # Calculate offset
-        offset: int = (page - 1) * page_size
-
-        # Execute query with limits
-        items: list[any] = query.limit(page_size).offset(offset).all()
-
-        # Get total count for metadata
-        total: int = query.order_by(None).count()
-        total_pages: int = (total + page_size - 1) // page_size
-
     # Create pagination metadata
     pagination: dict[str, any] = {
         "page": page,
@@ -146,7 +134,7 @@ def apply_filters(
         elif key.endswith("_like"):
             query = _apply_like_filter(query, model, key, value)
         else:
-            column = getattr(model, key)
+            column: any = getattr(model, key)
             query = query.filter(column == value)
 
     return _apply_sorting(

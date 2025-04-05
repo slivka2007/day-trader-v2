@@ -1013,7 +1013,7 @@ class TransactionService:
 
         Args:
             message: The error message
-            errors: Any validation errors to include
+            errors: Dictionary of validation errors to include
 
         Raises:
             ValidationError: Always raised
