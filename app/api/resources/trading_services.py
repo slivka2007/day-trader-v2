@@ -1,14 +1,11 @@
 """Trading Services API resources."""
 
-from typing import Literal
-
 from flask import current_app, request
 from flask_jwt_extended import jwt_required
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.api import apply_filters, apply_pagination
 from app.api.schemas.trading_service import (
     service_create_schema,
     service_schema,
@@ -20,6 +17,7 @@ from app.services.session_manager import SessionManager
 from app.services.trading_service import TradingServiceService
 from app.utils.auth import get_current_user, require_ownership
 from app.utils.errors import AuthorizationError, BusinessLogicError, ValidationError
+from app.utils.query_utils import apply_filters, apply_pagination
 
 # Create namespace
 api = Namespace("services", description="Trading service operations")
@@ -130,7 +128,7 @@ class ServiceList(Resource):
     @api.response(200, "Success")
     @api.response(401, "Unauthorized")
     @jwt_required()
-    def get(self) -> tuple[any | list[any] | list | dict, Literal[200]]:
+    def get(self) -> tuple[dict[str, any], int]:
         """List all trading services for the authenticated user"""
         with SessionManager() as session:
             # Get current user

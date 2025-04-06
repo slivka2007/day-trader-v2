@@ -1,7 +1,6 @@
 """Trading Transactions API resources."""
 
 import logging
-from typing import Literal
 
 from flask import request
 from flask_jwt_extended import jwt_required
@@ -15,12 +14,20 @@ from app.api.schemas.trading_transaction import (
     transaction_create_schema,
     transaction_schema,
 )
-from app.exceptions import AuthorizationError, BusinessLogicError, ResourceNotFoundError
-from app.models import SessionManager, TradingService, TradingTransaction, User
+from app.models import TradingService, TradingTransaction, User
 from app.models.enums import TransactionState
-from app.services.auth_service import get_current_user, verify_resource_ownership
+from app.services.session_manager import SessionManager
 from app.services.transaction_service import TransactionService
-from app.utils.decorators import require_ownership
+from app.utils.auth import (
+    get_current_user,
+    require_ownership,
+    verify_resource_ownership,
+)
+from app.utils.errors import (
+    AuthorizationError,
+    BusinessLogicError,
+    ResourceNotFoundError,
+)
 from app.utils.query_utils import apply_pagination
 
 # Set up logging
@@ -237,10 +244,10 @@ class TransactionList(Resource):
                 )
 
                 # Apply pagination using the utility function
-                result = apply_pagination(all_transactions)
+                result: dict[str, any] = apply_pagination(all_transactions)
 
                 # Serialize the results
-                result["items"] = transactions_schema.dump(result["items"])
+                result["items"] = transaction_schema.dump(result["items"])
 
                 return result
 
@@ -261,7 +268,7 @@ class TransactionList(Resource):
     @api.response(401, "Unauthorized")
     @api.response(404, "Service not found")
     @jwt_required()
-    def post(self) -> tuple[any | list[any] | list | dict, Literal[201]]:
+    def post(self) -> tuple[dict[str, any], int]:
         """Create a new trading transaction (buy)"""
         data: dict[str, any] = request.json
 
@@ -340,7 +347,7 @@ class TransactionItem(Resource):
     @api.response(404, "Transaction not found")
     @jwt_required()
     @require_ownership("transaction")
-    def get(self, id: int) -> tuple[any | list[any] | list | dict, Literal[200]]:
+    def get(self, id: int) -> tuple[dict[str, any], int]:
         """Get a transaction by ID"""
         with SessionManager() as session:
             # Get current user
@@ -354,7 +361,7 @@ class TransactionItem(Resource):
                 id,
                 user.id,
             )
-            return transaction_schema.dump(transaction)
+            return transaction_schema.dump(transaction), 200
 
     @api.doc("delete_transaction")
     @api.response(204, "Transaction deleted")
@@ -363,7 +370,7 @@ class TransactionItem(Resource):
     @api.response(404, "Transaction not found")
     @jwt_required()
     @require_ownership("transaction")
-    def delete(self, id: int) -> tuple[str, Literal[204]]:
+    def delete(self, id: int) -> tuple[str, int]:
         """Delete a transaction."""
         with SessionManager() as session:
             # Get current user
@@ -407,7 +414,7 @@ class TransactionComplete(Resource):
     @api.response(404, "Transaction not found")
     @jwt_required()
     @require_ownership("transaction")
-    def post(self, id: int) -> tuple[any | list[any] | list | dict, Literal[200]]:
+    def post(self, id: int) -> tuple[dict[str, any], int]:
         """Complete (sell) a transaction"""
         data: dict[str, any] = request.json
 
@@ -453,7 +460,7 @@ class TransactionComplete(Resource):
                 transaction: TradingTransaction = (
                     TransactionService.complete_transaction(session, id, sale_price)
                 )
-                return transaction_schema.dump(transaction)
+                return transaction_schema.dump(transaction), 200
 
             except ValidationError as e:
                 logger.warning(f"Validation error completing transaction: {e!s}")
@@ -486,7 +493,7 @@ class TransactionCancel(Resource):
     @api.response(404, "Transaction not found")
     @jwt_required()
     @require_ownership("transaction")
-    def post(self, id: int) -> tuple[any | list[any] | list | dict, Literal[200]]:
+    def post(self, id: int) -> tuple[dict[str, any], int]:
         """Cancel a transaction"""
         data: dict[str, any] = request.json or {}
 
@@ -523,7 +530,7 @@ class TransactionCancel(Resource):
                     id,
                     reason,
                 )
-                return transaction_schema.dump(transaction)
+                return transaction_schema.dump(transaction), 200
 
             except ValidationError as e:
                 logger.warning(f"Validation error cancelling transaction: {e!s}")
@@ -566,7 +573,7 @@ class ServiceTransactions(Resource):
     def get(
         self,
         service_id: int,
-    ) -> tuple[any | list[any] | list | dict, Literal[200]]:
+    ) -> tuple[dict[str, any], int]:
         """Get all transactions for a specific trading service."""
         with SessionManager() as session:
             # Verify service exists
@@ -591,7 +598,7 @@ class ServiceTransactions(Resource):
                         session,
                         service_id,
                         state,
-                    )
+                        )
                 else:
                     transactions: list[any] = TransactionService.get_by_service(
                         session,
@@ -617,7 +624,7 @@ class ServiceTransactions(Resource):
                 )
 
                 # Apply pagination using the utility function
-                result = apply_pagination(transactions)
+                result: dict[str, any] = apply_pagination(transactions)
 
                 # Serialize the results
                 result["items"] = transactions_schema.dump(result["items"])
@@ -631,6 +638,80 @@ class ServiceTransactions(Resource):
                 logger.error(f"Error listing transactions: {e!s}")
                 raise BusinessLogicError(
                     f"Could not list transactions: {e!s}",
+                ) from e
+
+    @api.doc("create_transaction")
+    @api.expect(transaction_create_model)
+    @api.marshal_with(transaction_model)
+    @api.response(201, "Transaction created")
+    @api.response(400, "Validation error")
+    @api.response(401, "Unauthorized")
+    @api.response(404, "Service not found")
+    @jwt_required()
+    @require_ownership("service")
+    def post(self) -> tuple[dict[str, any], int]:
+        """Create a new trading transaction (buy)"""
+        data: dict[str, any] = request.json
+
+        # Validate input data
+        try:
+            validated_data: dict[str, any] = transaction_create_schema.load(data or {})
+        except ValidationError as err:
+            logger.warning(f"Validation error creating transaction: {err!s}")
+            raise ValidationError(
+                "Invalid transaction data",
+                errors={"general": [str(err)]},
+            ) from err
+
+        # Safety check to ensure validated_data is a dictionary
+        if not validated_data or not isinstance(validated_data, dict):
+            raise ValidationError("Invalid transaction data format")
+
+        service_id: int | None = validated_data.get("service_id")
+        if not service_id:
+            raise ValidationError("Missing service_id")
+
+        with SessionManager() as session:
+            # Get current user and verify service ownership
+            user: User | None = get_current_user(session)
+            if not user:
+                raise AuthorizationError("User not authenticated")
+
+            # Verify service belongs to user
+            verify_resource_ownership(
+                session=session,
+                resource_type="service",
+                resource_id=service_id,
+                user_id=user.id,
+            )
+
+            try:
+                # Create the transaction using the service layer
+                transaction: TradingTransaction = (
+                    TransactionService.create_buy_transaction(
+                        session=session,
+                        service_id=service_id,
+                        stock_symbol=validated_data.get("stock_symbol", ""),
+                        shares=validated_data.get("shares", 0),
+                        purchase_price=validated_data.get("purchase_price", 0),
+                    )
+                )
+
+                return transaction_schema.dump(transaction), 201
+
+            except ValidationError as e:
+                logger.warning(f"Validation error creating transaction: {e!s}")
+                raise
+            except ResourceNotFoundError as e:
+                logger.warning(f"Resource not found: {e!s}")
+                raise
+            except BusinessLogicError as e:
+                logger.error(f"Business logic error: {e!s}")
+                raise
+            except Exception as e:
+                logger.error(f"Error creating transaction: {e!s}")
+                raise BusinessLogicError(
+                    f"Could not create transaction: {e!s}",
                 ) from e
 
 
@@ -654,7 +735,7 @@ class TransactionNotes(Resource):
     @api.response(404, "Transaction not found")
     @jwt_required()
     @require_ownership("transaction")
-    def put(self, id: int) -> tuple[any | list[any] | list | dict, Literal[200]]:
+    def put(self, id: int) -> tuple[dict[str, any], int]:
         """Update transaction notes"""
         data: dict[str, any] = request.json
 
@@ -680,7 +761,7 @@ class TransactionNotes(Resource):
                 transaction: TradingTransaction = (
                     TransactionService.update_transaction_notes(session, id, notes)
                 )
-                return transaction_schema.dump(transaction)
+                return transaction_schema.dump(transaction), 200
 
             except ResourceNotFoundError as e:
                 logger.warning(f"Resource not found: {e!s}")
@@ -707,7 +788,7 @@ class TransactionMetrics(Resource):
     def get(
         self,
         service_id: int,
-    ) -> tuple[any | list[any] | list | dict, Literal[200]]:
+    ) -> tuple[dict[str, any], int]:
         """Get metrics for transactions of a service"""
         with SessionManager() as session:
             # Check if service exists and belongs to user
@@ -729,7 +810,7 @@ class TransactionMetrics(Resource):
                         service_id,
                     )
                 )
-                return metrics
+                return metrics, 200
 
             except Exception as e:
                 logger.error(f"Error calculating transaction metrics: {e!s}")

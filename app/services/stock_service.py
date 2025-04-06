@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from sqlalchemy import or_, select
+from sqlalchemy import Select, or_, select
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -142,6 +142,104 @@ class StockService:
 
         """
         return session.execute(select(Stock)).scalars().all()
+
+    @staticmethod
+    def get_filtered_stocks(
+        session: Session,
+        filters: dict[str, any],
+        page: int = 1,
+        per_page: int = 10,
+    ) -> dict[str, any]:
+        """Get filtered and paginated stocks.
+
+        Args:
+            session: Database session
+            filters: Filter parameters dictionary
+            page: Page number (1-indexed)
+            per_page: Number of items per page
+
+        Returns:
+            Dictionary containing items and pagination metadata
+
+        """
+        query = select(Stock)
+
+        # Apply filters
+        if filters:
+            # Exact symbol match
+            if filters.get("symbol"):
+                query = query.filter(Stock.symbol == filters["symbol"].upper())
+
+            # Partial symbol match
+            if filters.get("symbol_like"):
+                query = query.filter(Stock.symbol.ilike(f"%{filters['symbol_like']}%"))
+
+            # Active status
+            if "is_active" in filters:
+                is_active: bool = filters["is_active"]
+                if isinstance(is_active, str):
+                    is_active = is_active.lower() == "true"
+                query = query.filter(Stock.is_active == is_active)
+
+            # Sector
+            if filters.get("sector"):
+                query = query.filter(Stock.sector == filters["sector"])
+
+        # Apply sorting
+        sort_field: str = filters.get("sort", "symbol")
+        if sort_field not in ["symbol", "name", "sector", "created_at", "updated_at"]:
+            sort_field = "symbol"
+
+        sort_order: str = filters.get("order", "asc").lower()
+        if sort_order not in ["asc", "desc"]:
+            sort_order = "asc"
+
+        sort_column: any = getattr(Stock, sort_field)
+        if sort_order == "desc":
+            sort_column = sort_column.desc()
+
+        query: Select[tuple[Stock]] = query.order_by(sort_column)
+
+        # Count total items for pagination
+        total_count: list[Stock] = (
+            session.execute(
+                select(Stock).where(
+                    *query.whereclause.clauses if query.whereclause else [],
+                ),
+            )
+            .scalars()
+            .all()
+        )
+        total_count = len(total_count)
+
+        # Apply pagination
+        offset: int = (page - 1) * per_page
+        query: Select[tuple[Stock]] = query.offset(offset).limit(per_page)
+
+        # Execute query
+        stocks: list[Stock] = session.execute(query).scalars().all()
+
+        # Calculate pagination values
+        total_pages: int = (
+            (total_count + per_page - 1) // per_page if total_count > 0 else 0
+        )
+        has_next: bool = page < total_pages
+        has_prev: bool = page > 1
+
+        # Create pagination metadata
+        pagination: dict[str, any] = {
+            "page": page,
+            "per_page": per_page,
+            "total_count": total_count,
+            "total_pages": total_pages,
+            "has_next": has_next,
+            "has_prev": has_prev,
+        }
+
+        return {
+            "items": stocks,
+            "pagination": pagination,
+        }
 
     # Write operations
     @staticmethod

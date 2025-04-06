@@ -70,7 +70,7 @@ def _get_error_message(
 
     """
     if hasattr(error_class, error_attr):
-        error_msg = getattr(error_class, error_attr)
+        error_msg: any = getattr(error_class, error_attr)
         if format_args:
             try:
                 return error_msg.format(**format_args)
@@ -476,14 +476,14 @@ def validate_max_length(
     if len(value) > max_length:
         # Special handling for different model-specific attribute errors in StockError
         if error_class == StockError:
-            stock_error_mapping = {
+            stock_error_mapping: dict[str, str] = {
                 "name": "NAME_LENGTH",
                 "sector": "SECTOR_LENGTH",
                 "description": "DESCRIPTION_LENGTH",
             }
             if key in stock_error_mapping:
                 error_attr = stock_error_mapping[key]
-                error_msg = _get_error_message(
+                error_msg: str = _get_error_message(
                     StockError,
                     error_attr,
                     StockError.NAME_LENGTH.format(key=key, value=value),
@@ -493,7 +493,7 @@ def validate_max_length(
                 raise StockError(error_msg)
 
         # Otherwise use standard error handling
-        error_msg = _get_error_message(
+        error_msg: str = _get_error_message(
             error_class,
             error_attr,
             StockError.NAME_LENGTH.format(key=key, value=value),
@@ -532,7 +532,7 @@ def validate_email(
     if not email:
         if required:
             if error_class == UserError:
-                error_msg = UserError.EMAIL_REQUIRED.format(key=key, value=email)
+                error_msg: str = UserError.EMAIL_REQUIRED.format(key=key, value=email)
                 raise UserError(error_msg)
 
             error_msg = _get_error_message(
@@ -548,7 +548,7 @@ def validate_email(
     # Comprehensive email validation
     if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
         if error_class == UserError:
-            error_msg = UserError.EMAIL_FORMAT.format(key=key, value=email)
+            error_msg: str = UserError.EMAIL_FORMAT.format(key=key, value=email)
             raise UserError(error_msg)
 
         error_msg = _get_error_message(
@@ -585,7 +585,7 @@ def validate_required_field(
 
     """
     if value is None or (isinstance(value, str) and not value.strip()):
-        error_msg = _get_error_message(
+        error_msg: str = _get_error_message(
             error_class,
             error_attr,
             ValidationError.FIELD_REQUIRED.format(field_name),

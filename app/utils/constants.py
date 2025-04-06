@@ -67,6 +67,7 @@ class TradingServiceConstants:
     DEFAULT_TAKE_PROFIT_PERCENT: float = ValidationConstants.DEFAULT_THRESHOLD
     MAX_ALLOCATION_PERCENT: float = ValidationConstants.MAX_PERCENT
     MIN_ALLOCATION_PERCENT: float = ValidationConstants.MIN_PERCENT
+    MIN_INITIAL_BALANCE: float = 1.0  # Minimum initial balance required
     MIN_MINIMUM_BALANCE: float = ValidationConstants.MIN_PERCENT
     MIN_BUY_THRESHOLD: float = ValidationConstants.DEFAULT_THRESHOLD
     MIN_SELL_THRESHOLD: float = ValidationConstants.DEFAULT_THRESHOLD
@@ -124,6 +125,7 @@ class ApiConstants:
     # Common HTTP status codes
     HTTP_OK: int = 200
     HTTP_CREATED: int = 201
+    HTTP_NO_CONTENT: int = 204
     HTTP_BAD_REQUEST: int = 400
     HTTP_UNAUTHORIZED: int = 401
     HTTP_FORBIDDEN: int = 403

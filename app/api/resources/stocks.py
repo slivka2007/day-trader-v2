@@ -5,27 +5,28 @@ This module contains the API resources for the stock model.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from flask import current_app, request
 from flask_jwt_extended import jwt_required
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+
+if TYPE_CHECKING:
+    from app.models import Stock
 
 from app.api.schemas.stock import stock_input_schema, stock_schema, stocks_schema
-from app.models import Stock
 from app.services.session_manager import SessionManager
 from app.services.stock_service import StockService
 from app.utils.auth import admin_required
 from app.utils.constants import ApiConstants, PaginationConstants
 from app.utils.errors import (
     BusinessLogicError,
-    StockError,
+    ResourceNotFoundError,
     ValidationError,
 )
-from app.utils.query_utils import apply_filters, apply_pagination
 
 # Create namespace
-api: Namespace = Namespace("stocks", description="Stock operations")
+api = Namespace("stocks", description="Stock operations")
 
 # Define API models
 stock_model: Model | OrderedModel = api.model(
@@ -91,21 +92,6 @@ stock_search_model: Model | OrderedModel = api.model(
 )
 
 
-def _raise_validation_error(message: str, errors: dict | None = None) -> None:
-    """Raise a validation error with consistent formatting."""
-    raise ValidationError(message, errors=errors)
-
-
-def _raise_integrity_error(symbol: str) -> None:
-    """Raise an error when a stock with the same symbol already exists."""
-    raise BusinessLogicError(StockError.SYMBOL_EXISTS.format(symbol))
-
-
-def _raise_business_error(message: str) -> None:
-    """Raise a business logic error with consistent formatting."""
-    raise BusinessLogicError(message)
-
-
 @api.route("/")
 class StockList(Resource):
     """Resource for managing the collection of stocks."""
@@ -129,31 +115,43 @@ class StockList(Resource):
     )
     @api.marshal_with(stock_list_model)
     @api.response(ApiConstants.HTTP_OK, "Success")
-    def get(self) -> tuple[dict, int]:
+    def get(self) -> tuple[dict[str, any], int]:
         """Get all stocks with filtering and pagination."""
-        with SessionManager() as session:
-            # Get base query
-            stocks: list[Stock] = (
-                session.execute(
-                    select(Stock).where(Stock.is_active),
+        try:
+            # Parse query parameters
+            page: int = request.args.get(
+                "page",
+                default=PaginationConstants.DEFAULT_PAGE,
+                type=int,
+            )
+            per_page: int = request.args.get(
+                "per_page",
+                default=PaginationConstants.DEFAULT_PER_PAGE,
+                type=int,
+            )
+
+            with SessionManager() as session:
+                # Get filtered and paginated stocks using the StockService
+                result: dict[str, any] = StockService.get_filtered_stocks(
+                    session=session,
+                    filters=request.args,
+                    page=page,
+                    per_page=per_page,
                 )
-                .scalars()
-                .all()
-            )
 
-            # Apply filters
-            stocks = apply_filters(stocks, Stock)
+                # Serialize the results
+                result["items"] = stocks_schema.dump(result["items"])
 
-            # Apply pagination
-            result: dict[str, any] = apply_pagination(
-                stocks,
-                default_page_size=PaginationConstants.DEFAULT_PER_PAGE,
-            )
+                return result, ApiConstants.HTTP_OK
 
-            # Serialize the results
-            result["items"] = stocks_schema.dump(result["items"])
-
-            return result, ApiConstants.HTTP_OK
+        except ValidationError as e:
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_BAD_REQUEST
+        except Exception as e:
+            current_app.logger.exception("Error retrieving stocks")
+            return {
+                "error": True,
+                "message": f"An unexpected error occurred: {e!s}",
+            }, ApiConstants.HTTP_INTERNAL_SERVER_ERROR
 
     @api.doc("create_stock")
     @api.expect(stock_input_model)
@@ -165,18 +163,15 @@ class StockList(Resource):
     @api.response(ApiConstants.HTTP_CONFLICT, "Stock with this symbol already exists")
     @jwt_required()
     @admin_required
-    def post(self) -> tuple[dict, int]:
+    def post(self) -> tuple[dict[str, any], int]:
         """Create a new stock. Requires admin privileges."""
-        data: dict[str, any] = request.json
-
-        # Validate input data
         try:
-            validated_data: dict[str, any] = stock_input_schema.load(data or {})
-        except ValidationError as err:
-            _raise_validation_error("Invalid stock data", errors=err.to_dict())
+            data: dict[str, any] = request.json or {}
 
-        with SessionManager() as session:
-            try:
+            # Validate input data
+            validated_data: dict[str, any] = stock_input_schema.load(data)
+
+            with SessionManager() as session:
                 # Create the stock using the StockService
                 stock: Stock = StockService.create_stock(
                     session=session,
@@ -185,19 +180,22 @@ class StockList(Resource):
 
                 return stock_schema.dump(stock), ApiConstants.HTTP_CREATED
 
-            except ValidationError as err:
-                current_app.logger.exception("Validation error creating stock")
-                raise err from err
-            except IntegrityError:
-                current_app.logger.exception("Stock with symbol already exists")
-                _raise_integrity_error(validated_data.get("symbol"))
-            except Exception as err:
-                current_app.logger.exception("Error creating stock")
-                raise ValidationError(str(err)) from err
+        except ValidationError as e:
+            current_app.logger.exception("Validation error creating stock")
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_BAD_REQUEST
+        except BusinessLogicError as e:
+            current_app.logger.exception("Business logic error creating stock")
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_CONFLICT
+        except Exception as e:
+            current_app.logger.exception("Error creating stock")
+            return {
+                "error": True,
+                "message": f"An unexpected error occurred: {e!s}",
+            }, ApiConstants.HTTP_INTERNAL_SERVER_ERROR
 
 
-@api.route("/<int:id>")
-@api.param("id", "The stock identifier")
+@api.route("/<int:stock_id>")
+@api.param("stock_id", "The stock identifier")
 @api.response(ApiConstants.HTTP_NOT_FOUND, "Stock not found")
 class StockResource(Resource):
     """Resource for managing individual stocks."""
@@ -206,11 +204,20 @@ class StockResource(Resource):
     @api.marshal_with(stock_model)
     @api.response(ApiConstants.HTTP_OK, "Success")
     @api.response(ApiConstants.HTTP_NOT_FOUND, "Stock not found")
-    def get(self, stock_id: int) -> tuple[dict, int]:
+    def get(self, stock_id: int) -> tuple[dict[str, any], int]:
         """Get a stock by ID."""
-        with SessionManager() as session:
-            stock: Stock = StockService.get_or_404(session, stock_id)
-            return stock_schema.dump(stock), ApiConstants.HTTP_OK
+        try:
+            with SessionManager() as session:
+                stock: Stock = StockService.get_or_404(session, stock_id)
+                return stock_schema.dump(stock), ApiConstants.HTTP_OK
+        except ResourceNotFoundError as e:
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_NOT_FOUND
+        except Exception as e:
+            current_app.logger.exception("Error retrieving stock")
+            return {
+                "error": True,
+                "message": f"An unexpected error occurred: {e!s}",
+            }, ApiConstants.HTTP_INTERNAL_SERVER_ERROR
 
     @api.doc("update_stock")
     @api.expect(stock_input_model)
@@ -222,38 +229,40 @@ class StockResource(Resource):
     @api.response(ApiConstants.HTTP_NOT_FOUND, "Stock not found")
     @jwt_required()
     @admin_required
-    def put(self, stock_id: int) -> tuple[dict, int]:
+    def put(self, stock_id: int) -> tuple[dict[str, any], int]:
         """Update a stock. Requires admin privileges."""
-        data: dict[str, any] = request.json
-
-        # Validate input data
         try:
+            data: dict[str, any] = request.json or {}
+
+            # Validate input data
             validated_data: dict[str, any] = stock_input_schema.load(
-                data or {},
+                data,
                 partial=True,
             )
-        except ValidationError as err:
-            _raise_validation_error("Invalid stock data", errors=err.to_dict())
 
-        with SessionManager() as session:
-            # Get the stock
-            stock: Stock = StockService.get_or_404(session, stock_id)
-
-            try:
+            with SessionManager() as session:
                 # Update the stock using StockService
-                result: Stock = StockService.update_stock(
+                stock: Stock = StockService.update_stock(
                     session,
-                    stock,
+                    stock_id,
                     validated_data,
                 )
-                return stock_schema.dump(result), ApiConstants.HTTP_OK
+                return stock_schema.dump(stock), ApiConstants.HTTP_OK
 
-            except ValidationError as err:
-                current_app.logger.exception("Validation error updating stock")
-                raise err from err
-            except Exception as err:
-                current_app.logger.exception("Error updating stock")
-                raise ValidationError(str(err)) from err
+        except ValidationError as e:
+            current_app.logger.exception("Validation error updating stock")
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_BAD_REQUEST
+        except ResourceNotFoundError as e:
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_NOT_FOUND
+        except BusinessLogicError as e:
+            current_app.logger.exception("Business logic error updating stock")
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_CONFLICT
+        except Exception as e:
+            current_app.logger.exception("Error updating stock")
+            return {
+                "error": True,
+                "message": f"An unexpected error occurred: {e!s}",
+            }, ApiConstants.HTTP_INTERNAL_SERVER_ERROR
 
     @api.doc("delete_stock")
     @api.response(ApiConstants.HTTP_NO_CONTENT, "Stock deleted")
@@ -265,21 +274,23 @@ class StockResource(Resource):
     @admin_required
     def delete(self, stock_id: int) -> tuple[str, int]:
         """Delete a stock. Requires admin privileges."""
-        with SessionManager() as session:
-            # Get the stock
-            stock: Stock = StockService.get_or_404(session, stock_id)
-
-            try:
+        try:
+            with SessionManager() as session:
                 # Delete the stock using StockService
-                StockService.delete_stock(session, stock)
+                StockService.delete_stock(session, stock_id)
+                return "", ApiConstants.HTTP_NO_CONTENT
 
-            except BusinessLogicError as err:
-                current_app.logger.exception("Business logic error deleting stock")
-                raise err from err
-            except Exception as err:
-                current_app.logger.exception("Error deleting stock")
-                raise ValidationError(str(err)) from err
-        return "", ApiConstants.HTTP_NO_CONTENT
+        except ResourceNotFoundError as e:
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_NOT_FOUND
+        except BusinessLogicError as e:
+            current_app.logger.exception("Business logic error deleting stock")
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_CONFLICT
+        except Exception as e:
+            current_app.logger.exception("Error deleting stock")
+            return {
+                "error": True,
+                "message": f"An unexpected error occurred: {e!s}",
+            }, ApiConstants.HTTP_INTERNAL_SERVER_ERROR
 
 
 @api.route("/symbol/<string:symbol>")
@@ -292,11 +303,20 @@ class StockBySymbol(Resource):
     @api.marshal_with(stock_model)
     @api.response(ApiConstants.HTTP_OK, "Success")
     @api.response(ApiConstants.HTTP_NOT_FOUND, "Stock not found")
-    def get(self, symbol: str) -> tuple[dict, int]:
+    def get(self, symbol: str) -> tuple[dict[str, any], int]:
         """Get a stock by symbol."""
-        with SessionManager() as session:
-            stock = StockService.find_by_symbol_or_404(session, symbol)
-            return stock_schema.dump(stock), ApiConstants.HTTP_OK
+        try:
+            with SessionManager() as session:
+                stock: Stock = StockService.find_by_symbol_or_404(session, symbol)
+                return stock_schema.dump(stock), ApiConstants.HTTP_OK
+        except ResourceNotFoundError as e:
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_NOT_FOUND
+        except Exception as e:
+            current_app.logger.exception("Error retrieving stock by symbol")
+            return {
+                "error": True,
+                "message": f"An unexpected error occurred: {e!s}",
+            }, ApiConstants.HTTP_INTERNAL_SERVER_ERROR
 
 
 @api.route("/search")
@@ -312,20 +332,30 @@ class StockSearch(Resource):
     )
     @api.marshal_with(stock_search_model)
     @api.response(ApiConstants.HTTP_OK, "Success")
-    def get(self) -> tuple[dict, int]:
+    def get(self) -> tuple[dict[str, any], int]:
         """Search for stocks by symbol or name."""
-        query = request.args.get("q", "")
-        limit = min(int(request.args.get("limit", 10)), 50)  # Cap at 50 results
+        try:
+            query: str = request.args.get("q", "")
+            limit: int = min(
+                int(request.args.get("limit", 10)),
+                50,
+            )  # Cap at 50 results
 
-        with SessionManager() as session:
-            stocks = StockService.search_stocks(session, query, limit)
-            results = stocks_schema.dump(stocks)
+            with SessionManager() as session:
+                stocks: list[Stock] = StockService.search_stocks(session, query, limit)
+                results: list[dict[str, any]] = stocks_schema.dump(stocks)
 
-            return {"results": results, "count": len(results)}, ApiConstants.HTTP_OK
+                return {"results": results, "count": len(results)}, ApiConstants.HTTP_OK
+        except Exception as e:
+            current_app.logger.exception("Error searching stocks")
+            return {
+                "error": True,
+                "message": f"An unexpected error occurred: {e!s}",
+            }, ApiConstants.HTTP_INTERNAL_SERVER_ERROR
 
 
-@api.route("/<int:id>/toggle-active")
-@api.param("id", "The stock identifier")
+@api.route("/<int:stock_id>/toggle-active")
+@api.param("stock_id", "The stock identifier")
 @api.response(ApiConstants.HTTP_NOT_FOUND, "Stock not found")
 class StockToggleActive(Resource):
     """Resource for toggling a stock's active status."""
@@ -338,20 +368,22 @@ class StockToggleActive(Resource):
     @api.response(ApiConstants.HTTP_NOT_FOUND, "Stock not found")
     @jwt_required()
     @admin_required
-    def post(self, stock_id: int) -> tuple[dict, int]:
+    def post(self, stock_id: int) -> tuple[dict[str, any], int]:
         """Toggle the active status of a stock. Requires admin privileges."""
-        with SessionManager() as session:
-            # Get the stock
-            stock: Stock = StockService.get_or_404(session, stock_id)
-
-            try:
+        try:
+            with SessionManager() as session:
                 # Toggle active status using StockService
-                result: Stock = StockService.toggle_active(session, stock)
-                return stock_schema.dump(result), ApiConstants.HTTP_OK
+                stock: Stock = StockService.toggle_active(session, stock_id)
+                return stock_schema.dump(stock), ApiConstants.HTTP_OK
 
-            except ValidationError as err:
-                current_app.logger.exception("Validation error toggling stock status")
-                raise err from err
-            except Exception as err:
-                current_app.logger.exception("Error toggling stock active status")
-                raise ValidationError(str(err)) from err
+        except ResourceNotFoundError as e:
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_NOT_FOUND
+        except ValidationError as e:
+            current_app.logger.exception("Validation error toggling stock status")
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_BAD_REQUEST
+        except Exception as e:
+            current_app.logger.exception("Error toggling stock active status")
+            return {
+                "error": True,
+                "message": f"An unexpected error occurred: {e!s}",
+            }, ApiConstants.HTTP_INTERNAL_SERVER_ERROR

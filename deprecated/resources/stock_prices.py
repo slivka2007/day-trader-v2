@@ -18,7 +18,7 @@ from flask import current_app, request
 from flask_jwt_extended import jwt_required
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields
 
-from app.api.schemas.stock_price import (
+from app.deprecated.schemas.stock_price import (
     daily_price_input_schema,
     daily_price_schema,
     daily_prices_schema,

@@ -7,15 +7,16 @@ providing a clean API for intraday stock price data management operations.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar
 
-from sqlalchemy import and_, select
+from sqlalchemy import Select, and_, select
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-from app.api.schemas.stock_price import intraday_price_schema
+
+from app.api.schemas.intraday_price import intraday_price_schema
 from app.models.enums import IntradayInterval, PriceSource
 from app.models.stock import Stock
 from app.models.stock_intraday_price import StockIntradayPrice
@@ -33,6 +34,7 @@ from app.utils.errors import (
     StockPriceError,
     ValidationError,
 )
+from app.utils.query_utils import apply_pagination
 
 # Set up logging
 logger: logging.Logger = logging.getLogger(__name__)
@@ -73,6 +75,7 @@ class IntradayPriceService:
         "1h": IntradayInterval.ONE_HOUR.value,
     }
 
+    # Helper methods for error handling
     @staticmethod
     def _raise_not_found(
         price_id: int,
@@ -99,6 +102,377 @@ class IntradayPriceService:
         """Raise a ValidationError with the given message."""
         raise StockPriceError(message)
 
+    # Read operations
+    @staticmethod
+    def get_intraday_price_by_id(
+        session: Session,
+        price_id: int,
+    ) -> StockIntradayPrice | None:
+        """Get an intraday price record by ID.
+
+        Args:
+            session: Database session
+            price_id: Price record ID to retrieve
+
+        Returns:
+            StockIntradayPrice instance if found, None otherwise
+
+        """
+        return session.execute(
+            select(StockIntradayPrice).where(StockIntradayPrice.id == price_id),
+        ).scalar_one_or_none()
+
+    @staticmethod
+    def get_intraday_price_or_404(
+        session: Session,
+        price_id: int,
+    ) -> StockIntradayPrice:
+        """Get an intraday price record by ID or raise ResourceNotFoundError.
+
+        Args:
+            session: Database session
+            price_id: Price record ID to retrieve
+
+        Returns:
+            StockIntradayPrice instance
+
+        Raises:
+            ResourceNotFoundError: If price record not found
+
+        """
+        price: StockIntradayPrice | None = (
+            IntradayPriceService.get_intraday_price_by_id(
+                session,
+                price_id,
+            )
+        )
+        if not price:
+            IntradayPriceService._raise_not_found(price_id)
+        return price
+
+    @staticmethod
+    def get_intraday_price_by_timestamp(
+        session: Session,
+        stock_id: int,
+        timestamp: datetime,
+        interval: int = 1,
+    ) -> StockIntradayPrice | None:
+        """Get an intraday price record by stock ID and timestamp.
+
+        Args:
+            session: Database session
+            stock_id: Stock ID
+            timestamp: Timestamp of the price record
+            interval: Time interval in minutes
+
+        Returns:
+            StockIntradayPrice instance if found, None otherwise
+
+        """
+        return session.execute(
+            select(StockIntradayPrice).where(
+                and_(
+                    StockIntradayPrice.stock_id == stock_id,
+                    StockIntradayPrice.timestamp == timestamp,
+                    StockIntradayPrice.interval == interval,
+                ),
+            ),
+        ).scalar_one_or_none()
+
+    @staticmethod
+    def get_intraday_prices_by_time_range(
+        session: Session,
+        stock_id: int,
+        start_time: datetime,
+        end_time: datetime | None = None,
+        interval: int = 1,
+    ) -> list[StockIntradayPrice]:
+        """Get intraday prices for a stock in a given time range.
+
+        Args:
+            session: Database session
+            stock_id: Stock ID
+            start_time: Start timestamp
+            end_time: End timestamp (defaults to current time)
+            interval: Time interval in minutes
+
+        Returns:
+            List of StockIntradayPrice instances
+
+        """
+        if end_time is None:
+            end_time = get_current_datetime()
+
+        query = (
+            select(StockIntradayPrice)
+            .where(
+                and_(
+                    StockIntradayPrice.stock_id == stock_id,
+                    StockIntradayPrice.timestamp >= start_time,
+                    StockIntradayPrice.timestamp <= end_time,
+                    StockIntradayPrice.interval == interval,
+                ),
+            )
+            .order_by(StockIntradayPrice.timestamp)
+        )
+
+        # Execute the query and return all results
+        result = session.execute(query).all()
+        return [row[0] for row in result]
+
+    @staticmethod
+    def get_latest_intraday_prices(
+        session: Session,
+        stock_id: int,
+        limit: int = 100,
+        interval: int | None = None,
+    ) -> list[StockIntradayPrice]:
+        """Get latest intraday prices for a stock.
+
+        Args:
+            session: Database session
+            stock_id: Stock ID
+            limit: Maximum number of prices to return
+            interval: Optional time interval filter
+
+        Returns:
+            List of StockIntradayPrice records ordered by timestamp
+
+        """
+        # Build query
+        query: Select[tuple[StockIntradayPrice]] = select(StockIntradayPrice).where(
+            StockIntradayPrice.stock_id == stock_id,
+        )
+
+        # Apply interval filter if specified
+        if interval is not None:
+            query = query.where(StockIntradayPrice.interval == interval)
+
+        # Order by timestamp descending (newest first) and limit results
+        query = query.order_by(
+            StockIntradayPrice.timestamp.desc(),
+        ).limit(limit)
+
+        # Execute query
+        result: list[StockIntradayPrice] = session.execute(query).scalars().all()
+        return result
+
+    # Write operations
+    @staticmethod
+    def create_intraday_price(
+        session: Session,
+        stock_id: int,
+        data: dict[str, any],
+    ) -> StockIntradayPrice:
+        """Create a new intraday price record.
+
+        Args:
+            session: Database session
+            stock_id: Stock ID
+            data: Dictionary containing intraday price data
+
+        Returns:
+            Created StockIntradayPrice instance
+
+        Raises:
+            ResourceNotFoundError: If stock not found
+            ValidationError: If price data is invalid
+            BusinessLogicError: For other business logic errors
+
+        """
+        try:
+            # Verify stock exists
+            stock: Stock | None = session.execute(
+                select(Stock).where(Stock.id == stock_id),
+            ).scalar_one_or_none()
+            if not stock:
+                IntradayPriceService._raise_not_found(stock_id, "Stock")
+
+            # Validate required fields
+            timestamp: datetime = data.get("timestamp")
+
+            # Create intraday price record
+            intraday_price = StockIntradayPrice(
+                stock_id=stock_id,
+                timestamp=timestamp,
+                interval=data.get("interval", IntradayInterval.ONE_MINUTE.value),
+                open_price=data.get("open_price"),
+                high_price=data.get("high_price"),
+                low_price=data.get("low_price"),
+                close_price=data.get("close_price"),
+                volume=data.get("volume"),
+                source=data.get("source", PriceSource.DELAYED.value),
+            )
+
+            # Add to session and commit
+            session.add(intraday_price)
+            session.commit()
+
+            # Emit event
+            dumped_data = intraday_price_schema.dump(intraday_price)
+            EventService.emit_price_update(
+                action="created",
+                price_data=dumped_data,
+                stock_symbol=stock.symbol,
+                is_intraday=True,
+            )
+
+        except Exception as e:
+            logger.exception("Error creating intraday price")
+            session.rollback()
+            if isinstance(e, (ValidationError, ResourceNotFoundError)):
+                raise
+            IntradayPriceService._raise_business_error(
+                f"Could not create intraday price: {e!s}",
+                e,
+            )
+        return intraday_price
+
+    @staticmethod
+    def _update_price_fields(price: StockIntradayPrice, data: dict[str, any]) -> None:
+        """Update fields of a price record with provided data.
+
+        Args:
+            price: StockIntradayPrice instance to update
+            data: Dictionary containing updated price data
+
+        """
+        # Update fields if provided in data
+        if "timestamp" in data:
+            price.timestamp = data["timestamp"]
+        if "interval" in data:
+            price.interval = data["interval"]
+        if "open_price" in data:
+            price.open_price = data["open_price"]
+        if "high_price" in data:
+            price.high_price = data["high_price"]
+        if "low_price" in data:
+            price.low_price = data["low_price"]
+        if "close_price" in data:
+            price.close_price = data["close_price"]
+        if "volume" in data:
+            price.volume = data["volume"]
+        if "source" in data:
+            price.source = data["source"]
+
+    @staticmethod
+    def update_intraday_price(
+        session: Session,
+        price_id: int,
+        data: dict[str, any],
+    ) -> StockIntradayPrice:
+        """Update an existing intraday price record.
+
+        Args:
+            session: Database session
+            price_id: Price record ID
+            data: Dictionary containing updated price data
+
+        Returns:
+            Updated StockIntradayPrice instance
+
+        Raises:
+            ResourceNotFoundError: If price record not found
+            ValidationError: If update data is invalid
+            BusinessLogicError: For other business logic errors
+
+        """
+        try:
+            # Get existing price record
+            price: StockIntradayPrice | None = (
+                IntradayPriceService.get_intraday_price_or_404(
+                    session,
+                    price_id,
+                )
+            )
+
+            # Update fields with provided data
+            IntradayPriceService._update_price_fields(price, data)
+
+            # Commit changes
+            session.commit()
+
+            # Emit event
+            dumped_data = intraday_price_schema.dump(price)
+            EventService.emit_price_update(
+                action="updated",
+                price_data=dumped_data,
+                stock_symbol=price.stock.symbol,
+                is_intraday=True,
+            )
+
+        except Exception as e:
+            logger.exception("Error updating intraday price")
+            session.rollback()
+            if isinstance(e, (ValidationError, ResourceNotFoundError)):
+                raise
+            IntradayPriceService._raise_business_error(
+                f"Could not update intraday price: {e!s}",
+                e,
+            )
+        return price
+
+    @staticmethod
+    def delete_intraday_price(session: Session, price_id: int) -> bool:
+        """Delete an intraday price record.
+
+        Args:
+            session: Database session
+            price_id: Price record ID to delete
+
+        Returns:
+            True if successful
+
+        Raises:
+            ResourceNotFoundError: If price record not found
+            BusinessLogicError: For other business logic errors
+
+        """
+        try:
+            # Get price record
+            price_record: StockIntradayPrice = (
+                IntradayPriceService.get_intraday_price_or_404(
+                    session,
+                    price_id,
+                )
+            )
+
+            # Get stock symbol for event
+            stock_symbol: str = (
+                price_record.stock.symbol if price_record.stock else "unknown"
+            )
+
+            # Store price data for event
+            price_data: dict[str, any] = {
+                "id": price_record.id,
+                "stock_id": price_record.stock_id,
+                "timestamp": price_record.timestamp.isoformat(),
+            }
+
+            # Delete price record
+            session.delete(price_record)
+            session.commit()
+
+            # Emit WebSocket event
+            EventService.emit_price_update(
+                action="deleted",
+                price_data=(
+                    price_data if isinstance(price_data, dict) else price_data[0]
+                ),
+                stock_symbol=stock_symbol,
+            )
+
+        except Exception as e:
+            logger.exception("Error deleting intraday price")
+            session.rollback()
+            if isinstance(e, ResourceNotFoundError):
+                raise
+            IntradayPriceService._raise_business_error(
+                f"Could not delete intraday price record: {e!s}",
+            )
+        return True
+
+    # External data update operations
     @staticmethod
     def update_stock_intraday_prices(
         session: Session,
@@ -251,22 +625,7 @@ class IntradayPriceService:
                 )
             )
 
-            if existing:
-                # Update existing price record
-                data: dict[str, any] = {
-                    "open_price": price_data["open"],
-                    "high_price": price_data["high"],
-                    "low_price": price_data["low"],
-                    "close_price": price_data["close"],
-                    "volume": price_data["volume"],
-                    "source": PriceSource.REAL_TIME.value,
-                }
-                return IntradayPriceService.update_intraday_price(
-                    session,
-                    existing.id,
-                    data,
-                )
-            # Create new price record
+            # Create data dictionary
             data: dict[str, any] = {
                 "open_price": price_data["open"],
                 "high_price": price_data["high"],
@@ -275,11 +634,18 @@ class IntradayPriceService:
                 "volume": price_data["volume"],
                 "source": PriceSource.REAL_TIME.value,
             }
+
+            if existing:
+                # Update existing price record
+                return IntradayPriceService.update_intraday_price(
+                    session,
+                    existing.id,
+                    data,
+                )
+            # Create new price record
             return IntradayPriceService.create_intraday_price(
                 session,
                 stock_id,
-                price_data["timestamp"],
-                IntradayInterval.ONE_MINUTE.value,
                 data,
             )
 
@@ -301,398 +667,7 @@ class IntradayPriceService:
                 e,
             )
 
-    # Read operations
-    @staticmethod
-    def get_intraday_price_by_id(
-        session: Session,
-        price_id: int,
-    ) -> StockIntradayPrice | None:
-        """Get an intraday price record by ID.
-
-        Args:
-            session: Database session
-            price_id: Price record ID to retrieve
-
-        Returns:
-            StockIntradayPrice instance if found, None otherwise
-
-        """
-        return session.execute(
-            select(StockIntradayPrice).where(StockIntradayPrice.id == price_id),
-        ).scalar_one_or_none()
-
-    @staticmethod
-    def get_intraday_price_or_404(
-        session: Session,
-        price_id: int,
-    ) -> StockIntradayPrice:
-        """Get an intraday price record by ID or raise ResourceNotFoundError.
-
-        Args:
-            session: Database session
-            price_id: Price record ID to retrieve
-
-        Returns:
-            StockIntradayPrice instance
-
-        Raises:
-            ResourceNotFoundError: If price record not found
-
-        """
-        price: StockIntradayPrice | None = (
-            IntradayPriceService.get_intraday_price_by_id(
-                session,
-                price_id,
-            )
-        )
-        if not price:
-            IntradayPriceService._raise_not_found(price_id)
-        return price
-
-    @staticmethod
-    def get_intraday_price_by_timestamp(
-        session: Session,
-        stock_id: int,
-        timestamp: datetime,
-        interval: int = 1,
-    ) -> StockIntradayPrice | None:
-        """Get an intraday price record by stock ID and timestamp.
-
-        Args:
-            session: Database session
-            stock_id: Stock ID
-            timestamp: Timestamp of the price record
-            interval: Time interval in minutes
-
-        Returns:
-            StockIntradayPrice instance if found, None otherwise
-
-        """
-        return session.execute(
-            select(StockIntradayPrice).where(
-                and_(
-                    StockIntradayPrice.stock_id == stock_id,
-                    StockIntradayPrice.timestamp == timestamp,
-                    StockIntradayPrice.interval == interval,
-                ),
-            ),
-        ).scalar_one_or_none()
-
-    @staticmethod
-    def get_intraday_prices_by_time_range(
-        session: Session,
-        stock_id: int,
-        start_time: datetime,
-        end_time: datetime | None = None,
-        interval: int = 1,
-    ) -> list[StockIntradayPrice]:
-        """Get intraday price records for a time range.
-
-        Args:
-            session: Database session
-            stock_id: Stock ID
-            start_time: Start timestamp (inclusive)
-            end_time: End timestamp (inclusive), defaults to now
-            interval: Time interval in minutes
-
-        Returns:
-            List of StockIntradayPrice instances
-
-        """
-        if end_time is None:
-            end_time = get_current_datetime()
-
-        return session.execute(
-            select(StockIntradayPrice)
-            .where(
-                and_(
-                    StockIntradayPrice.stock_id == stock_id,
-                    StockIntradayPrice.timestamp >= start_time,
-                    StockIntradayPrice.timestamp <= end_time,
-                    StockIntradayPrice.interval == interval,
-                ),
-            )
-            .order_by(StockIntradayPrice.timestamp)
-            .scalars()
-            .all(),
-        )
-
-    @staticmethod
-    def get_latest_intraday_prices(
-        session: Session,
-        stock_id: int,
-        hours: int = 8,
-        interval: int = 1,
-    ) -> list[StockIntradayPrice]:
-        """Get the latest intraday price records for a stock.
-
-        Args:
-            session: Database session
-            stock_id: Stock ID
-            hours: Number of hours to look back
-            interval: Time interval in minutes
-
-        Returns:
-            List of StockIntradayPrice instances, most recent first
-
-        """
-        end_time: datetime = get_current_datetime()
-        start_time: datetime = end_time - timedelta(hours=hours)
-
-        return session.execute(
-            select(StockIntradayPrice)
-            .where(
-                and_(
-                    StockIntradayPrice.stock_id == stock_id,
-                    StockIntradayPrice.timestamp >= start_time,
-                    StockIntradayPrice.timestamp <= end_time,
-                    StockIntradayPrice.interval == interval,
-                ),
-            )
-            .order_by(StockIntradayPrice.timestamp.desc())
-            .scalars()
-            .all(),
-        )
-
-    # Write operations
-    @staticmethod
-    def create_intraday_price(
-        session: Session,
-        stock_id: int,
-        timestamp: datetime,
-        interval: int,
-        data: dict[str, any],
-    ) -> StockIntradayPrice:
-        """Create a new intraday price record.
-
-        Args:
-            session: Database session
-            stock_id: Stock ID
-            timestamp: Timestamp of the price record
-            interval: Time interval in minutes
-            data: Price data
-
-        Returns:
-            Created StockIntradayPrice instance
-
-        Raises:
-            ValidationError: If required data is missing or invalid
-            ResourceNotFoundError: If stock not found
-            BusinessLogicError: For other business logic errors
-
-        """
-        try:
-            # Verify stock exists
-            stock: Stock | None = session.execute(
-                select(Stock).where(Stock.id == stock_id),
-            ).scalar_one_or_none()
-            if not stock:
-                IntradayPriceService._raise_not_found(stock_id, "Stock")
-
-            # Check if price already exists for this timestamp & interval
-            existing: StockIntradayPrice | None = (
-                IntradayPriceService.get_intraday_price_by_timestamp(
-                    session,
-                    stock_id,
-                    timestamp,
-                    interval,
-                )
-            )
-            if existing:
-                IntradayPriceService._raise_validation_error(
-                    f"Price record already exists for stock ID {stock_id} at "
-                    f"{timestamp} with interval {interval}",
-                )
-
-            # Validate price data
-            if (
-                "high_price" in data
-                and "low_price" in data
-                and data["high_price"] < data["low_price"]
-            ):
-                IntradayPriceService._raise_validation_error(
-                    "High price cannot be less than low price",
-                )
-            else:
-                # Create the data dict including timestamp, interval and stock_id
-                create_data: dict[str, any] = {
-                    "stock_id": stock_id,
-                    "timestamp": timestamp,
-                    "interval": interval,
-                }
-                create_data.update(data)
-
-            # Create price record
-            price_record: StockIntradayPrice = StockIntradayPrice.from_dict(create_data)
-            session.add(price_record)
-            session.commit()
-
-            # Prepare response data
-            price_data: dict[str, any] = intraday_price_schema.dump(price_record)
-
-            # Emit WebSocket event
-            EventService.emit_price_update(
-                action="created",
-                price_data=(
-                    price_data if isinstance(price_data, dict) else price_data[0]
-                ),
-                stock_symbol=stock.symbol,
-            )
-
-        except Exception as e:
-            logger.exception("Error creating intraday price")
-            session.rollback()
-            if isinstance(e, (ValidationError, ResourceNotFoundError)):
-                raise
-            IntradayPriceService._raise_business_error(
-                f"Could not create intraday price record: {e!s}",
-            )
-        return price_record
-
-    @staticmethod
-    def update_intraday_price(
-        session: Session,
-        price_id: int,
-        data: dict[str, any],
-    ) -> StockIntradayPrice:
-        """Update an intraday price record.
-
-        Args:
-            session: Database session
-            price_id: Price record ID to update
-            data: Updated price data
-
-        Returns:
-            Updated StockIntradayPrice instance
-
-        Raises:
-            ResourceNotFoundError: If price record not found
-            ValidationError: If invalid data is provided
-            BusinessLogicError: For other business logic errors
-
-        """
-        try:
-            # Get price record
-            price_record: StockIntradayPrice = (
-                IntradayPriceService.get_intraday_price_or_404(
-                    session,
-                    price_id,
-                )
-            )
-
-            # Define which fields can be updated
-            allowed_fields: set[str] = {
-                "open_price",
-                "high_price",
-                "low_price",
-                "close_price",
-                "volume",
-                "source",
-            }
-
-            # Validate price data if provided
-            if "high_price" in data and "low_price" in data:
-                if data["high_price"] < data["low_price"]:
-                    IntradayPriceService._raise_validation_error(
-                        "High price cannot be less than low price",
-                    )
-                else:
-                    # Use the update_from_dict method
-                    updated: bool = price_record.update_from_dict(data, allowed_fields)
-
-            # Only commit if something was updated
-            if updated:
-                price_record.updated_at = get_current_datetime()
-                session.commit()
-
-                # Get stock symbol for event
-                stock_symbol: str = (
-                    price_record.stock.symbol if price_record.stock else "unknown"
-                )
-
-                # Prepare response data
-                price_data: dict[str, any] = intraday_price_schema.dump(price_record)
-
-                # Emit WebSocket event
-                EventService.emit_price_update(
-                    action="updated",
-                    price_data=(
-                        price_data if isinstance(price_data, dict) else price_data[0]
-                    ),
-                    stock_symbol=stock_symbol,
-                )
-
-        except Exception as e:
-            logger.exception("Error updating intraday price")
-            session.rollback()
-            if isinstance(e, (ResourceNotFoundError, ValidationError)):
-                raise
-            IntradayPriceService._raise_business_error(
-                f"Could not update intraday price record: {e!s}",
-            )
-        return price_record
-
-    @staticmethod
-    def delete_intraday_price(session: Session, price_id: int) -> bool:
-        """Delete an intraday price record.
-
-        Args:
-            session: Database session
-            price_id: Price record ID to delete
-
-        Returns:
-            True if successful
-
-        Raises:
-            ResourceNotFoundError: If price record not found
-            BusinessLogicError: For other business logic errors
-
-        """
-        try:
-            # Get price record
-            price_record: StockIntradayPrice = (
-                IntradayPriceService.get_intraday_price_or_404(
-                    session,
-                    price_id,
-                )
-            )
-
-            # Get stock symbol for event
-            stock_symbol: str = (
-                price_record.stock.symbol if price_record.stock else "unknown"
-            )
-
-            # Store price data for event
-            price_data: dict[str, any] = {
-                "id": price_record.id,
-                "stock_id": price_record.stock_id,
-                "timestamp": price_record.timestamp.isoformat(),
-            }
-
-            # Delete price record
-            session.delete(price_record)
-            session.commit()
-
-            # Emit WebSocket event
-            EventService.emit_price_update(
-                action="deleted",
-                price_data=(
-                    price_data if isinstance(price_data, dict) else price_data[0]
-                ),
-                stock_symbol=stock_symbol,
-            )
-
-        except Exception as e:
-            logger.exception("Error deleting intraday price")
-            session.rollback()
-            if isinstance(e, ResourceNotFoundError):
-                raise
-            IntradayPriceService._raise_business_error(
-                f"Could not delete intraday price record: {e!s}",
-            )
-        return True
-
-    # Bulk import operations
+    # Bulk import helper methods
     @staticmethod
     def _validate_intraday_price_data(item: dict[str, any]) -> None:
         """Validate a single intraday price data item."""
@@ -836,3 +811,197 @@ class IntradayPriceService:
             )
 
         return created_records
+
+    # Other query methods
+    @staticmethod
+    def get_intraday_prices(
+        session: Session,
+        filter_options: dict[str, any] | None = None,
+        page: int = 1,
+        per_page: int = 20,
+    ) -> dict[str, any]:
+        """Get intraday prices with filtering and pagination.
+
+        Args:
+            session: Database session
+            filter_options: Dictionary of filter options:
+                - stock_id: Optional stock ID to filter by
+                - interval: Optional interval to filter by
+                - start_time: Optional start time to filter by
+                - end_time: Optional end time to filter by
+            page: Page number for pagination
+            per_page: Items per page
+
+        Returns:
+            Paginated query result with intraday prices
+
+        """
+        # Initialize filter options
+        filter_options = filter_options or {}
+
+        # Build query using SQLAlchemy 2.0 style
+        stmt = select(StockIntradayPrice)
+
+        # Apply filters
+        stock_id = filter_options.get("stock_id")
+        interval = filter_options.get("interval")
+        start_time = filter_options.get("start_time")
+        end_time = filter_options.get("end_time")
+
+        if stock_id:
+            stmt = stmt.where(StockIntradayPrice.stock_id == stock_id)
+        if interval:
+            stmt = stmt.where(StockIntradayPrice.interval == interval)
+        if start_time:
+            stmt = stmt.where(StockIntradayPrice.timestamp >= start_time)
+        if end_time:
+            stmt = stmt.where(StockIntradayPrice.timestamp <= end_time)
+
+        # Add ordering
+        stmt = stmt.order_by(StockIntradayPrice.timestamp.desc())
+
+        # Apply pagination
+        pagination_info = apply_pagination(stmt, page, per_page)
+
+        # Execute query and get results
+        items = [row[0] for row in session.execute(pagination_info["query"]).all()]
+
+        # Calculate total count for pagination
+        from sqlalchemy import func
+
+        count_stmt = select(func.count()).select_from(StockIntradayPrice)
+
+        # Apply the same filters to the count query
+        if stock_id:
+            count_stmt = count_stmt.where(StockIntradayPrice.stock_id == stock_id)
+        if interval:
+            count_stmt = count_stmt.where(StockIntradayPrice.interval == interval)
+        if start_time:
+            count_stmt = count_stmt.where(StockIntradayPrice.timestamp >= start_time)
+        if end_time:
+            count_stmt = count_stmt.where(StockIntradayPrice.timestamp <= end_time)
+
+        total = session.execute(count_stmt).scalar() or 0
+        total_pages = (total + per_page - 1) // per_page if total > 0 else 0
+
+        return {
+            "items": items,
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+        }
+
+    # Combined price operations
+    @staticmethod
+    def update_all_prices(
+        session: Session,
+        stock_id: int,
+        daily_period: str = "1y",  # Default from DailyPriceService
+        intraday_interval: str = DEFAULT_INTRADAY_INTERVAL,
+        intraday_period: str = DEFAULT_INTRADAY_PERIOD,
+    ) -> dict[str, any]:
+        """Update all price records (daily and intraday) for a stock.
+
+        Args:
+            session: Database session
+            stock_id: Stock ID
+            daily_period: Time period for daily data
+            intraday_interval: Time interval for intraday data
+            intraday_period: Time period for intraday data
+
+        Returns:
+            Dictionary with results for each operation
+
+        Raises:
+            ResourceNotFoundError: If stock not found
+            BusinessLogicError: For other business logic errors
+
+        """
+        from app.services.daily_price_service import DailyPriceService
+
+        result: dict[str, any] = {
+            "daily_prices": None,
+            "intraday_prices": None,
+            "latest_daily_price": None,
+            "latest_intraday_price": None,
+        }
+
+        # Update daily prices
+        try:
+            daily_prices = DailyPriceService.update_stock_daily_prices(
+                session,
+                stock_id,
+                daily_period,
+            )
+            result["daily_prices"] = {
+                "success": True,
+                "count": len(daily_prices),
+            }
+        except Exception as e:
+            logger.exception("Error updating daily prices")
+            result["daily_prices"] = {
+                "success": False,
+                "error": str(e),
+            }
+
+        # Update intraday prices
+        try:
+            intraday_prices: list[StockIntradayPrice] = (
+                IntradayPriceService.update_stock_intraday_prices(
+                    session,
+                    stock_id,
+                    intraday_interval,
+                    intraday_period,
+                )
+            )
+            result["intraday_prices"] = {
+                "success": True,
+                "count": len(intraday_prices),
+            }
+        except Exception as e:
+            logger.exception("Error updating intraday prices")
+            result["intraday_prices"] = {
+                "success": False,
+                "error": str(e),
+            }
+
+        # Update latest daily price
+        try:
+            latest_daily = DailyPriceService.update_latest_daily_price(
+                session,
+                stock_id,
+            )
+            result["latest_daily_price"] = {
+                "success": True,
+                "date": latest_daily.price_date.isoformat(),
+            }
+        except Exception as e:
+            logger.exception("Error updating latest daily price")
+            result["latest_daily_price"] = {
+                "success": False,
+                "error": str(e),
+            }
+
+        # Update latest intraday price
+        try:
+            latest_intraday: StockIntradayPrice = (
+                IntradayPriceService.update_latest_intraday_price(
+                    session,
+                    stock_id,
+                )
+            )
+            result["latest_intraday_price"] = {
+                "success": True,
+                "timestamp": latest_intraday.timestamp.isoformat(),
+            }
+        except Exception as e:
+            logger.exception("Error updating latest intraday price")
+            result["latest_intraday_price"] = {
+                "success": False,
+                "error": str(e),
+            }
+
+        return result

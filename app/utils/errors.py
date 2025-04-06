@@ -337,11 +337,10 @@ class TradingServiceError(ValidationError):
         "them first."
     )
     SYMBOL_REQUIRED: str = CommonErrorMessages.SYMBOL_REQUIRED
-    SYMBOL_LENGTH: str = CommonErrorMessages.SYMBOL_LENGTH.format(
-        StockConstants.MIN_SYMBOL_LENGTH,
-        StockConstants.MAX_SYMBOL_LENGTH,
-        key="{key}",
-        value="{value}",
+    SYMBOL_LENGTH: str = (
+        f"Stock symbol must be between {StockConstants.MIN_SYMBOL_LENGTH} "
+        f"and {StockConstants.MAX_SYMBOL_LENGTH} characters: "
+        "key={key}, value={value}"
     )
     SYMBOL_FORMAT: str = CommonErrorMessages.SYMBOL_FORMAT
     INVALID_STATE: str = "Invalid service state: key={}, value={}"

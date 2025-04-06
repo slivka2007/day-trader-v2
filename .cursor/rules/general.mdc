@@ -7,5 +7,6 @@ alwaysApply: true
 "For SQLAlchemy, use select from sqlalchemy instead of Query from sqlalchemy.orm."
 "Always implement type hints into the syntax"
 "Attempt to fix Ruff linter errors"
+"Do not use 'typing Any', use the built in 'any'"
 
  

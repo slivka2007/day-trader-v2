@@ -14,8 +14,7 @@ from decimal import Decimal
 from enum import Enum
 
 from sqlalchemy import Column, DateTime, Integer
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import ColumnProperty, class_mapper
+from sqlalchemy.orm import ColumnProperty, class_mapper, declarative_base
 
 from app.utils.current_datetime import get_current_datetime
 from app.utils.errors import ValidationError
@@ -332,104 +331,3 @@ class Base(DeclarativeBase):
             for prop in class_mapper(cls).iterate_properties
             if isinstance(prop, ColumnProperty)
         ]
-
-
-class EnumBase(str, Enum):
-    """Base class for string enumerations to be used with SQLAlchemy.
-
-    This allows enum values to be used directly in ORM queries
-    and ensures consistent serialization to/from the database.
-
-    The default implementation generates uppercase values from enum names.
-
-    Example:
-        class Status(EnumBase):
-            ACTIVE = auto()
-            INACTIVE = auto()
-
-        # Results in Status.ACTIVE.value == "ACTIVE"
-
-    """
-
-    #
-    # Class constants
-    #
-
-    # Error message constants for enum operations
-    INVALID_VALUE_ERROR: str = "Invalid value '{}' for {}"
-
-    #
-    # Magic methods
-    #
-
-    def __str__(self) -> str:
-        """Return the string value of the enum."""
-        return self.value
-
-    #
-    # Class methods
-    #
-
-    @classmethod
-    def _generate_next_value_(cls, name: str) -> str:
-        """Generate enum values as uppercase of the enum name."""
-        return name.upper()
-
-    @classmethod
-    def from_string(cls, value: str) -> EnumBase:
-        """Convert a string to the corresponding enum value.
-
-        Args:
-            value: String value to convert
-
-        Returns:
-            Enum value
-
-        Raises:
-            ValueError: If value is not valid for this enum
-
-        """
-
-        def _raise_invalid_value(val: str, err: Exception | None = None) -> None:
-            error_msg: str = cls.INVALID_VALUE_ERROR.format(val, cls.__name__)
-            if err:
-                raise ValueError(error_msg) from err
-            raise ValueError(error_msg)
-
-        try:
-            # Case-insensitive search
-            for member in cls:
-                if member.value.upper() == value.upper():
-                    return member
-            # Not found
-            _raise_invalid_value(value)
-        except Exception as e:
-            logger.exception("Error converting string to %s", cls.__name__)
-            _raise_invalid_value(value, e)
-
-    @classmethod
-    def values(cls) -> list[str]:
-        """Get a list of all valid values for this enum.
-
-        Returns:
-            List of valid enum values
-
-        """
-        return [member.value for member in cls]
-
-    @classmethod
-    def is_valid(cls, value: str) -> bool:
-        """Check if a string is a valid value for this enum.
-
-        Args:
-            value: String value to check
-
-        Returns:
-            True if valid, False otherwise
-
-        """
-        try:
-            cls.from_string(value)
-        except ValueError:
-            return False
-        return True

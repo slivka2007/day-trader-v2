@@ -7,15 +7,14 @@ This package contains REST API resources using Flask-RESTX.
 from flask import current_app, request
 from flask_restx import Api, Namespace, Resource, abort, fields
 
-from app.api.resources.auth import api as auth_api
-from app.api.resources.stock_prices import api as stock_prices_api
-
 # Import all resources
+from app.api.resources.auth import api as auth_api
+from app.api.resources.daily_prices import api as daily_prices_api
+from app.api.resources.intraday_prices import api as intraday_prices_api
 from app.api.resources.stocks import api as stocks_api
 from app.api.resources.system import api as system_api
 from app.api.resources.trading_services import api as trading_services_api
 from app.api.resources.trading_transactions import api as trading_transactions_api
-from app.api.resources.users import api as users_api
 from app.services.session_manager import SessionManager
 
 # Make common imports available
@@ -34,12 +33,12 @@ __all__: list[str] = [
 # Create an aggregated list of resources for easy importing
 api_resources: list[Namespace] = [
     stocks_api,
-    stock_prices_api,
+    daily_prices_api,
+    intraday_prices_api,
     trading_services_api,
     trading_transactions_api,
     system_api,
     auth_api,
-    users_api,
 ]
 
 

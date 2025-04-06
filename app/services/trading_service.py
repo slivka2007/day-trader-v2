@@ -20,8 +20,8 @@ from app.models.stock import Stock
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.trading_service import TradingService
 from app.services.events import EventService
-from app.services.price_service import PriceService
 from app.services.stock_service import StockService
+from app.services.technical_analysis_service import TechnicalAnalysisService
 from app.services.transaction_service import TransactionService
 from app.utils.constants import TradingServiceConstants
 from app.utils.current_datetime import get_current_date, get_current_datetime
@@ -964,7 +964,7 @@ class TradingServiceService:
             }
 
         # Get price analysis for the stock
-        price_analysis: dict[str, any] = PriceService.get_price_analysis(
+        price_analysis: dict[str, any] = TechnicalAnalysisService.get_price_analysis(
             session,
             service.stock_id,
         )
@@ -1633,4 +1633,169 @@ class TradingServiceService:
             or signals.get("ma_crossover") == "bearish"
             or signals.get("bollinger") == "overbought"
             or (not is_uptrend and signals.get("rsi", "") != "oversold")
+        )
+
+    @staticmethod
+    def _get_price_data_for_analysis(
+        session: Session,
+        stock_id: int,
+    ) -> list[float]:
+        """Get price data for technical analysis.
+
+        Args:
+            session: Database session
+            stock_id: Stock ID
+
+        Returns:
+            List of closing prices (oldest to newest)
+
+        """
+        from app.services.daily_price_service import DailyPriceService
+
+        # Get recent price data
+        end_date: date = get_current_date()
+        start_date: date = end_date - timedelta(days=200)
+        prices: list[StockDailyPrice] = (
+            DailyPriceService.get_daily_prices_by_date_range(
+                session,
+                stock_id,
+                start_date,
+                end_date,
+            )
+        )
+
+        if not prices:
+            return []
+
+        # Extract closing prices
+        close_prices: list[float] = [
+            p.close_price for p in prices if p.close_price is not None
+        ]
+
+        return close_prices
+
+    @staticmethod
+    def check_price_conditions(
+        session: Session,
+        service: TradingService,
+        action: str,
+    ) -> dict[str, any]:
+        """Check price conditions for a trading service.
+
+        Args:
+            session: Database session
+            service: Trading service to check
+            action: Action to check (buy/sell)
+
+        Returns:
+            Dictionary with decision information and analysis results
+
+        """
+        # Initialize result
+        result: dict[str, any] = {
+            "success": False,
+            "action": "none",
+            "message": "",
+        }
+
+        # Validate inputs and service state
+        if not service:
+            result["message"] = "Service not found"
+        elif service.state != ServiceState.ACTIVE.value:
+            result["message"] = f"Service is not active (state: {service.state})"
+        else:
+            # Get price data for analysis
+            close_prices: list[float] = (
+                TradingServiceService._get_price_data_for_analysis(
+                    session,
+                    service.stock_id,
+                )
+            )
+
+            if not close_prices:
+                result["message"] = "Insufficient price data for analysis"
+            else:
+                # Get price analysis for the stock
+                price_analysis: dict[str, any] = (
+                    TechnicalAnalysisService.get_price_analysis(
+                        close_prices,
+                    )
+                )
+
+                if not bool(price_analysis.get("has_data", False)):
+                    result["message"] = "Insufficient price data for analysis"
+                else:
+                    # Get current price
+                    current_price: float | None = price_analysis.get("latest_price")
+                    if not current_price:
+                        result["message"] = "Could not determine current price"
+                    else:
+                        # Trading decision - now we're in success state
+                        result = {
+                            "success": True,
+                            "service_id": service.id,
+                            "stock_symbol": service.stock_symbol,
+                            "current_price": current_price,
+                            "current_balance": service.current_balance,
+                            "current_shares": service.current_shares,
+                            "mode": service.mode,
+                            "signals": price_analysis.get("signals", {}),
+                        }
+
+                        # Execute strategy based on mode
+                        if action == "buy" and bool(
+                            service.mode == TradingMode.BUY.value,
+                        ):
+                            return TradingServiceService._execute_buy_strategy(
+                                session,
+                                service,
+                                price_analysis,
+                                current_price,
+                                result,
+                            )
+                        if action == "sell" and bool(
+                            service.mode == TradingMode.SELL.value,
+                        ):
+                            return TradingServiceService._execute_sell_strategy(
+                                session,
+                                service,
+                                price_analysis,
+                                current_price,
+                                result,
+                            )
+                        result["action"] = "none"
+                        result["message"] = (
+                            f"No action taken for {action} with mode {service.mode}"
+                        )
+
+        return result
+
+    @staticmethod
+    def execute_service_action(
+        session: Session,
+        service_id: int,
+        action: str,
+    ) -> dict[str, any]:
+        """Execute a trading action for a service.
+
+        Args:
+            session: Database session
+            service_id: Trading service ID
+            action: Action to execute
+
+        Returns:
+            Dictionary with action results
+
+        """
+        # Get service
+        service: TradingService = TradingServiceService.get_or_404(
+            session,
+            service_id,
+        )
+
+        # Check price conditions and execute strategy
+        return TradingServiceService.check_price_conditions(
+            session,
+            service,
+            action,
         )

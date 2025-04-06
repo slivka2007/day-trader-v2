@@ -226,7 +226,7 @@ class StockIntradayPriceInputSchema(BasePriceSchema):
     )
     source: fields.String = fields.String(
         validate=validate.OneOf([source.value for source in PriceSource]),
-        default=PriceSource.DELAYED.value,
+        dump_default=PriceSource.DELAYED.value,
     )
 
     @validates("timestamp")

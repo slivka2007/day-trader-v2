@@ -8,22 +8,25 @@ from marshmallow import Schema, ValidationError, fields, validate
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema, auto_field
 
 # Import all schemas for easy access
+from app.api.schemas.daily_price import (
+    daily_price_bulk_schema,
+    daily_price_delete_schema,
+    daily_price_input_schema,
+    daily_price_schema,
+    daily_prices_schema,
+)
+from app.api.schemas.intraday_price import (
+    intraday_price_bulk_schema,
+    intraday_price_delete_schema,
+    intraday_price_input_schema,
+    intraday_price_schema,
+    intraday_prices_schema,
+)
 from app.api.schemas.stock import (
     stock_delete_schema,
     stock_input_schema,
     stock_schema,
     stocks_schema,
-)
-from app.api.schemas.stock_price import (
-    BasePriceSchema,
-    daily_price_delete_schema,
-    daily_price_input_schema,
-    daily_price_schema,
-    daily_prices_schema,
-    intraday_price_delete_schema,
-    intraday_price_input_schema,
-    intraday_price_schema,
-    intraday_prices_schema,
 )
 from app.api.schemas.trading_service import (
     decision_response_schema,
@@ -69,27 +72,28 @@ class PaginationSchema(Schema):
 class PaginatedResponseSchema(Schema):
     """Schema for paginated response containing items and pagination metadata."""
 
-    items: fields.List[fields.Raw] = fields.List(fields.Raw(), required=True)
-    pagination: fields.Nested[PaginationSchema] = fields.Nested(
+    items: fields.List = fields.List(fields.Raw(), required=True)
+    pagination: fields.Nested = fields.Nested(
         PaginationSchema,
         required=True,
     )
 
 
 __all__: list[str] = [
-    "BasePriceSchema",
     "PaginatedResponseSchema",
     "PaginationSchema",
     "SQLAlchemyAutoSchema",
     "Schema",
     "ValidationError",
     "auto_field",
+    "daily_price_bulk_schema",
     "daily_price_delete_schema",
     "daily_price_input_schema",
     "daily_price_schema",
     "daily_prices_schema",
     "decision_response_schema",
     "fields",
+    "intraday_price_bulk_schema",
     "intraday_price_delete_schema",
     "intraday_price_input_schema",
     "intraday_price_schema",

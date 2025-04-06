@@ -53,8 +53,23 @@ class EventService:
 
         """
         try:
+            # Check if we're in an application context first
+            try:
+                app: Flask = cast("Flask", current_app)
+
+                # Skip event emission if in testing mode
+                if app.config.get("TESTING", False):
+                    logger.debug("Running in test mode, skipping event emission")
+                    return
+
+            except RuntimeError:
+                # No application context available (likely in a test environment)
+                logger.debug(
+                    "No application context available, skipping event emission",
+                )
+                return
+
             # Ensure socketio is available
-            app: Flask = cast("Flask", current_app)
             if not hasattr(app, "socketio"):
                 logger.warning("SocketIO not initialized, skipping event emission")
                 return

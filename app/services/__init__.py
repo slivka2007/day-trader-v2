@@ -8,7 +8,6 @@ from app.services.daily_price_service import DailyPriceService
 from app.services.database import get_session, setup_database
 from app.services.events import EventService
 from app.services.intraday_price_service import IntradayPriceService
-from app.services.price_service import PriceService
 from app.services.session_manager import SessionManager
 from app.services.stock_service import StockService
 from app.services.technical_analysis_service import TechnicalAnalysisService
@@ -20,7 +19,6 @@ __all__: list[str] = [
     "DailyPriceService",
     "EventService",
     "IntradayPriceService",
-    "PriceService",
     "SessionManager",
     "StockService",
     "TechnicalAnalysisService",

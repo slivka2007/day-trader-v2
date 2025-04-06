@@ -5,20 +5,18 @@ ensuring type safety and consistency when working with state fields. These
 enumerations are used throughout the application to represent various states,
 modes, and categories with predefined sets of valid values.
 
-All enumerations extend the EnumBase class which provides consistent string
-serialization and additional helper methods.
+Each enumeration provides consistent string serialization and additional helper
+methods for common operations.
 """
 
 import logging
-from enum import auto
-
-from app.models.base import EnumBase
+from enum import Enum
 
 # Set up logging
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-class ServiceState(EnumBase):
+class ServiceState(str, Enum):
     """Service operational states.
 
     Represents the possible operational states of a trading service:
@@ -32,10 +30,15 @@ class ServiceState(EnumBase):
     #
     # Enum values
     #
-    ACTIVE: str = auto()
-    INACTIVE: str = auto()
-    PAUSED: str = auto()
-    ERROR: str = auto()
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    PAUSED = "PAUSED"
+    ERROR = "ERROR"
+
+    #
+    # Error messages
+    #
+    INVALID_VALUE: str = "Invalid value '{value}' for {class_name}"
 
     #
     # Helper methods
@@ -65,8 +68,30 @@ class ServiceState(EnumBase):
         """Check if the given state is considered in an error state."""
         return state == cls.ERROR.value
 
+    @classmethod
+    def from_string(cls, value: str) -> "ServiceState":
+        """Convert a string to the corresponding enum value."""
+        for member in cls:
+            if member.value.upper() == value.upper():
+                return member
+        raise ValueError(cls.INVALID_VALUE.format(value=value, class_name=cls.__name__))
 
-class ServiceAction(EnumBase):
+    @classmethod
+    def values(cls) -> list[str]:
+        """Get a list of all valid values for this enum."""
+        return [member.value for member in cls]
+
+    @classmethod
+    def is_valid(cls, value: str) -> bool:
+        """Check if a string is a valid value for this enum."""
+        try:
+            cls.from_string(value)
+        except ValueError:
+            return False
+        return True
+
+
+class ServiceAction(str, Enum):
     """Actions that can be taken on a service.
 
     Represents the possible actions that can be taken on a service:
@@ -78,8 +103,13 @@ class ServiceAction(EnumBase):
     #
     # Enum values
     #
-    CHECK_BUY: str = auto()
-    CHECK_SELL: str = auto()
+    CHECK_BUY = "CHECK_BUY"
+    CHECK_SELL = "CHECK_SELL"
+
+    #
+    # Error messages
+    #
+    INVALID_VALUE: str = "Invalid value '{value}' for {class_name}"
 
     #
     # Helper methods
@@ -94,8 +124,30 @@ class ServiceAction(EnumBase):
         """Check if the given action is a check for a sell opportunity."""
         return action == cls.CHECK_SELL.value
 
+    @classmethod
+    def from_string(cls, value: str) -> "ServiceAction":
+        """Convert a string to the corresponding enum value."""
+        for member in cls:
+            if member.value.upper() == value.upper():
+                return member
+        raise ValueError(cls.INVALID_VALUE.format(value=value, class_name=cls.__name__))
 
-class TradingMode(EnumBase):
+    @classmethod
+    def values(cls) -> list[str]:
+        """Get a list of all valid values for this enum."""
+        return [member.value for member in cls]
+
+    @classmethod
+    def is_valid(cls, value: str) -> bool:
+        """Check if a string is a valid value for this enum."""
+        try:
+            cls.from_string(value)
+        except ValueError:
+            return False
+        return True
+
+
+class TradingMode(str, Enum):
     """Trading mode for services.
 
     Represents the current trading strategy mode:
@@ -108,9 +160,14 @@ class TradingMode(EnumBase):
     #
     # Enum values
     #
-    BUY: str = auto()
-    SELL: str = auto()
-    HOLD: str = auto()
+    BUY = "BUY"
+    SELL = "SELL"
+    HOLD = "HOLD"
+
+    #
+    # Error messages
+    #
+    INVALID_VALUE: str = "Invalid value '{value}' for {class_name}"
 
     #
     # Helper methods
@@ -144,8 +201,30 @@ class TradingMode(EnumBase):
             return cls.BUY.value
         return mode
 
+    @classmethod
+    def from_string(cls, value: str) -> "TradingMode":
+        """Convert a string to the corresponding enum value."""
+        for member in cls:
+            if member.value.upper() == value.upper():
+                return member
+        raise ValueError(cls.INVALID_VALUE.format(value=value, class_name=cls.__name__))
 
-class TransactionState(EnumBase):
+    @classmethod
+    def values(cls) -> list[str]:
+        """Get a list of all valid values for this enum."""
+        return [member.value for member in cls]
+
+    @classmethod
+    def is_valid(cls, value: str) -> bool:
+        """Check if a string is a valid value for this enum."""
+        try:
+            cls.from_string(value)
+        except ValueError:
+            return False
+        return True
+
+
+class TransactionState(str, Enum):
     """Transaction states.
 
     Represents the possible states of a trading transaction:
@@ -158,9 +237,14 @@ class TransactionState(EnumBase):
     #
     # Enum values
     #
-    OPEN: str = auto()  # Purchase executed, not yet sold
-    CLOSED: str = auto()  # Fully executed (purchased and sold)
-    CANCELLED: str = auto()  # Transaction cancelled
+    OPEN = "OPEN"  # Purchase executed, not yet sold
+    CLOSED = "CLOSED"  # Fully executed (purchased and sold)
+    CANCELLED = "CANCELLED"  # Transaction cancelled
+
+    #
+    # Error messages
+    #
+    INVALID_VALUE: str = "Invalid value '{value}' for {class_name}"
 
     #
     # Helper methods
@@ -195,8 +279,30 @@ class TransactionState(EnumBase):
         """Check if a transaction in this state can be cancelled."""
         return state == cls.OPEN.value
 
+    @classmethod
+    def from_string(cls, value: str) -> "TransactionState":
+        """Convert a string to the corresponding enum value."""
+        for member in cls:
+            if member.value.upper() == value.upper():
+                return member
+        raise ValueError(cls.INVALID_VALUE.format(value=value, class_name=cls.__name__))
 
-class PriceSource(EnumBase):
+    @classmethod
+    def values(cls) -> list[str]:
+        """Get a list of all valid values for this enum."""
+        return [member.value for member in cls]
+
+    @classmethod
+    def is_valid(cls, value: str) -> bool:
+        """Check if a string is a valid value for this enum."""
+        try:
+            cls.from_string(value)
+        except ValueError:
+            return False
+        return True
+
+
+class PriceSource(str, Enum):
     """Source of price data.
 
     Represents the origin of price data:
@@ -210,10 +316,15 @@ class PriceSource(EnumBase):
     #
     # Enum values
     #
-    REAL_TIME: str = auto()
-    DELAYED: str = auto()
-    SIMULATED: str = auto()
-    HISTORICAL: str = auto()
+    REAL_TIME = "REAL_TIME"
+    DELAYED = "DELAYED"
+    SIMULATED = "SIMULATED"
+    HISTORICAL = "HISTORICAL"
+
+    #
+    # Error messages
+    #
+    INVALID_VALUE: str = "Invalid value '{value}' for {class_name}"
 
     #
     # Helper methods
@@ -253,8 +364,30 @@ class PriceSource(EnumBase):
             cls.HISTORICAL.value: "Historical",
         }
 
+    @classmethod
+    def from_string(cls, value: str) -> "PriceSource":
+        """Convert a string to the corresponding enum value."""
+        for member in cls:
+            if member.value.upper() == value.upper():
+                return member
+        raise ValueError(cls.INVALID_VALUE.format(value=value, class_name=cls.__name__))
 
-class IntradayInterval(EnumBase):
+    @classmethod
+    def values(cls) -> list[str]:
+        """Get a list of all valid values for this enum."""
+        return [member.value for member in cls]
+
+    @classmethod
+    def is_valid(cls, value: str) -> bool:
+        """Check if a string is a valid value for this enum."""
+        try:
+            cls.from_string(value)
+        except ValueError:
+            return False
+        return True
+
+
+class IntradayInterval(int, Enum):
     """Valid intervals for intraday price data.
 
     Represents the allowed time intervals for intraday price data:
@@ -279,35 +412,78 @@ class IntradayInterval(EnumBase):
     # Helper methods
     #
     @classmethod
+    def invalid_value_message(cls, value: int) -> str:
+        """Get the invalid value error message.
+
+        Args:
+            value: The invalid value
+
+        Returns:
+            Formatted error message
+
+        """
+        return f"Invalid value '{value}' for {cls.__name__}"
+
+    @classmethod
     def valid_values(cls) -> list[int]:
-        """Get a list of all valid interval values in minutes."""
+        """Get a list of all valid interval values.
+
+        Returns:
+            List of valid intervals in minutes
+
+        """
         return [
-            cls.ONE_MINUTE.value,
-            cls.FIVE_MINUTES.value,
-            cls.FIFTEEN_MINUTES.value,
-            cls.THIRTY_MINUTES.value,
-            cls.ONE_HOUR.value,
+            cls.ONE_MINUTE,
+            cls.FIVE_MINUTES,
+            cls.FIFTEEN_MINUTES,
+            cls.THIRTY_MINUTES,
+            cls.ONE_HOUR,
         ]
 
     @classmethod
     def is_valid_interval(cls, interval: int) -> bool:
-        """Check if the given interval value is valid."""
+        """Check if the given interval is valid."""
         return interval in cls.valid_values()
 
     @classmethod
     def get_name(cls, interval: int) -> str:
-        """Get a human-readable name for an interval value."""
-        names: dict[int, str] = {
-            cls.ONE_MINUTE.value: "1 Minute",
-            cls.FIVE_MINUTES.value: "5 Minutes",
-            cls.FIFTEEN_MINUTES.value: "15 Minutes",
-            cls.THIRTY_MINUTES.value: "30 Minutes",
-            cls.ONE_HOUR.value: "1 Hour",
-        }
-        return names.get(interval, f"{interval} Minutes")
+        """Get the human-readable name for an interval.
+
+        Args:
+            interval: Interval value in minutes
+
+        Returns:
+            Human-readable name (e.g., "1 minute", "5 minutes")
+
+        """
+        if interval == cls.ONE_MINUTE:
+            return "1 minute"
+        return f"{interval} minutes"
+
+    @classmethod
+    def from_int(cls, value: int) -> "IntradayInterval":
+        """Convert an integer to the corresponding enum value."""
+        for member in cls:
+            if member.value == value:
+                return member
+        raise ValueError(cls.invalid_value_message(value))
+
+    @classmethod
+    def values(cls) -> list[int]:
+        """Get a list of all valid values for this enum."""
+        return [member.value for member in cls]
+
+    @classmethod
+    def is_valid(cls, value: int) -> bool:
+        """Check if an integer is a valid value for this enum."""
+        try:
+            cls.from_int(value)
+        except ValueError:
+            return False
+        return True
 
 
-class AnalysisTimeframe(EnumBase):
+class AnalysisTimeframe(str, Enum):
     """Timeframes for analysis.
 
     Represents standard time periods for financial analysis:
@@ -323,49 +499,62 @@ class AnalysisTimeframe(EnumBase):
     #
     # Enum values
     #
-    INTRADAY: str = auto()
-    DAILY: str = auto()
-    WEEKLY: str = auto()
-    MONTHLY: str = auto()
-    QUARTERLY: str = auto()
-    YEARLY: str = auto()
+    INTRADAY = "INTRADAY"
+    DAILY = "DAILY"
+    WEEKLY = "WEEKLY"
+    MONTHLY = "MONTHLY"
+    QUARTERLY = "QUARTERLY"
+    YEARLY = "YEARLY"
+
+    #
+    # Error messages
+    #
+    INVALID_VALUE: str = "Invalid value '{value}' for {class_name}"
 
     #
     # Helper methods
     #
     @classmethod
     def is_intraday(cls, timeframe: str) -> bool:
-        """Check if the given timeframe is intraday."""
+        """Check if the timeframe is intraday."""
         return timeframe == cls.INTRADAY.value
 
     @classmethod
     def is_daily(cls, timeframe: str) -> bool:
-        """Check if the given timeframe is daily."""
+        """Check if the timeframe is daily."""
         return timeframe == cls.DAILY.value
 
     @classmethod
     def is_weekly(cls, timeframe: str) -> bool:
-        """Check if the given timeframe is weekly."""
+        """Check if the timeframe is weekly."""
         return timeframe == cls.WEEKLY.value
 
     @classmethod
     def is_monthly(cls, timeframe: str) -> bool:
-        """Check if the given timeframe is monthly."""
+        """Check if the timeframe is monthly."""
         return timeframe == cls.MONTHLY.value
 
     @classmethod
     def is_quarterly(cls, timeframe: str) -> bool:
-        """Check if the given timeframe is quarterly."""
+        """Check if the timeframe is quarterly."""
         return timeframe == cls.QUARTERLY.value
 
     @classmethod
     def is_yearly(cls, timeframe: str) -> bool:
-        """Check if the given timeframe is yearly."""
+        """Check if the timeframe is yearly."""
         return timeframe == cls.YEARLY.value
 
     @classmethod
     def get_days(cls, timeframe: str) -> int:
-        """Get the approximate number of days in this timeframe."""
+        """Get the approximate number of days in the timeframe.
+
+        Args:
+            timeframe: Timeframe value
+
+        Returns:
+            Number of days
+
+        """
         days_map: dict[str, int] = {
             cls.INTRADAY.value: 1,
             cls.DAILY.value: 1,
@@ -375,3 +564,25 @@ class AnalysisTimeframe(EnumBase):
             cls.YEARLY.value: 365,
         }
         return days_map.get(timeframe, 1)
+
+    @classmethod
+    def from_string(cls, value: str) -> "AnalysisTimeframe":
+        """Convert a string to the corresponding enum value."""
+        for member in cls:
+            if member.value.upper() == value.upper():
+                return member
+        raise ValueError(cls.INVALID_VALUE.format(value=value, class_name=cls.__name__))
+
+    @classmethod
+    def values(cls) -> list[str]:
+        """Get a list of all valid values for this enum."""
+        return [member.value for member in cls]
+
+    @classmethod
+    def is_valid(cls, value: str) -> bool:
+        """Check if a string is a valid value for this enum."""
+        try:
+            cls.from_string(value)
+        except ValueError:
+            return False
+        return True

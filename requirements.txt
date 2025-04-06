@@ -12,3 +12,4 @@ marshmallow-sqlalchemy>=0.29.0
 flask_jwt_extended>=4.0.0
 pytz>=2024.1
 types-pytz>=2024.1
+pytest>=7.0.0
