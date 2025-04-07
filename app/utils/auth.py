@@ -10,10 +10,10 @@ import logging
 from functools import wraps
 from typing import TYPE_CHECKING, Callable, TypeVar
 
-from flask import abort
+from flask import g
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from flask_jwt_extended.exceptions import JWTExtendedException
-from sqlalchemy import select
+from sqlalchemy import Select, select
 
 from app.models import TradingService, TradingTransaction, User
 from app.services.session_manager import SessionManager
@@ -26,6 +26,59 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 # Define a type variable for return type of decorated functions
 T = TypeVar("T")
+
+
+def load_user_from_request() -> None:
+    """Load current user from JWT and set in Flask g object.
+
+    This function is meant to be registered as a before_request handler.
+    """
+    try:
+        # Skip if no Authorization header is present
+        if not verify_jwt_in_request(optional=True):
+            g.user = None
+            return
+
+        user_id = get_jwt_identity()
+        if user_id is not None:
+            # Convert user_id to integer if it's a string
+            if isinstance(user_id, str):
+                user_id = int(user_id)
+
+            with SessionManager() as session:
+                # Retrieve user and make a detached copy with all attributes loaded
+                stmt: Select = select(User).where(User.id == user_id)
+                user: User | None = session.execute(stmt).scalar_one_or_none()
+
+                if user:
+                    # Make a complete copy of all attribute values
+                    # This ensures the user object remains usable after the session is
+                    # closed
+                    user_dict = {
+                        "id": user.id,
+                        "username": user.username,
+                        "email": user.email,
+                        "password_hash": user.password_hash,
+                        "is_active": user.is_active,
+                        "is_admin": user.is_admin,
+                        "created_at": user.created_at,
+                        "updated_at": user.updated_at,
+                        "last_login": user.last_login,
+                    }
+
+                    # Expire the instance to detach it with all attributes loaded
+                    session.expunge(user)
+
+                    # Manually set all attributes on the detached instance
+                    for key, value in user_dict.items():
+                        setattr(user, key, value)
+
+                g.user = user
+        else:
+            g.user = None
+    except JWTExtendedException:
+        logger.exception("Failed to get user from token")
+        g.user = None
 
 
 def verify_resource_ownership(
@@ -119,7 +172,12 @@ def require_ownership(resource_type: str, id_parameter: str = "id") -> Callable[
             # Get user_id from JWT token
             try:
                 verify_jwt_in_request()
-                user_id: int | None = get_jwt_identity()
+                user_id: int | str | None = get_jwt_identity()
+
+                # Convert user_id to integer if it's a string
+                if isinstance(user_id, str):
+                    user_id = int(user_id)
+
             except JWTExtendedException as e:
                 logger.exception("JWT verification failed")
                 raise AuthorizationError from e
@@ -151,7 +209,11 @@ def admin_required(fn: Callable[..., T]) -> Callable[..., T]:
     @wraps(fn)
     def wrapper(*args: any, **kwargs: any) -> T:
         # Get user ID from token
-        user_id: int | None = get_jwt_identity()
+        user_id: int | str | None = get_jwt_identity()
+
+        # Convert user_id to integer if it's a string
+        if isinstance(user_id, str):
+            user_id = int(user_id)
 
         # Check if user is admin
         with SessionManager() as session:
@@ -159,7 +221,7 @@ def admin_required(fn: Callable[..., T]) -> Callable[..., T]:
                 select(User).where(User.id == user_id),
             ).scalar_one_or_none()
             if not user or user.is_admin is not True:
-                abort(403, "Admin privileges required")
+                raise AuthorizationError(AuthorizationError.NOT_AUTHORIZED)
 
         return fn(*args, **kwargs)
 
@@ -178,7 +240,11 @@ def get_current_user(session: Session | None = None) -> User | None:
     """
     try:
         verify_jwt_in_request()
-        user_id: int | None = get_jwt_identity()
+        user_id: int | str | None = get_jwt_identity()
+
+        # Convert user_id to integer if it's a string
+        if isinstance(user_id, str):
+            user_id = int(user_id)
 
         if session is None:
             with SessionManager() as new_session:

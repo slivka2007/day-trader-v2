@@ -17,8 +17,6 @@ if TYPE_CHECKING:
     from flask.testing import FlaskClient
     from requests import Response
 
-    from app.models import Stock
-
 from app.utils.constants import ApiConstants
 from app.utils.current_datetime import get_current_date
 from test.utils import authenticated_request, create_test_stock
@@ -28,11 +26,11 @@ class TestDailyPriceAPI:
     """Integration tests for the Daily Price API."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, client: FlaskClient, db_session: object) -> None:
+    def setup(self, client: FlaskClient, **_kwargs: object) -> None:
         """Set up test data."""
         self.client: FlaskClient = client
-        self.base_url = "/api/v1/daily-prices"
-        self.test_stock: Stock = create_test_stock()
+        self.base_url: str = "/api/v1/daily-prices"
+        self.test_stock: dict[str, object] = create_test_stock()
 
         # Initialize with default values to prevent AttributeError
         self.test_price: dict[str, object] = {

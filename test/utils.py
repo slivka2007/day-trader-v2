@@ -5,6 +5,7 @@ This module contains helper functions for testing.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
@@ -16,16 +17,34 @@ if TYPE_CHECKING:
 from app.services.session_manager import SessionManager
 from app.services.stock_service import StockService
 from app.services.user_service import UserService
+from app.utils.constants import ApiConstants
+
+# Set up logger
+logger: logging.Logger = logging.getLogger(__name__)
 
 
-def create_test_user(admin: bool = False) -> User:
+class AuthTokenError(RuntimeError):
+    """Error raised when authentication token retrieval fails."""
+
+    def __init__(self, status_code: int) -> None:
+        """Initialize with status code.
+
+        Args:
+            status_code: HTTP status code from the response
+
+        """
+        super().__init__(f"Failed to get auth token. Status: {status_code}")
+        self.status_code = status_code
+
+
+def create_test_user(*, admin: bool = False) -> int:
     """Create a test user for authentication.
 
     Args:
         admin: Whether the user should have admin privileges
 
     Returns:
-        The created user
+        The ID of the created user
 
     """
     with SessionManager() as session:
@@ -49,10 +68,8 @@ def create_test_user(admin: bool = False) -> User:
                 session.commit()
                 session.refresh(existing_user)
 
-            # Access the username attribute to ensure it's loaded before session closes
-            username: str = existing_user.username
-            email: str = existing_user.email
-            return existing_user
+            # Return user ID instead of the user object
+            return existing_user.id
 
         # Create the user
         user: User = UserService.create_user(session, user_data)
@@ -63,10 +80,8 @@ def create_test_user(admin: bool = False) -> User:
             session.commit()
             session.refresh(user)
 
-        # Access the username attribute to ensure it's loaded before session closes
-        username: str = user.username
-        email: str = user.email
-        return user
+        # Return user ID instead of the user object
+        return user.id
 
 
 def get_auth_token(client: FlaskClient, *, admin: bool = False) -> str:
@@ -82,42 +97,45 @@ def get_auth_token(client: FlaskClient, *, admin: bool = False) -> str:
     """
     # Create the user if it doesn't exist
     try:
-        create_test_user(admin)
-    except Exception as e:
-        print(f"Error creating test user: {e}")
+        create_test_user(admin=admin)
+    except Exception:
+        logger.exception("Error creating test user")
         raise
 
     # Use fixed values instead of accessing User attributes
-    username = "testadmin" if admin else "testuser"
-    password = "TestPassword123!"
+    username: str = "testadmin" if admin else "testuser"
+    password: str = "TestPassword123!"  # noqa: S105
 
     # Login to get the token
-    login_data = {
+    login_data: dict[str, object] = {
         "username": username,
         "password": password,
     }
 
     # Debug info
-    print(f"Attempting login with username={username}, password={password}")
+    logger.debug("Attempting login with username=%s, password=%s", username, password)
 
-    response = client.post(
+    response: Response = client.post(
         "/api/v1/auth/login",
         json=login_data,
         headers={"Content-Type": "application/json"},
     )
 
-    print(f"Login response status: {response.status_code}")
-    print(f"Login response data: {response.data}")
+    logger.debug("Login response status: %s", response.status_code)
+    logger.debug("Login response data: %s", response.data)
 
-    if response.status_code == 200:
-        data = response.get_json()
+    if response.status_code == ApiConstants.HTTP_OK:
+        data: dict[str, object] = response.get_json()
         if data and "access_token" in data:
-            token = data["access_token"]
-            print(f"Successfully obtained token (first 20 chars): {token[:20]}...")
+            token: str = data["access_token"]
+            logger.debug(
+                "Successfully obtained token (first 20 chars): %s...",
+                token[:20],
+            )
             return token
 
-    print(f"Failed to get auth token. Response data: {response.data}")
-    raise RuntimeError(f"Failed to get auth token. Status: {response.status_code}")
+    logger.error("Failed to get auth token. Response data: %s", response.data)
+    raise AuthTokenError(response.status_code)
 
 
 def create_test_stock() -> dict[str, object]:
@@ -189,12 +207,16 @@ def authenticated_request(
 
     # Make the request with Flask testing client
     request_method: Callable = getattr(client, method.lower())
-    response = request_method(url, headers=headers, **kwargs)
+    response: Response = request_method(url, headers=headers, **kwargs)
 
     # Debug output for auth problems
     if response.status_code in (401, 403):
-        print(f"AUTH PROBLEM: Status {response.status_code}, Token: {token[:20]}...")
-        print(f"Headers sent: {headers}")
-        print(f"Response data: {response.data}")
+        logger.warning(
+            "AUTH PROBLEM: Status %s, Token: %s...",
+            response.status_code,
+            token[:20],
+        )
+        logger.warning("Headers sent: %s", headers)
+        logger.warning("Response data: %s", response.data)
 
     return response

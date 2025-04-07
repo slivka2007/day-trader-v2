@@ -6,7 +6,7 @@ This module contains the schemas for the User model.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from datetime import timedelta
@@ -36,11 +36,7 @@ class UserSchema(SQLAlchemyAutoSchema):
         model = User
         include_relationships = False
         load_instance = True
-        exclude: tuple[
-            Literal["created_at"],
-            Literal["updated_at"],
-            Literal["password_hash"],
-        ] = (
+        exclude: tuple[str, ...] = (
             "created_at",
             "updated_at",
             "password_hash",
@@ -65,7 +61,19 @@ class UserSchema(SQLAlchemyAutoSchema):
         """Get the number of days since last login."""
         if not obj.last_login:
             return None
-        delta: timedelta = get_current_datetime() - obj.last_login
+
+        # Ensure both datetimes have timezone information
+        current_time = get_current_datetime()
+        login_time = obj.last_login
+
+        # If last_login doesn't have timezone info, add the application timezone
+        if login_time.tzinfo is None:
+            from app.utils.current_datetime import TIMEZONE
+
+            login_time = login_time.replace(tzinfo=TIMEZONE)
+
+        # Calculate the delta with timezone-aware datetimes
+        delta: timedelta = current_time - login_time
         return delta.days
 
     def count_services(self, obj: User) -> int:
@@ -90,12 +98,15 @@ class UserCreateSchema(Schema):
 
     username: fields.String = fields.String(
         required=True,
-        validate=validate.Length(min=3, max=50),
+        validate=validate.Length(
+            min=UserConstants.MIN_USERNAME_LENGTH,
+            max=UserConstants.MAX_USERNAME_LENGTH,
+        ),
     )
     email: fields.Email = fields.Email(required=True)
     password: fields.String = fields.String(
         required=True,
-        validate=validate.Length(min=8),
+        validate=validate.Length(min=UserConstants.MIN_PASSWORD_LENGTH),
     )
     password_confirm: fields.String = fields.String(required=True)
     is_active: fields.Boolean = fields.Boolean(default=True)
@@ -120,13 +131,13 @@ class UserCreateSchema(Schema):
             raise ValidationError(ValidationError.PASSWORD_SPECIAL)
 
     @validates_schema
-    def validate_passwords_match(self, data: dict) -> None:
+    def validate_passwords_match(self, data: dict, **_kwargs: any) -> None:
         """Validate password and confirmation match."""
         if data.get("password") != data.get("password_confirm"):
             raise ValidationError(ValidationError.PASSWORDS_MISMATCH)
 
     @post_load
-    def make_user(self, data: dict) -> User:
+    def make_user(self, data: dict, **_kwargs: any) -> User:
         """Create a User instance from validated data."""
         # Remove password_confirm as it's not needed for user creation
         data.pop("password_confirm", None)
@@ -178,7 +189,7 @@ class UserUpdateSchema(Schema):
             raise ValidationError(ValidationError.PASSWORD_SPECIAL)
 
     @validates_schema
-    def validate_passwords_match(self, data: dict) -> None:
+    def validate_passwords_match(self, data: dict, **_kwargs: any) -> None:
         """Validate password and confirmation match."""
         if (
             "password" in data
@@ -199,7 +210,7 @@ class UserDeleteSchema(Schema):
     )  # Require password for security
 
     @validates_schema
-    def validate_deletion(self, data: dict) -> None:
+    def validate_deletion(self, data: dict, **_kwargs: any) -> None:
         """Validate deletion confirmation and password."""
         if not data.get("confirm"):
             raise ValidationError(ValidationError.MUST_CONFIRM)
@@ -220,7 +231,7 @@ class PasswordChangeSchema(Schema):
     current_password: fields.String = fields.String(required=True)
     new_password: fields.String = fields.String(
         required=True,
-        validate=validate.Length(min=8),
+        validate=validate.Length(min=UserConstants.MIN_PASSWORD_LENGTH),
     )
     confirm_password: fields.String = fields.String(required=True)
 
@@ -237,7 +248,7 @@ class PasswordChangeSchema(Schema):
             raise ValidationError(ValidationError.PASSWORD_SPECIAL)
 
     @validates_schema
-    def validate_passwords_match(self, data: dict) -> None:
+    def validate_passwords_match(self, data: dict, **_kwargs: any) -> None:
         """Validate new password and confirmation match."""
         if data.get("new_password") != data.get("confirm_password"):
             raise ValidationError(ValidationError.PASSWORDS_MISMATCH)

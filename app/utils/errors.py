@@ -366,12 +366,13 @@ class AuthorizationError(APIError):
     """Error raised for authorization/permission issues."""
 
     # Common authorization error messages
-    ADMIN_ONLY = "Only admins can grant admin privileges"
-    ACCOUNT_INACTIVE = "Account is inactive"
+    ADMIN_ONLY: str = "Only admins can grant admin privileges"
+    NOT_AUTHORIZED: str = "Not authorized to access this resource"
+    ACCOUNT_INACTIVE: str = "Account is inactive"
 
     def __init__(
         self,
-        message: str = "Unauthorized access",
+        message: str = NOT_AUTHORIZED,
         status_code: int = ApiConstants.HTTP_UNAUTHORIZED,
         payload: dict[str, any] | None = None,
     ) -> None:

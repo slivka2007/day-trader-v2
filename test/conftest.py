@@ -5,63 +5,62 @@ This module contains pytest fixtures for setting up the Flask app and test clien
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import logging
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from flask import Flask
+
 
 import pytest
-from flask import Flask
 from flask_jwt_extended import JWTManager
 
-from app.api import api_bp, init_websockets
+from app import create_app
 from app.services.session_manager import SessionManager
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(scope="session")
 def app() -> Flask:
     """Create and configure a Flask app for testing."""
-    # Create the Flask app
-    test_app = Flask(__name__)
 
-    # Configure the app for testing
-    test_app.config["TESTING"] = True
-    test_app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
-    test_app.config["JWT_SECRET_KEY"] = "test-secret-key"  # noqa: S105
-    test_app.config["JWT_TOKEN_LOCATION"] = ["headers"]
-    test_app.config["JWT_HEADER_NAME"] = "Authorization"
-    test_app.config["JWT_HEADER_TYPE"] = "Bearer"
-    test_app.config["JWT_ACCESS_TOKEN_EXPIRES"] = False  # Don't expire during tests
-    test_app.config["SERVER_NAME"] = "localhost"  # Set server name for URL generation
-    test_app.config["PREFERRED_URL_SCHEME"] = "http"
-    test_app.config["HTTP_REDIRECT_WITH_GET"] = (
-        False  # Prevent redirects changing POST to GET
-    )
+    # Create the Flask app using our create_app function
+    class TestConfig:
+        TESTING: bool = True
+        SQLALCHEMY_DATABASE_URI: str = "sqlite:///:memory:"
+        JWT_SECRET_KEY: str = "test-secret-key"  # noqa: S105
+        JWT_TOKEN_LOCATION: ClassVar[list[str]] = ["headers"]
+        JWT_HEADER_NAME: str = "Authorization"
+        JWT_HEADER_TYPE: str = "Bearer"
+        JWT_ACCESS_TOKEN_EXPIRES: bool = False  # Don't expire during tests
+        SERVER_NAME = "localhost"  # Set server name for URL generation
+        PREFERRED_URL_SCHEME = "http"
+        HTTP_REDIRECT_WITH_GET = False  # Prevent redirects changing POST to GET
 
-    print("Setting up test Flask app")
+    # Create app with test configuration
+    test_app: Flask = create_app(TestConfig)
+
+    logger.info("Setting up test Flask app")
 
     # Initialize JWT Manager
     try:
-        jwt = JWTManager(test_app)
-        print(f"JWT Manager initialized: {jwt}")
-    except Exception as e:
-        print(f"Error initializing JWT: {e}")
-
-    # Register API blueprint
-    test_app.register_blueprint(api_bp)
-
-    # Initialize WebSockets
-    init_websockets(test_app)
+        jwt: JWTManager = JWTManager(test_app)
+        logger.info("JWT Manager initialized: %s", jwt)
+    except (RuntimeError, ValueError, ImportError):
+        logger.exception("Error initializing JWT")
 
     # Create all tables in the database
     with test_app.app_context():
         # Initialize database
         from app.services.database import init_db
 
-        print("Initializing database...")
+        logger.info("Initializing database...")
         init_db()
-        print("Database initialized")
+        logger.info("Database initialized")
 
     return test_app
 

@@ -30,6 +30,7 @@ To run tests for a specific API resource:
 python -m pytest test/test_stock_api.py -v
 python -m pytest test/test_daily_price_api.py -v
 python -m pytest test/test_intraday_price_api.py -v
+python -m pytest test/test_user_api.py -v
 ```
 
 ## Test Data

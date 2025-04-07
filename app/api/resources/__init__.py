@@ -15,6 +15,7 @@ from app.api.resources.stocks import api as stocks_api
 from app.api.resources.system import api as system_api
 from app.api.resources.trading_services import api as trading_services_api
 from app.api.resources.trading_transactions import api as trading_transactions_api
+from app.api.resources.users import ns as users_api
 from app.services.session_manager import SessionManager
 
 # Make common imports available
@@ -39,6 +40,7 @@ api_resources: list[Namespace] = [
     trading_transactions_api,
     system_api,
     auth_api,
+    users_api,
 ]
 
 

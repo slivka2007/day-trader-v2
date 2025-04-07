@@ -131,6 +131,7 @@ class ApiConstants:
     HTTP_FORBIDDEN: int = 403
     HTTP_NOT_FOUND: int = 404
     HTTP_CONFLICT: int = 409
+    HTTP_UNPROCESSABLE_ENTITY: int = 422
     HTTP_INTERNAL_SERVER_ERROR: int = 500
 
 

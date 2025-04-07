@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -38,6 +38,12 @@ class UserService:
 
         """
         error_msg: str = message.format(*args) if args else message
+
+        # Special handling for ResourceNotFoundError
+        if error_class == ResourceNotFoundError and args:
+            resource_type = message
+            resource_id = args[0]
+            raise ResourceNotFoundError(resource_type, resource_id)
         raise error_class(error_msg)
 
     @staticmethod
@@ -136,6 +142,121 @@ class UserService:
         """
         stmt: select[tuple[User]] = select(User)
         return list(session.execute(stmt).scalars().all())
+
+    @staticmethod
+    def _apply_filters(query: select, filters: dict[str, any]) -> select:
+        """Apply filters to the users query.
+
+        Args:
+            query: Base SQLAlchemy select query
+            filters: Dictionary of filter parameters
+
+        Returns:
+            Filtered SQLAlchemy select query
+
+        """
+        if "username" in filters:
+            query = query.where(User.username == filters.get("username"))
+        if "username_like" in filters:
+            query = query.where(
+                User.username.ilike(f"%{filters.get('username_like')}%"),
+            )
+        if "is_active" in filters:
+            is_active = filters.get("is_active")
+            if isinstance(is_active, str):
+                is_active = is_active.lower() == "true"
+            query = query.where(User.is_active == is_active)
+        if "is_admin" in filters:
+            is_admin = filters.get("is_admin")
+            if isinstance(is_admin, str):
+                is_admin = is_admin.lower() == "true"
+            query = query.where(User.is_admin == is_admin)
+        return query
+
+    @staticmethod
+    def _apply_sorting(query: select, filters: dict[str, any]) -> select:
+        """Apply sorting to the users query.
+
+        Args:
+            query: SQLAlchemy select query
+            filters: Dictionary containing sorting parameters
+
+        Returns:
+            Sorted SQLAlchemy select query
+
+        """
+        if "sort" in filters:
+            sort_field = filters.get("sort")
+            sort_order = filters.get("order", "asc").lower()
+
+            field_map = {
+                "username": User.username,
+                "email": User.email,
+                "is_active": User.is_active,
+                "is_admin": User.is_admin,
+                "created_at": User.created_at,
+            }
+
+            if sort_field in field_map:
+                field = field_map[sort_field]
+                query = query.order_by(field.desc() if sort_order == "desc" else field)
+
+        return query
+
+    @staticmethod
+    def get_filtered_users(
+        session: Session,
+        filters: dict[str, any],
+        page: int = 1,
+        per_page: int = 10,
+    ) -> dict[str, any]:
+        """Get filtered and paginated users.
+
+        Args:
+            session: Database session
+            filters: Dictionary of filter parameters
+            page: Page number (1-indexed)
+            per_page: Number of items per page
+
+        Returns:
+            Dictionary with paginated users and pagination metadata
+
+        """
+        # Start with base query
+        query = select(User)
+
+        # Apply filters and sorting
+        if filters:
+            query = UserService._apply_filters(query, filters)
+            query = UserService._apply_sorting(query, filters)
+
+        # Get total count for pagination
+        total = session.execute(
+            select(func.count()).select_from(query.subquery()),
+        ).scalar_one()
+
+        # Apply pagination
+        query = query.offset((page - 1) * per_page).limit(per_page)
+
+        # Execute query
+        users = list(session.execute(query).scalars().all())
+
+        # Calculate pagination metadata
+        total_pages = (total + per_page - 1) // per_page  # Ceiling division
+        has_next = page < total_pages
+        has_prev = page > 1
+
+        return {
+            "items": users,
+            "pagination": {
+                "page": page,
+                "page_size": per_page,
+                "total_items": total,
+                "total_pages": total_pages,
+                "has_next": has_next,
+                "has_prev": has_prev,
+            },
+        }
 
     @staticmethod
     def create_user(session: Session, data: dict[str, any]) -> User:

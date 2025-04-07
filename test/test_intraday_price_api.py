@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from flask.testing import FlaskClient
     from requests import Response
 
-    from app.models import Stock
 
 from app.models.stock_intraday_price import IntradayInterval
 from app.utils.constants import ApiConstants
@@ -29,17 +28,17 @@ class TestIntradayPriceAPI:
     """Integration tests for the Intraday Price API."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, client: FlaskClient, db_session: object) -> None:
+    def setup(self, client: FlaskClient, **_kwargs: object) -> None:
         """Set up test data."""
         self.client: FlaskClient = client
-        self.base_url = "/api/v1/intraday-prices"
-        self.test_stock: Stock = create_test_stock()
+        self.base_url: str = "/api/v1/intraday-prices"
+        self.test_stock: dict[str, object] = create_test_stock()
         self.create_test_intraday_price()
 
     def create_test_intraday_price(self) -> None:
         """Create a test intraday price record."""
         # Define price data
-        current_time = get_current_datetime()
+        current_time: datetime = get_current_datetime()
         price_data: dict[str, object] = {
             "stock_id": self.test_stock["id"],
             "timestamp": current_time.isoformat(),

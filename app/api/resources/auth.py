@@ -136,8 +136,8 @@ class Register(Resource):
                 session.refresh(user)
 
                 # Create tokens
-                access_token: str = create_access_token(identity=user.id)
-                refresh_token: str = create_refresh_token(identity=user.id)
+                access_token: str = create_access_token(identity=str(user.id))
+                refresh_token: str = create_refresh_token(identity=str(user.id))
 
             except ValueError as e:
                 raise ValidationError(
@@ -193,8 +193,8 @@ class Login(Resource):
             session.commit()
 
             # Create tokens
-            access_token: str = create_access_token(identity=user.id)
-            refresh_token: str = create_refresh_token(identity=user.id)
+            access_token: str = create_access_token(identity=str(user.id))
+            refresh_token: str = create_refresh_token(identity=str(user.id))
 
             return {
                 "access_token": access_token,
@@ -234,7 +234,7 @@ class Refresh(Resource):
                 )
 
             # Create new access token
-            access_token: str = create_access_token(identity=user.id)
+            access_token: str = create_access_token(identity=str(user.id))
 
             return {
                 "access_token": access_token,

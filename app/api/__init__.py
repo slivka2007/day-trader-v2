@@ -37,7 +37,7 @@ api: Api = Api(
 
 # Register API resources and error handlers
 register_resources(api)
-register_error_handlers(api_bp)
+register_error_handlers(api)
 
 # Initialize WebSockets for real-time updates
 socketio: SocketIO = SocketIO(cors_allowed_origins="*")

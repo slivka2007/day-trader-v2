@@ -25,11 +25,11 @@ class TestStockAPI:
     """Integration tests for the Stock API."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, client: FlaskClient, db_session: object) -> None:
+    def setup(self, client: FlaskClient, **_kwargs: object) -> None:
         """Set up test data."""
         self.client: FlaskClient = client
-        self.base_url = "/api/v1/stocks"
-        self.test_stock = create_test_stock()
+        self.base_url: str = "/api/v1/stocks"
+        self.test_stock: dict[str, object] = create_test_stock()
 
     def test_get_stocks(self) -> None:
         """Test getting a list of stocks."""
