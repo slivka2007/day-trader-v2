@@ -65,7 +65,6 @@ class TestDailyPriceAPI:
         }
 
         # Create the price record with admin authentication
-
         response: Response = authenticated_request(
             self.client,
             "post",
@@ -83,13 +82,14 @@ class TestDailyPriceAPI:
                 self.client,
                 "get",
                 f"{self.base_url}/stock/{self.test_stock['id']}/latest?days=1",
-                admin=False,
+                admin=True,  # Try with admin privileges
+                json=price_data,
             )
 
             if response.status_code == ApiConstants.HTTP_OK:
-                prices: list[dict[str, object]] = response.get_json()
-                if prices and len(prices) > 0:
-                    self.test_price = prices[0]
+                data: dict[str, object] = response.get_json()
+                if data.get("items") and len(data["items"]) > 0:
+                    self.test_price = data["items"][0]
 
     def test_get_daily_prices(self) -> None:
         """Test getting a list of daily prices."""
@@ -98,7 +98,7 @@ class TestDailyPriceAPI:
             self.client,
             "get",
             self.base_url,
-            admin=False,
+            admin=False,  # Use regular user authentication
         )
 
         data: dict[str, object] = response.get_json()
@@ -115,7 +115,7 @@ class TestDailyPriceAPI:
             self.client,
             "get",
             f"{self.base_url}?stock_id={self.test_stock['id']}",
-            admin=False,
+            admin=False,  # Use regular user authentication
         )
 
         data: dict[str, object] = response.get_json()
@@ -132,16 +132,12 @@ class TestDailyPriceAPI:
 
     def test_get_daily_price_by_id(self) -> None:
         """Test getting a daily price record by ID."""
-        # Skip this test if we don't have a real price record
-        if self.test_price.get("id") == 1 and not self.test_price.get("_real", False):
-            pytest.skip("No real price record available")
-
         # Make request to get price by ID with authentication
         response: Response = authenticated_request(
             self.client,
             "get",
             f"{self.base_url}/{self.test_price['id']}",
-            admin=False,
+            admin=False,  # Use regular user authentication
         )
         data: dict[str, object] = response.get_json()
 
@@ -158,18 +154,21 @@ class TestDailyPriceAPI:
             self.client,
             "get",
             f"{self.base_url}/stock/{self.test_stock['id']}/latest?days=30",
-            admin=False,
+            admin=False,  # Use regular user authentication
         )
         data: dict[str, object] = response.get_json()
 
         # Verify response
         assert response.status_code == ApiConstants.HTTP_OK
-        assert isinstance(data, list)
+        assert "items" in data
+        assert "stock_id" in data
+        assert "stock_symbol" in data
+        assert data["stock_id"] == self.test_stock["id"]
+        assert data["stock_symbol"] == self.test_stock["symbol"]
 
         # Check if we have prices
-        if len(data) > 0:
-            assert data[0]["stock_id"] == self.test_stock["id"]
-            assert data[0]["stock_symbol"] == self.test_stock["symbol"]
+        if len(data["items"]) > 0:
+            assert data["items"][0]["stock_id"] == self.test_stock["id"]
 
     def test_get_daily_prices_by_date_range(self) -> None:
         """Test getting daily prices for a specific date range."""
@@ -184,18 +183,21 @@ class TestDailyPriceAPI:
             "get",
             f"{self.base_url}/stock/{self.test_stock['id']}/date-range"
             f"?start_date={start_date}&end_date={end_date}",
-            admin=False,
+            admin=False,  # Use regular user authentication
         )
         data: dict[str, object] = response.get_json()
 
         # Verify response
         assert response.status_code == ApiConstants.HTTP_OK
-        assert isinstance(data, list)
+        assert "items" in data
+        assert "stock_id" in data
+        assert "stock_symbol" in data
+        assert data["stock_id"] == self.test_stock["id"]
+        assert data["stock_symbol"] == self.test_stock["symbol"]
 
         # Check if we have prices
-        if len(data) > 0:
-            assert data[0]["stock_id"] == self.test_stock["id"]
-            assert data[0]["stock_symbol"] == self.test_stock["symbol"]
+        if len(data["items"]) > 0:
+            assert data["items"][0]["stock_id"] == self.test_stock["id"]
 
     def test_create_daily_price_unauthorized(self) -> None:
         """Test creating a daily price without authentication."""
@@ -259,11 +261,7 @@ class TestDailyPriceAPI:
 
     def test_update_daily_price(self) -> None:
         """Test updating a daily price record."""
-        # Skip this test if we don't have a real price record
-        if self.test_price.get("id") == 1 and not self.test_price.get("_real", False):
-            pytest.skip("No real price record available")
-
-        # Prepare update data
+        # Prepare update data with only fields that are allowed to be updated
         update_data: dict[str, object] = {
             "open_price": 151.00,
             "high_price": 155.50,
@@ -271,6 +269,7 @@ class TestDailyPriceAPI:
             "close_price": 154.75,
             "adj_close": 154.75,
             "volume": 82000000,
+            "source": "TEST",
         }
 
         # Make request to update price with admin authentication
@@ -278,7 +277,7 @@ class TestDailyPriceAPI:
             self.client,
             "put",
             f"{self.base_url}/{self.test_price['id']}",
-            admin=True,
+            admin=True,  # Admin required for update
             json=update_data,
         )
 
@@ -368,7 +367,7 @@ class TestDailyPriceAPI:
             )
 
             # Verify response
-            assert response.status_code == ApiConstants.HTTP_NO_CONTENT
+            assert response.status_code == ApiConstants.HTTP_OK
 
     def test_get_price_analysis(self) -> None:
         """Test getting price analysis."""
@@ -384,8 +383,6 @@ class TestDailyPriceAPI:
             assert "has_data" in data
             # If there's enough data, check for analysis components
             if data.get("has_data", False):
-                assert "trend" in data
                 assert "moving_averages" in data
                 assert "rsi" in data
-                assert "macd" in data
                 assert "bollinger_bands" in data

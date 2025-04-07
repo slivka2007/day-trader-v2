@@ -31,7 +31,7 @@ class BaseDailyPriceSchema(Schema):
     """Base schema with common price validations."""
 
     @validates_schema
-    def validate_price_data(self, data: dict) -> None:
+    def validate_price_data(self, data: dict, **_kwargs: object) -> None:
         """Validate that price data is consistent."""
         high: float | None = data.get("high_price")
         low: float | None = data.get("low_price")
@@ -52,6 +52,34 @@ class BaseDailyPriceSchema(Schema):
 
         if low is not None and close_price is not None and low > close_price:
             raise ValidationError(StockPriceError.LOW_CLOSE_PRICE)
+
+    @validates("high_price")
+    def validate_high_price(self, value: float) -> float:
+        """Validate high price value is non-negative."""
+        if value is not None and value < 0:
+            raise ValidationError(StockPriceError.NEGATIVE_PRICE)
+        return value
+
+    @validates("low_price")
+    def validate_low_price(self, value: float) -> float:
+        """Validate low price value is non-negative."""
+        if value is not None and value < 0:
+            raise ValidationError(StockPriceError.NEGATIVE_PRICE)
+        return value
+
+    @validates("open_price")
+    def validate_open_price(self, value: float) -> float:
+        """Validate open price value is non-negative."""
+        if value is not None and value < 0:
+            raise ValidationError(StockPriceError.NEGATIVE_PRICE)
+        return value
+
+    @validates("close_price")
+    def validate_close_price(self, value: float) -> float:
+        """Validate close price value is non-negative."""
+        if value is not None and value < 0:
+            raise ValidationError(StockPriceError.NEGATIVE_PRICE)
+        return value
 
 
 # Daily price schema for serialization
@@ -75,6 +103,8 @@ class StockDailyPriceSchema(SQLAlchemyAutoSchema):
 
     # Add stock symbol to make API responses more informative
     stock_symbol: fields.Method = fields.Method("get_stock_symbol", dump_only=True)
+    # Ensure stock_id is always included
+    stock_id: fields.Integer = fields.Integer(dump_only=True)
 
     def get_stock_symbol(self, obj: StockDailyPrice) -> str | None:
         """Get the stock symbol from the related stock."""
@@ -84,7 +114,9 @@ class StockDailyPriceSchema(SQLAlchemyAutoSchema):
     def validate_source(self, value: str) -> None:
         """Validate the source value."""
         if not PriceSource.is_valid(value):
-            raise ValidationError(StockPriceError.INVALID_SOURCE.format(value=value))
+            raise ValidationError(
+                StockPriceError.INVALID_SOURCE.format(key="source", value=value),
+            )
 
 
 # Schema for creating/updating a daily price
@@ -92,6 +124,7 @@ class DailyPriceInputSchema(BaseDailyPriceSchema):
     """Schema for creating or updating a StockDailyPrice."""
 
     price_date: fields.Date = fields.Date(required=True)
+    stock_id: fields.Integer = fields.Integer(required=True)
     open_price: fields.Float = fields.Float(
         allow_none=True,
         validate=validate.Range(min=0),
@@ -125,10 +158,23 @@ class DailyPriceInputSchema(BaseDailyPriceSchema):
     def validate_price_date(self, price_date: date) -> None:
         """Validate price date."""
         if price_date > get_current_date():
-            raise ValidationError(StockPriceError.FUTURE_DATE.format(value=price_date))
+            raise ValidationError(
+                StockPriceError.FUTURE_DATE.format(key="price_date", value=price_date),
+            )
+
+    @validates("adj_close")
+    def validate_adj_close(self, value: float) -> float:
+        """Validate adjusted close price value is non-negative."""
+        if value is not None and value < 0:
+            raise ValidationError(StockPriceError.NEGATIVE_PRICE)
+        return value
 
     @post_load
-    def make_daily_price(self, data: dict) -> StockDailyPrice:
+    def make_daily_price(
+        self,
+        data: dict,
+        **_kwargs: object,
+    ) -> StockDailyPrice:
         """Create a StockDailyPrice instance from validated data."""
         return StockDailyPrice.from_dict(data)
 
@@ -141,7 +187,7 @@ class DailyPriceDeleteSchema(Schema):
     price_id: fields.Integer = fields.Integer(required=True)
 
     @validates_schema
-    def validate_deletion(self, data: dict) -> None:
+    def validate_deletion(self, data: dict, **_kwargs: object) -> None:
         """Validate deletion confirmation."""
         if not data.get("confirm"):
             raise ValidationError(StockPriceError.CONFIRM_DELETION)

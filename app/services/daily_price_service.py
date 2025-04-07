@@ -406,6 +406,16 @@ class DailyPriceService:
 
         """
         try:
+            # Make sure data is a dictionary
+            if not isinstance(data, dict):
+                data = (
+                    {}
+                    if data is None
+                    else data.__dict__
+                    if hasattr(data, "__dict__")
+                    else {}
+                )
+
             # Get price record
             price_record: StockDailyPrice = DailyPriceService.get_daily_price_or_404(
                 session,
@@ -423,10 +433,12 @@ class DailyPriceService:
                 "source",
             }
 
-            # Validate price data if provided
+            # Validate price data if provided - check dictionary keys
             if (
                 "high_price" in data
                 and "low_price" in data
+                and data["high_price"] is not None
+                and data["low_price"] is not None
                 and data["high_price"] < data["low_price"]
             ):
                 DailyPriceService._raise_validation_error(
@@ -452,9 +464,7 @@ class DailyPriceService:
                 # Emit WebSocket event
                 EventService.emit_price_update(
                     action="updated",
-                    price_data=(
-                        price_data if isinstance(price_data, dict) else price_data[0]
-                    ),
+                    price_data=price_data,
                     stock_symbol=stock_symbol,
                 )
 

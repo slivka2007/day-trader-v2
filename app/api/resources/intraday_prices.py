@@ -210,7 +210,7 @@ class IntradayPriceList(Resource):
             # Build query and apply filters
             with SessionManager() as session:
                 # Create filter options dictionary
-                filter_options = {
+                filter_options: dict[str, any] = {
                     "stock_id": stock_id,
                     "interval": interval,
                     "start_time": start_time,
@@ -232,8 +232,6 @@ class IntradayPriceList(Resource):
                     paginated_result["items"],
                     many=True,
                 )
-                if not isinstance(prices_data, list):
-                    prices_data = [prices_data]
 
                 result: dict[str, any] = {
                     "items": prices_data,
@@ -278,12 +276,12 @@ class IntradayPriceList(Resource):
         try:
             data: dict[str, any] = request.get_json()
 
-            # Validate input data
-            data_dict: dict[str, any] = intraday_price_input_schema.load(data)
+            # Validate input data and get model instance
+            price_instance: StockIntradayPrice = intraday_price_input_schema.load(data)
 
             with SessionManager() as session:
                 # Verify stock exists
-                stock_id: int | None = data_dict.get("stock_id")
+                stock_id: int = price_instance.stock_id
                 if not stock_id:
                     return {
                         "error": True,
@@ -297,7 +295,7 @@ class IntradayPriceList(Resource):
                 price: StockIntradayPrice = IntradayPriceService.create_intraday_price(
                     session,
                     stock_id,
-                    data_dict,
+                    price_instance.__dict__,  # Convert to dict for the service
                 )
 
                 # Serialize and return the created record
@@ -323,21 +321,21 @@ class IntradayPriceList(Resource):
 
 @api.route("/<int:price_id>")
 class IntradayPriceDetail(Resource):
-    """API resource for individual intraday price operations."""
+    """API resource for operations on a specific intraday price record."""
 
     @api.doc("get_intraday_price")
     @api.response(200, "Success", intraday_price_model)
-    @api.response(404, "Price not found")
+    @api.response(404, "Intraday price not found")
     def get(self, price_id: int) -> any:
         """Get a specific intraday price record by ID."""
         try:
             with SessionManager() as session:
-                # Get price by ID
+                # Get price using service
                 price: StockIntradayPrice = (
                     IntradayPriceService.get_intraday_price_or_404(session, price_id)
                 )
 
-                # Serialize and return
+                # Serialize and return the price
                 return intraday_price_schema.dump(price), ApiConstants.HTTP_OK
 
         except ResourceNotFoundError as e:
@@ -352,26 +350,26 @@ class IntradayPriceDetail(Resource):
     @api.doc("update_intraday_price")
     @api.expect(intraday_price_input_model)
     @api.response(200, "Success", intraday_price_model)
-    @api.response(400, "Bad Request")
-    @api.response(404, "Price not found")
+    @api.response(404, "Intraday price not found")
     @jwt_required()
     @admin_required
     def put(self, price_id: int) -> any:
-        """Update an existing intraday price record."""
+        """Update an intraday price record."""
         try:
-            # Parse and validate input data
             data: dict[str, any] = request.get_json()
-            data_dict: dict[str, any] = intraday_price_input_schema.load(data)
+
+            # Validate input data and get model instance
+            price_instance: StockIntradayPrice = intraday_price_input_schema.load(data)
 
             with SessionManager() as session:
                 # Update price using service
                 price: StockIntradayPrice = IntradayPriceService.update_intraday_price(
                     session,
                     price_id,
-                    data_dict,
+                    price_instance.__dict__,  # Convert to dict for the service
                 )
 
-                # Serialize and return
+                # Serialize and return the updated price
                 return intraday_price_schema.dump(price), ApiConstants.HTTP_OK
 
         except ValidationError as e:

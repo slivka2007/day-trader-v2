@@ -54,6 +54,17 @@ stock_input_model: Model | OrderedModel = api.model(
     },
 )
 
+stock_update_model: Model | OrderedModel = api.model(
+    "StockUpdate",
+    {
+        "symbol": fields.String(description="Stock ticker symbol (read-only)"),
+        "name": fields.String(description="Company name"),
+        "is_active": fields.Boolean(description="Whether the stock is active"),
+        "sector": fields.String(description="Industry sector"),
+        "description": fields.String(description="Stock description"),
+    },
+)
+
 # Add pagination model
 pagination_model: Model | OrderedModel = api.model(
     "Pagination",
@@ -220,7 +231,7 @@ class StockResource(Resource):
             }, ApiConstants.HTTP_INTERNAL_SERVER_ERROR
 
     @api.doc("update_stock")
-    @api.expect(stock_input_model)
+    @api.expect(stock_update_model)
     @api.marshal_with(stock_model)
     @api.response(ApiConstants.HTTP_OK, "Stock updated successfully")
     @api.response(ApiConstants.HTTP_BAD_REQUEST, "Invalid input")
@@ -241,6 +252,8 @@ class StockResource(Resource):
             )
 
             with SessionManager() as session:
+                # Get the stock by ID
+                stock: Stock = StockService.get_or_404(session, stock_id)
                 # Update the stock using StockService
                 stock: Stock = StockService.update_stock(
                     session,
@@ -372,6 +385,8 @@ class StockToggleActive(Resource):
         """Toggle the active status of a stock. Requires admin privileges."""
         try:
             with SessionManager() as session:
+                # Get the stock by ID
+                stock: Stock = StockService.get_or_404(session, stock_id)
                 # Toggle active status using StockService
                 stock: Stock = StockService.toggle_active(session, stock_id)
                 return stock_schema.dump(stock), ApiConstants.HTTP_OK

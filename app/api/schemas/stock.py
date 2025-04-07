@@ -137,12 +137,12 @@ class StockInputSchema(Schema):
             raise ValidationError(StockError.SYMBOL_FORMAT)
 
     @post_load
-    def make_stock(self, data: dict) -> Stock:
-        """Create a Stock instance from validated data."""
+    def make_data(self, data: dict, **_kwargs: object) -> dict:
+        """Prepare data for creating/updating a Stock."""
         # Ensure symbol is uppercase
         if "symbol" in data:
             data["symbol"] = data["symbol"].upper()
-        return Stock.from_dict(data)
+        return data
 
 
 # Schema for deleting a stock

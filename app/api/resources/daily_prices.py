@@ -82,6 +82,20 @@ daily_price_input_model: Model | OrderedModel = api.model(
     },
 )
 
+# Specialized model for updates where date is not required
+daily_price_update_model: Model | OrderedModel = api.model(
+    "StockDailyPriceUpdate",
+    {
+        "open_price": fields.Float(description="Opening price"),
+        "high_price": fields.Float(description="Highest price"),
+        "low_price": fields.Float(description="Lowest price"),
+        "close_price": fields.Float(description="Closing price"),
+        "adj_close": fields.Float(description="Adjusted closing price"),
+        "volume": fields.Integer(description="Trading volume"),
+        "source": fields.String(description="Price data source"),
+    },
+)
+
 daily_price_delete_model: Model | OrderedModel = api.model(
     "StockDailyPriceDelete",
     {
@@ -98,6 +112,36 @@ daily_price_bulk_model: Model | OrderedModel = api.model(
             description="Time period (1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max)",
             default="1y",
         ),
+    },
+)
+
+# Pagination model
+pagination_model: Model | OrderedModel = api.model(
+    "Pagination",
+    {
+        "page": fields.Integer(description="Current page number"),
+        "per_page": fields.Integer(description="Number of items per page"),
+        "total_items": fields.Integer(description="Total number of items"),
+        "total_pages": fields.Integer(description="Total number of pages"),
+        "has_next": fields.Boolean(description="Whether there is a next page"),
+        "has_prev": fields.Boolean(description="Whether there is a previous page"),
+    },
+)
+
+# Daily price list model for paginated responses
+daily_price_list_model: Model | OrderedModel = api.model(
+    "DailyPriceList",
+    {
+        "items": fields.List(
+            fields.Nested(daily_price_model),
+            description="List of daily prices",
+        ),
+        "pagination": fields.Nested(
+            pagination_model,
+            description="Pagination information",
+        ),
+        "stock_symbol": fields.String(description="Stock symbol", required=False),
+        "stock_id": fields.Integer(description="Stock ID", required=False),
     },
 )
 
@@ -121,7 +165,7 @@ class DailyPriceList(Resource):
     """API resource for daily price list operations."""
 
     @api.doc("list_daily_prices")
-    @api.response(200, "Success", [daily_price_model])
+    @api.response(200, "Success", daily_price_list_model)
     @api.param(
         "stock_id",
         "Filter by stock ID",
@@ -149,67 +193,91 @@ class DailyPriceList(Resource):
         type=int,
         default=PaginationConstants.DEFAULT_PER_PAGE,
     )
-    def get(self) -> dict[str, any]:
+    def get(self) -> any:
         """Get a list of daily price records with optional filtering."""
-        # Parse query parameters
-        stock_id: int | None = request.args.get("stock_id", type=int)
-        start_date_str: str | None = request.args.get("start_date")
-        end_date_str: str | None = request.args.get("end_date")
-        page: int = request.args.get(
-            "page",
-            default=1,
-            type=int,
-        )
-        per_page: int = request.args.get(
-            "per_page",
-            default=PaginationConstants.DEFAULT_PER_PAGE,
-            type=int,
-        )
-
-        # Convert date strings to date objects
-        start_date: date | None = None
-        end_date: date | None = None
         try:
-            if start_date_str:
-                start_date = date.fromisoformat(start_date_str)
-            if end_date_str:
-                end_date = date.fromisoformat(end_date_str)
-        except ValueError:
+            # Parse query parameters
+            stock_id: int | None = request.args.get("stock_id", type=int)
+            start_date_str: str | None = request.args.get("start_date")
+            end_date_str: str | None = request.args.get("end_date")
+            page: int = request.args.get(
+                "page",
+                default=1,
+                type=int,
+            )
+            per_page: int = request.args.get(
+                "per_page",
+                default=PaginationConstants.DEFAULT_PER_PAGE,
+                type=int,
+            )
+
+            # Convert date strings to date objects
+            start_date: date | None = None
+            end_date: date | None = None
+            try:
+                if start_date_str:
+                    start_date = date.fromisoformat(start_date_str)
+                if end_date_str:
+                    end_date = date.fromisoformat(end_date_str)
+            except ValueError:
+                return {
+                    "error": True,
+                    "message": StockPriceError.INVALID_DATE_FORMAT,
+                }, ApiConstants.HTTP_BAD_REQUEST
+
+            # Use the service to get filtered and paginated data
+            with SessionManager() as session:
+                # Get paginated and filtered prices
+                paginated_result: dict[str, any] = (
+                    DailyPriceService.get_filtered_daily_prices(
+                        session,
+                        filters={
+                            "stock_id": stock_id,
+                            "price_date_min": start_date,
+                            "price_date_max": end_date,
+                        }
+                        if any([stock_id, start_date, end_date])
+                        else None,
+                        page=page,
+                        per_page=per_page,
+                    )
+                )
+
+                # Serialize data
+                prices_data: list[dict[str, any]] = daily_prices_schema.dump(
+                    paginated_result["items"],
+                )
+
+                # Format the response with consistent structure
+                result: dict[str, any] = {
+                    "items": prices_data,
+                    "pagination": paginated_result["pagination"],
+                }
+
+                # Add stock information if filtered by stock_id
+                if stock_id:
+                    stock: Stock = StockService.get_or_404(session, stock_id)
+                    result["stock_id"] = stock_id
+                    result["stock_symbol"] = stock.symbol
+
+                return result, ApiConstants.HTTP_OK
+
+        except ValidationError as e:
             return {
                 "error": True,
-                "message": StockPriceError.INVALID_DATE_FORMAT,
+                "message": str(e),
             }, ApiConstants.HTTP_BAD_REQUEST
-
-        # Use the service to get filtered and paginated data
-        with SessionManager() as session:
-            # Get paginated and filtered prices
-            paginated_result: dict[str, any] = (
-                DailyPriceService.get_filtered_daily_prices(
-                    session,
-                    filters={
-                        "stock_id": stock_id,
-                        "price_date_min": start_date,
-                        "price_date_max": end_date,
-                    }
-                    if any([stock_id, start_date, end_date])
-                    else None,
-                    page=page,
-                    per_page=per_page,
-                )
-            )
-
-            # Serialize data
-            prices_data: list[dict[str, any]] = daily_prices_schema.dump(
-                paginated_result["items"],
-            )
-
-            # Format the response
-            result: dict[str, any] = {
-                "items": prices_data,
-                "pagination": paginated_result["pagination"],
-            }
-
-            return result, ApiConstants.HTTP_OK
+        except ResourceNotFoundError as e:
+            return {
+                "error": True,
+                "message": str(e),
+            }, ApiConstants.HTTP_NOT_FOUND
+        except Exception as e:
+            current_app.logger.exception("Error retrieving daily prices")
+            return {
+                "error": True,
+                "message": f"An unexpected error occurred: {e!s}",
+            }, ApiConstants.HTTP_INTERNAL_SERVER_ERROR
 
     @api.doc("create_daily_price")
     @api.expect(daily_price_input_model)
@@ -238,7 +306,7 @@ class DailyPriceList(Resource):
                 missing_field: str = "stock_id" if not stock_id else "price_date"
                 return {
                     "error": True,
-                    "message": StockPriceError.FIELD_REQUIRED.format(missing_field),
+                    "message": StockPriceError.FIELD_REQUIRED.format(key=missing_field),
                 }, ApiConstants.HTTP_BAD_REQUEST
 
             # Create price record
@@ -250,6 +318,11 @@ class DailyPriceList(Resource):
                     data,
                 )
                 result_data: dict[str, any] = daily_price_schema.dump(result)
+
+                # Ensure stock_id is included in the response
+                if "stock_id" not in result_data:
+                    result_data["stock_id"] = stock_id
+
                 return result_data, ApiConstants.HTTP_CREATED
 
         except ValidationError as e:
@@ -287,6 +360,9 @@ class DailyPriceDetail(Resource):
                     price_id,
                 )
                 result: dict[str, any] = daily_price_schema.dump(price)
+                # Ensure stock_id is included in the response
+                if "stock_id" not in result and price.stock_id:
+                    result["stock_id"] = price.stock_id
                 return result, ApiConstants.HTTP_OK
         except ResourceNotFoundError as e:
             return {"error": True, "message": str(e)}, ApiConstants.HTTP_NOT_FOUND
@@ -298,7 +374,7 @@ class DailyPriceDetail(Resource):
             }, ApiConstants.HTTP_INTERNAL_SERVER_ERROR
 
     @api.doc("update_daily_price")
-    @api.expect(daily_price_input_model)
+    @api.expect(daily_price_update_model)
     @api.response(200, "Success", daily_price_model)
     @api.response(400, "Validation Error")
     @api.response(404, "Daily Price Not Found")
@@ -307,34 +383,41 @@ class DailyPriceDetail(Resource):
     def put(self, price_id: int) -> any:
         """Update a daily price record."""
         try:
+            # Get and validate request data
             json_data: dict[str, any] = request.json or {}
 
             # Validate input (partial validation ok for update)
             data: dict[str, any] = daily_price_input_schema.load(
                 json_data,
-                partial=True,
+                partial=True,  # Allow missing required fields for updates
             )
 
-            # Update price record
+            # Update price record using service
             with SessionManager() as session:
+                # Use the service method which handles all validation
                 result: StockDailyPrice = DailyPriceService.update_daily_price(
                     session,
                     price_id,
                     data,
                 )
+
+                # Serialize and return the updated record
                 result_data: dict[str, any] = daily_price_schema.dump(result)
+
+                # Ensure stock_id is included in the response
+                if "stock_id" not in result_data and result.stock_id:
+                    result_data["stock_id"] = result.stock_id
+
                 return result_data, ApiConstants.HTTP_OK
 
         except ValidationError as e:
             return {
                 "error": True,
                 "message": "Validation error",
-                "validation_errors": e.messages,
+                "validation_errors": e.messages if hasattr(e, "messages") else str(e),
             }, ApiConstants.HTTP_BAD_REQUEST
         except ResourceNotFoundError as e:
             return {"error": True, "message": str(e)}, ApiConstants.HTTP_NOT_FOUND
-        except BusinessLogicError as e:
-            return {"error": True, "message": str(e)}, ApiConstants.HTTP_BAD_REQUEST
         except Exception as e:
             current_app.logger.exception("Error updating daily price")
             return {
@@ -344,7 +427,7 @@ class DailyPriceDetail(Resource):
 
     @api.doc("delete_daily_price")
     @api.expect(daily_price_delete_model)
-    @api.response(204, "No Content")
+    @api.response(200, "Success")
     @api.response(400, "Validation Error")
     @api.response(404, "Daily Price Not Found")
     @jwt_required()
@@ -365,7 +448,10 @@ class DailyPriceDetail(Resource):
             # Delete price record
             with SessionManager() as session:
                 DailyPriceService.delete_daily_price(session, price_id)
-                return None, ApiConstants.HTTP_NO_CONTENT
+                return {
+                    "success": True,
+                    "message": f"Daily price with ID {price_id} deleted successfully",
+                }, ApiConstants.HTTP_OK
 
         except ValidationError as e:
             return {
@@ -413,9 +499,24 @@ class LatestDailyPrices(Resource):
                         days,
                     )
                 )
-                result: list[dict[str, any]] = daily_prices_schema.dump(prices)
+                result_data: list[dict[str, any]] = daily_prices_schema.dump(prices)
+
+                # Ensure each price item includes stock_id
+                for item in result_data:
+                    if "stock_id" not in item:
+                        item["stock_id"] = stock.id
+
+                # Return a consistent format with other endpoints
+                result = {
+                    "items": result_data,
+                    "stock_id": stock.id,
+                    "stock_symbol": stock.symbol,
+                    "count": len(prices),
+                }
                 return result, ApiConstants.HTTP_OK
 
+        except ResourceNotFoundError as e:
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_NOT_FOUND
         except Exception as e:
             current_app.logger.exception("Error getting latest daily prices")
             return {
@@ -476,9 +577,26 @@ class DailyPriceRange(Resource):
                         end_date,
                     )
                 )
-                result: list[dict[str, any]] = daily_prices_schema.dump(prices)
+                result_data: list[dict[str, any]] = daily_prices_schema.dump(prices)
+
+                # Ensure each price item includes stock_id
+                for item in result_data:
+                    if "stock_id" not in item:
+                        item["stock_id"] = stock.id
+
+                # Return a consistent format with other endpoints
+                result = {
+                    "items": result_data,
+                    "stock_id": stock.id,
+                    "stock_symbol": stock.symbol,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "count": len(prices),
+                }
                 return result, ApiConstants.HTTP_OK
 
+        except ResourceNotFoundError as e:
+            return {"error": True, "message": str(e)}, ApiConstants.HTTP_NOT_FOUND
         except Exception as e:
             current_app.logger.exception("Error getting daily prices by date range")
             return {

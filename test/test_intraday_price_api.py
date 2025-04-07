@@ -42,7 +42,11 @@ class TestIntradayPriceAPI:
         price_data: dict[str, object] = {
             "stock_id": self.test_stock["id"],
             "timestamp": current_time.isoformat(),
-            "price": 151.75,
+            "interval": IntradayInterval.ONE_MINUTE.value,
+            "open_price": 151.75,
+            "high_price": 152.00,
+            "low_price": 151.50,
+            "close_price": 151.75,
             "volume": 1500,
             "source": "TEST",
         }
@@ -123,10 +127,6 @@ class TestIntradayPriceAPI:
 
     def test_get_intraday_price_by_id(self) -> None:
         """Test getting an intraday price by ID."""
-        # Skip if we don't have a real price record
-        if self.test_price.get("id") == 1 and not self.test_price.get("_real", False):
-            pytest.skip("No real price record available")
-
         # Get price by ID with authentication
         response: Response = authenticated_request(
             self.client,
@@ -265,6 +265,9 @@ class TestIntradayPriceAPI:
         """Test updating an intraday price record."""
         # Prepare update data
         update_data: dict[str, any] = {
+            "stock_id": self.test_stock["id"],
+            "timestamp": self.test_price["timestamp"],
+            "interval": IntradayInterval.ONE_MINUTE.value,
             "open_price": 151.00,
             "high_price": 152.50,
             "low_price": 150.75,

@@ -96,6 +96,8 @@ class StockIntradayPriceSchema(SQLAlchemyAutoSchema):
 
     # Add stock symbol to make API responses more informative
     stock_symbol: fields.Method = fields.Method("get_stock_symbol", dump_only=True)
+    # Ensure stock_id is always included
+    stock_id: fields.Integer = fields.Integer(dump_only=True)
 
     def get_stock_symbol(self, obj: StockIntradayPrice) -> str | None:
         """Get the stock symbol from the related stock."""
@@ -123,6 +125,7 @@ class StockIntradayPriceInputSchema(BasePriceSchema):
     """Schema for creating or updating a StockIntradayPrice."""
 
     timestamp: fields.DateTime = fields.DateTime(required=True)
+    stock_id: fields.Integer = fields.Integer(required=True)
     interval: fields.Integer = fields.Integer(
         validate=validate.OneOf(IntradayInterval.valid_values()),
         dump_default=IntradayInterval.ONE_MINUTE.value,
@@ -155,7 +158,15 @@ class StockIntradayPriceInputSchema(BasePriceSchema):
     @validates("timestamp")
     def validate_timestamp(self, timestamp: datetime) -> None:
         """Validate timestamp."""
-        if timestamp > get_current_datetime():
+        current_time = get_current_datetime()
+
+        # Normalize timezone awareness for comparison
+        if timestamp.tzinfo is not None and current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=timestamp.tzinfo)
+        elif timestamp.tzinfo is None and current_time.tzinfo is not None:
+            timestamp = timestamp.replace(tzinfo=current_time.tzinfo)
+
+        if timestamp > current_time:
             raise ValidationError(
                 StockPriceError.FUTURE_TIMESTAMP.format(
                     key="timestamp",
@@ -164,7 +175,11 @@ class StockIntradayPriceInputSchema(BasePriceSchema):
             )
 
     @post_load
-    def make_intraday_price(self, data: dict) -> StockIntradayPrice:
+    def make_intraday_price(
+        self,
+        data: dict,
+        **_kwargs: object,
+    ) -> StockIntradayPrice:
         """Create a StockIntradayPrice instance from validated data."""
         return StockIntradayPrice.from_dict(data)
 
@@ -177,7 +192,7 @@ class StockIntradayPriceDeleteSchema(Schema):
     price_id: fields.Integer = fields.Integer(required=True)
 
     @validates_schema
-    def validate_deletion(self, data: dict) -> None:
+    def validate_deletion(self, data: dict, **_kwargs: object) -> None:
         """Validate deletion confirmation and check for dependencies."""
         if not data.get("confirm"):
             raise ValidationError(StockPriceError.CONFIRM_DELETION)

@@ -305,12 +305,12 @@ class StockService:
         return stock
 
     @staticmethod
-    def update_stock(session: Session, stock: Stock, data: dict[str, any]) -> Stock:
+    def update_stock(session: Session, stock_id: int, data: dict[str, any]) -> Stock:
         """Update stock attributes.
 
         Args:
             session: Database session
-            stock: Stock instance to update
+            stock_id: ID of the stock to update
             data: Dictionary of attributes to update
 
         Returns:
@@ -318,11 +318,15 @@ class StockService:
 
         Raises:
             ValidationError: If invalid data is provided
+            ResourceNotFoundError: If stock with given ID doesn't exist
 
         """
         from app.services.events import EventService
 
         try:
+            # Get the stock by ID
+            stock: Stock = StockService.get_or_404(session, stock_id)
+
             # Define which fields can be updated
             allowed_fields: set[str] = {"name", "is_active", "sector", "description"}
 
@@ -426,17 +430,23 @@ class StockService:
         return stock
 
     @staticmethod
-    def toggle_active(session: Session, stock: Stock) -> Stock:
+    def toggle_active(session: Session, stock_id: int) -> Stock:
         """Toggle the active status of the stock.
 
         Args:
             session: Database session
-            stock: Stock instance
+            stock_id: ID of the stock to toggle
 
         Returns:
             Updated stock instance
 
+        Raises:
+            ResourceNotFoundError: If stock with given ID doesn't exist
+
         """
+        # Get the stock by ID
+        stock: Stock = StockService.get_or_404(session, stock_id)
+
         return StockService.change_active_status(
             session,
             stock,
@@ -444,23 +454,27 @@ class StockService:
         )
 
     @staticmethod
-    def delete_stock(session: Session, stock: Stock) -> bool:
+    def delete_stock(session: Session, stock_id: int) -> bool:
         """Delete a stock if it has no dependencies.
 
         Args:
             session: Database session
-            stock: Stock instance to delete
+            stock_id: ID of the stock to delete
 
         Returns:
             True if stock was deleted, False otherwise
 
         Raises:
             BusinessLogicError: If stock has dependencies
+            ResourceNotFoundError: If stock with given ID doesn't exist
 
         """
         try:
+            # Get the stock by ID
+            stock: Stock = StockService.get_or_404(session, stock_id)
+
             # Check for dependencies
-            if stock.has_dependencies():
+            if stock.has_dependencies:
                 error_msg = (
                     f"Cannot delete stock '{stock.symbol}' because it has associated "
                     f"trading services or transactions"

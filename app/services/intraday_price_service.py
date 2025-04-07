@@ -314,7 +314,6 @@ class IntradayPriceService:
                 action="created",
                 price_data=dumped_data,
                 stock_symbol=stock.symbol,
-                is_intraday=True,
             )
 
         except Exception as e:
@@ -398,7 +397,6 @@ class IntradayPriceService:
                 action="updated",
                 price_data=dumped_data,
                 stock_symbol=price.stock.symbol,
-                is_intraday=True,
             )
 
         except Exception as e:

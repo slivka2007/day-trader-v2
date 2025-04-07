@@ -311,6 +311,7 @@ class PriceSource(str, Enum):
     - DELAYED: Delayed price data (typically 15-20 minutes)
     - SIMULATED: Simulated or generated price data for testing
     - HISTORICAL: Historical price data from past periods
+    - TEST: Test data for development and testing purposes
     """
 
     #
@@ -320,6 +321,7 @@ class PriceSource(str, Enum):
     DELAYED = "DELAYED"
     SIMULATED = "SIMULATED"
     HISTORICAL = "HISTORICAL"
+    TEST = "TEST"
 
     #
     # Error messages
@@ -350,6 +352,11 @@ class PriceSource(str, Enum):
         return source == cls.REAL_TIME.value
 
     @classmethod
+    def is_test(cls, source: str) -> bool:
+        """Check if the price source is test data."""
+        return source == cls.TEST.value
+
+    @classmethod
     def is_real(cls, source: str) -> bool:
         """Check if the price source provides real market data (not simulated)."""
         return source in {cls.REAL_TIME.value, cls.DELAYED.value, cls.HISTORICAL.value}
@@ -362,6 +369,7 @@ class PriceSource(str, Enum):
             cls.DELAYED.value: "Delayed (15min)",
             cls.SIMULATED.value: "Simulated",
             cls.HISTORICAL.value: "Historical",
+            cls.TEST.value: "Test",
         }
 
     @classmethod

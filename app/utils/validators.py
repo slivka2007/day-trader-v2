@@ -9,23 +9,24 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Callable, TypeVar
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from enum import Enum
+
+from datetime import date, datetime
+from typing import Callable, TypeVar
 
 from app.utils.constants import StockConstants
 from app.utils.current_datetime import get_current_date, get_current_datetime
 from app.utils.errors import (
     CommonErrorMessages,
     StockError,
-    StockPriceError,
     TradingServiceError,
     TransactionError,
     UserError,
     ValidationError,
 )
-
-if TYPE_CHECKING:
-    from datetime import date, datetime
-    from enum import Enum
 
 # Set up logging
 logger: logging.Logger = logging.getLogger(__name__)
@@ -258,9 +259,9 @@ def validate_positive_value(
         value,
         error_class,
         key,
-        TransactionError.PRICE_POSITIVE.format(key="{key}", value="{value}"),
+        TransactionError.PRICE_POSITIVE.format(key, value),
         lambda x: x > 0,
-        error_attr,
+        error_attr=error_attr,
     )
 
 
@@ -289,9 +290,9 @@ def validate_non_negative_value(
         value,
         error_class,
         key,
-        StockPriceError.NEGATIVE_PRICE.format(key="{key}", value="{value}"),
+        CommonErrorMessages.NEGATIVE_PRICE.format(key, value),
         lambda x: x >= 0,
-        error_attr,
+        error_attr=error_attr,
     )
 
 
@@ -352,7 +353,6 @@ def _validate_not_future(  # noqa: PLR0913
     key: str,
     default_message: str,
     current_time_func: Callable[[], date | datetime],
-    *,
     error_attr: str = "FUTURE_DATE",
 ) -> date | datetime:
     """Validate that a date or datetime is not in the future.
@@ -372,7 +372,19 @@ def _validate_not_future(  # noqa: PLR0913
         ValidationError: If the date/datetime is in the future
 
     """
-    if time_value and time_value > current_time_func():
+    if not time_value:
+        return time_value
+
+    current_time = current_time_func()
+
+    # Normalize timezone awareness for datetime comparison
+    if isinstance(time_value, datetime) and isinstance(current_time, datetime):
+        if time_value.tzinfo is not None and current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=time_value.tzinfo)
+        elif time_value.tzinfo is None and current_time.tzinfo is not None:
+            time_value = time_value.replace(tzinfo=current_time.tzinfo)
+
+    if time_value > current_time:
         error_msg: str = _get_error_message(
             error_class,
             error_attr,
@@ -443,7 +455,7 @@ def validate_not_future_datetime(
         key,
         CommonErrorMessages.FUTURE_TIMESTAMP,
         get_current_datetime,
-        error_attr,
+        error_attr=error_attr,
     )
 
 

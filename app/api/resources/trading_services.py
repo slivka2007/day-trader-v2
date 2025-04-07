@@ -1,5 +1,9 @@
 """Trading Services API resources."""
 
+from __future__ import annotations
+
+from typing import cast
+
 from flask import current_app, request
 from flask_jwt_extended import jwt_required
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields
@@ -219,7 +223,7 @@ class ServiceList(Resource):
                 service = TradingServiceService.create_service(
                     session=session,
                     user_id=user.id.scalar(),
-                    data=cast(Dict[str, Any], validated_data),
+                    data=cast("dict[str, any]", validated_data),
                 )
 
                 return service_schema.dump(service), 201
@@ -378,7 +382,7 @@ class ServiceItem(Resource):
                 result = TradingServiceService.update_service(
                     session,
                     service,
-                    cast(Dict[str, Any], validated_data),
+                    cast("dict[str, any]", validated_data),
                 )
                 return service_schema.dump(result)
 
