@@ -7,7 +7,6 @@ providing a clean API for trading transaction management operations.
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -244,7 +243,7 @@ class TransactionService:
         return (end_date - transaction.purchase_date).days
 
     @staticmethod
-    def total_cost(transaction: TradingTransaction) -> Decimal:
+    def total_cost(transaction: TradingTransaction) -> float:
         """Calculate the total cost of a transaction's purchase.
 
         Args:
@@ -256,10 +255,10 @@ class TransactionService:
         """
         if transaction.purchase_price is not None and transaction.shares is not None:
             return transaction.purchase_price * transaction.shares
-        return Decimal("0")
+        return 0.0
 
     @staticmethod
-    def total_revenue(transaction: TradingTransaction) -> Decimal:
+    def total_revenue(transaction: TradingTransaction) -> float:
         """Calculate the total revenue from a transaction's sale.
 
         Args:
@@ -271,7 +270,7 @@ class TransactionService:
         """
         if transaction.sale_price is not None and transaction.shares is not None:
             return transaction.sale_price * transaction.shares
-        return Decimal("0")
+        return 0.0
 
     @staticmethod
     def profit_loss_percent(transaction: TradingTransaction) -> float:
@@ -447,7 +446,7 @@ class TransactionService:
             and transaction.sale_price is not None
             and transaction.purchase_price is not None
         ):
-            transaction.gain_loss = transaction.calculate_gain_loss()
+            transaction.gain_loss = transaction.calculated_gain_loss
             updated = True
 
         return updated
@@ -503,8 +502,8 @@ class TransactionService:
                 )
 
             # Check if service can buy
-            total_cost: Decimal = shares * purchase_price
-            current_balance: Decimal = service.current_balance
+            total_cost: float = shares * purchase_price
+            current_balance: float = service.current_balance
             if total_cost > current_balance:
                 TransactionService._raise_business_error(
                     ValidationError.INSUFFICIENT_FUNDS.format(
@@ -545,7 +544,7 @@ class TransactionService:
             session.add(transaction)
 
             # Update service balance
-            service.current_balance = service.current_balance - total_cost
+            service.current_balance = float(current_balance) - total_cost
             service.updated_at = get_current_datetime()
 
             session.commit()
@@ -591,7 +590,7 @@ class TransactionService:
     def complete_transaction(
         session: Session,
         transaction_id: int,
-        sale_price: Decimal,
+        sale_price: float,
     ) -> TradingTransaction:
         """Complete (sell) an open transaction.
 
@@ -647,18 +646,16 @@ class TransactionService:
             transaction.state = TransactionState.CLOSED.value
 
             # Calculate gain/loss
-            transaction.gain_loss = transaction.calculate_gain_loss()
+            transaction.gain_loss = transaction.calculated_gain_loss
 
             # Update service balance
-            sale_amount: Decimal = sale_price * transaction.shares
-            service.current_balance = service.current_balance + sale_amount
+            sale_amount: float = sale_price * float(transaction.shares)
+            service.current_balance = float(service.current_balance) + sale_amount
             service.updated_at = get_current_datetime()
 
-            # Update profit/loss history - avoid direct boolean comparison
-            if transaction.gain_loss > 0:
-                service.total_profit = service.total_profit + transaction.gain_loss
-            else:
-                service.total_loss = service.total_loss + abs(transaction.gain_loss)
+            # Update total gain/loss
+            gain_loss_amount = float(transaction.calculated_gain_loss)
+            service.total_gain_loss = float(service.total_gain_loss) + gain_loss_amount
 
             session.commit()
 
@@ -759,8 +756,10 @@ class TransactionService:
             transaction.updated_at = get_current_datetime()
 
             # Refund service balance
-            refund_amount: Decimal = transaction.purchase_price * transaction.shares
-            service.current_balance = service.current_balance + refund_amount
+            refund_amount: float = transaction.purchase_price * transaction.shares
+            service.current_balance = float(service.current_balance) + float(
+                refund_amount,
+            )
             service.updated_at = get_current_datetime()
 
             session.commit()
@@ -1078,3 +1077,135 @@ class TransactionService:
         if isinstance(e, allowed_types):
             raise e
         raise conversion_type(message.format(e)) from e
+
+    @staticmethod
+    def get_services_by_user(session: Session, user_id: int) -> list[TradingService]:
+        """Get all services owned by a user.
+
+        Args:
+            session: Database session
+            user_id: User ID
+
+        Returns:
+            List of trading services owned by the user
+
+        """
+        return (
+            session.execute(
+                select(TradingService).where(TradingService.user_id == user_id),
+            )
+            .scalars()
+            .all()
+        )
+
+    @staticmethod
+    def get_service_by_id(session: Session, service_id: int) -> TradingService | None:
+        """Get a trading service by ID.
+
+        Args:
+            session: Database session
+            service_id: Service ID
+
+        Returns:
+            Trading service if found, None otherwise
+
+        """
+        return session.execute(
+            select(TradingService).where(TradingService.id == service_id),
+        ).scalar_one_or_none()
+
+    @staticmethod
+    def get_transactions_for_user(
+        session: Session,
+        user_id: int,
+        filters: dict[str, any] | None = None,
+    ) -> list[TradingTransaction]:
+        """Get all transactions for a user across all their services.
+
+        Args:
+            session: Database session
+            user_id: User ID
+            filters: Optional filters to apply (service_id, state)
+
+        Returns:
+            List of filtered transactions owned by the user
+
+        """
+        # Get all services owned by the user
+        user_services: list[TradingService] = TransactionService.get_services_by_user(
+            session,
+            user_id,
+        )
+
+        if not user_services:
+            return []
+
+        service_ids: list[int] = [service.id for service in user_services]
+        filters = filters or {}
+
+        all_transactions: list[TradingTransaction] = []
+
+        # If filtering by specific service
+        if "service_id" in filters and filters["service_id"] in service_ids:
+            if "state" in filters:
+                transactions = TransactionService.get_by_service(
+                    session,
+                    filters["service_id"],
+                    filters["state"],
+                )
+            else:
+                transactions = TransactionService.get_by_service(
+                    session,
+                    filters["service_id"],
+                )
+            all_transactions.extend(transactions)
+        else:
+            # Get transactions for all user's services
+            for service_id in service_ids:
+                if "state" in filters:
+                    transactions = TransactionService.get_by_service(
+                        session,
+                        service_id,
+                        filters["state"],
+                    )
+                else:
+                    transactions = TransactionService.get_by_service(
+                        session,
+                        service_id,
+                    )
+                all_transactions.extend(transactions)
+
+        return all_transactions
+
+    @staticmethod
+    def sort_transactions(
+        transactions: list[TradingTransaction],
+        sort_field: str = "purchase_date",
+        sort_order: str = "desc",
+    ) -> list[TradingTransaction]:
+        """Sort transactions by the specified field and order.
+
+        Args:
+            transactions: List of transactions to sort
+            sort_field: Field to sort by (default: purchase_date)
+            sort_order: Sort direction (asc/desc)
+
+        Returns:
+            Sorted list of transactions
+
+        """
+
+        def get_sort_key(t: TradingTransaction) -> any:
+            try:
+                val: any | None = getattr(t, sort_field, None)
+                if val is None:
+                    val = getattr(t, "purchase_date", None)
+            except AttributeError:
+                return None
+            return val
+
+        return sorted(
+            transactions,
+            key=get_sort_key,
+            reverse=(sort_order.lower() == "desc"),
+        )

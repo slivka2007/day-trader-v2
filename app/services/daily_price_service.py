@@ -172,7 +172,7 @@ class DailyPriceService:
             end_date = get_current_date()
 
         # Use execute and unpack the results properly
-        result = session.execute(
+        result: list[StockDailyPrice] = session.execute(
             select(StockDailyPrice)
             .where(
                 and_(

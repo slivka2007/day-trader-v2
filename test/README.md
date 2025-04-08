@@ -31,6 +31,8 @@ python -m pytest test/test_stock_api.py -v
 python -m pytest test/test_daily_price_api.py -v
 python -m pytest test/test_intraday_price_api.py -v
 python -m pytest test/test_user_api.py -v
+python -m pytest test/test_trading_service_api.py -v
+python -m pytest test/test_transaction_api.py -v
 ```
 
 ## Test Data

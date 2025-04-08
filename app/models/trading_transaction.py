@@ -268,5 +268,10 @@ class TradingTransaction(Base):
             and self.purchase_price is not None
             and self.shares is not None
         ):
-            return (self.sale_price - self.purchase_price) * self.shares
+            # Convert Decimal to float to avoid type errors
+            sale_price_float = float(self.sale_price)
+            purchase_price_float = float(self.purchase_price)
+            shares_float = float(self.shares)
+
+            return (sale_price_float - purchase_price_float) * shares_float
         return 0

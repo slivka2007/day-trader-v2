@@ -15,7 +15,6 @@ from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
 from app.api.schemas import Schema
 from app.models import (
     ServiceAction,
-    ServiceState,
     TradingMode,
     TradingService,
 )
@@ -27,6 +26,8 @@ class TradingServiceSchema(SQLAlchemyAutoSchema):
     """Schema for serializing/deserializing TradingService models."""
 
     class Meta:
+        """Meta class for TradingServiceSchema."""
+
         model = TradingService
         include_relationships = False
         load_instance = True
@@ -125,11 +126,11 @@ class TradingServiceCreateSchema(Schema):
     is_active: fields.Boolean = fields.Boolean(default=True)
 
     @post_load
-    def make_service(self, data: dict) -> TradingService:
+    def make_service(self, data: dict, **_kwargs: object) -> dict:
         """Create a TradingService instance from validated data."""
         # Set current_balance to initial_balance when creating
         data["current_balance"] = data["initial_balance"]
-        return TradingService.from_dict(data)
+        return data
 
 
 # Schema for updating a trading service
@@ -170,9 +171,6 @@ class TradingServiceUpdateSchema(Schema):
     )
     take_profit_percent: fields.Float = fields.Float(
         validate=validate.Range(min=TradingServiceConstants.MIN_TAKE_PROFIT_PERCENT),
-    )
-    state: fields.String = fields.String(
-        validate=validate.OneOf([state.value for state in ServiceState]),
     )
     mode: fields.String = fields.String(
         validate=validate.OneOf([mode.value for mode in TradingMode]),

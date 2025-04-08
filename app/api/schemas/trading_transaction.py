@@ -30,6 +30,7 @@ class TradingTransactionSchema(SQLAlchemyAutoSchema):
             "created_at",
             "updated_at",
         )
+        include_fk = True
 
     # Add custom fields and validation
     is_complete: fields.Boolean = fields.Boolean(dump_only=True)
@@ -121,7 +122,7 @@ class TransactionCompleteSchema(Schema):
             raise ValidationError(TransactionError.PRICE_POSITIVE)
 
     @validates_schema
-    def validate_transaction_state(self) -> None:
+    def validate_transaction_state(self, data: dict, **_kwargs: object) -> None:
         """Validate the transaction is in a state where it can be completed."""
         # This validation could be performed if the transaction_id was passed
         # Since it's handled in the resource, we don't need additional validation here
@@ -165,7 +166,7 @@ class TransactionCancelSchema(Schema):
     )
 
     @validates_schema
-    def validate_cancellation(self) -> None:
+    def validate_cancellation(self, data: dict, **_kwargs: object) -> None:
         """Validate the cancellation is possible."""
         # This validation is handled in the model's cancel_transaction method
         # The transaction_id is part of the resource URL path, so we don't need to
@@ -180,7 +181,7 @@ class TransactionDeleteSchema(Schema):
     transaction_id: fields.Integer = fields.Integer(required=True)
 
     @validates_schema
-    def validate_deletion(self, data: dict) -> None:
+    def validate_deletion(self, data: dict, **_kwargs: object) -> None:
         """Validate deletion confirmation."""
         if not data.get("confirm"):
             raise ValidationError(TransactionError.CONFIRM_DELETION)

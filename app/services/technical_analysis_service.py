@@ -267,8 +267,12 @@ class TechnicalAnalysisService:
             TechnicalAnalysisService.SHORT_MA_PERIOD in moving_averages
             and TechnicalAnalysisService.LONG_MA_PERIOD in moving_averages
         ):
-            short_ma = moving_averages[TechnicalAnalysisService.SHORT_MA_PERIOD]
-            long_ma = moving_averages[TechnicalAnalysisService.LONG_MA_PERIOD]
+            short_ma: float | None = moving_averages[
+                TechnicalAnalysisService.SHORT_MA_PERIOD
+            ]
+            long_ma: float | None = moving_averages[
+                TechnicalAnalysisService.LONG_MA_PERIOD
+            ]
 
             if short_ma is not None and long_ma is not None:
                 if short_ma > long_ma:
@@ -350,10 +354,14 @@ class TechnicalAnalysisService:
             TechnicalAnalysisService.SHORT_MA_PERIOD in moving_averages
             and TechnicalAnalysisService.LONG_MA_PERIOD in moving_averages
         ):
-            short_ma = moving_averages[TechnicalAnalysisService.SHORT_MA_PERIOD]
-            long_ma = moving_averages[TechnicalAnalysisService.LONG_MA_PERIOD]
+            short_ma: float | None = moving_averages[
+                TechnicalAnalysisService.SHORT_MA_PERIOD
+            ]
+            long_ma: float | None = moving_averages[
+                TechnicalAnalysisService.LONG_MA_PERIOD
+            ]
             if short_ma is not None and long_ma is not None:
-                is_uptrend = short_ma > long_ma
+                is_uptrend: bool = short_ma > long_ma
 
         analysis: dict[str, any] = {
             "has_data": True,

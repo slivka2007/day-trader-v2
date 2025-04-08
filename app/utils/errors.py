@@ -75,7 +75,7 @@ class CommonErrorMessages:
     """Common error messages that can be shared across validation error types."""
 
     # Common field validation
-    FIELD_REQUIRED: str = "Field '{}' is required"
+    FIELD_REQUIRED: str = "Field 'key={}' is required"
 
     # Symbol validation
     SYMBOL_REQUIRED: str = "Stock symbol is required"
@@ -368,6 +368,7 @@ class AuthorizationError(APIError):
     # Common authorization error messages
     ADMIN_ONLY: str = "Only admins can grant admin privileges"
     NOT_AUTHORIZED: str = "Not authorized to access this resource"
+    NOT_AUTHENTICATED: str = "Not authenticated"
     ACCOUNT_INACTIVE: str = "Account is inactive"
 
     def __init__(
@@ -391,7 +392,7 @@ class ResourceNotFoundError(APIError):
     """Error raised when a requested resource is not found."""
 
     # Error message template
-    NOT_FOUND = "{} with ID {} not found"
+    NOT_FOUND: str = "Resource '{}' with ID '{}' not found"
 
     def __init__(
         self,

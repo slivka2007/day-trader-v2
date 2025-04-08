@@ -108,7 +108,7 @@ def validate_stock_symbol(
     """
     # Check if symbol is empty
     if not symbol:
-        error_msg = _get_error_message(
+        error_msg: str = _get_error_message(
             error_class,
             ERROR_ATTR_SYMBOL_REQUIRED,
             CommonErrorMessages.SYMBOL_REQUIRED,
@@ -120,7 +120,7 @@ def validate_stock_symbol(
 
     # Check length
     if len(cleaned_symbol) > max_length:
-        error_msg = _get_error_message(
+        error_msg: str = _get_error_message(
             error_class,
             ERROR_ATTR_SYMBOL_LENGTH,
             CommonErrorMessages.SYMBOL_LENGTH.format(
@@ -136,7 +136,7 @@ def validate_stock_symbol(
 
     # Check format (only letters and numbers)
     if not re.match(r"^[A-Z0-9]+$", cleaned_symbol):
-        error_msg = _get_error_message(
+        error_msg: str = _get_error_message(
             error_class,
             ERROR_ATTR_SYMBOL_FORMAT,
             CommonErrorMessages.SYMBOL_FORMAT,
@@ -547,7 +547,7 @@ def validate_email(
                 error_msg: str = UserError.EMAIL_REQUIRED.format(key=key, value=email)
                 raise UserError(error_msg)
 
-            error_msg = _get_error_message(
+            error_msg: str = _get_error_message(
                 error_class,
                 ERROR_ATTR_EMAIL_REQUIRED,
                 CommonErrorMessages.EMAIL_REQUIRED.format(key=key, value=email),
