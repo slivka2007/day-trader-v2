@@ -57,11 +57,6 @@ class EventService:
             try:
                 app: Flask = cast("Flask", current_app)
 
-                # Skip event emission if in testing mode
-                if app.config.get("TESTING", False):
-                    logger.debug("Running in test mode, skipping event emission")
-                    return
-
             except RuntimeError:
                 # No application context available (likely in a test environment)
                 logger.debug(

@@ -33,6 +33,7 @@ python -m pytest test/test_intraday_price_api.py -v
 python -m pytest test/test_user_api.py -v
 python -m pytest test/test_trading_service_api.py -v
 python -m pytest test/test_transaction_api.py -v
+python -m pytest test/test_yfinance_integration.py -v
 ```
 
 ## Test Data

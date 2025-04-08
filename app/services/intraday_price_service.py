@@ -309,7 +309,7 @@ class IntradayPriceService:
             session.commit()
 
             # Emit event
-            dumped_data = intraday_price_schema.dump(intraday_price)
+            dumped_data: dict[str, any] = intraday_price_schema.dump(intraday_price)
             EventService.emit_price_update(
                 action="created",
                 price_data=dumped_data,
@@ -392,7 +392,7 @@ class IntradayPriceService:
             session.commit()
 
             # Emit event
-            dumped_data = intraday_price_schema.dump(price)
+            dumped_data: dict[str, any] = intraday_price_schema.dump(price)
             EventService.emit_price_update(
                 action="updated",
                 price_data=dumped_data,
@@ -630,7 +630,8 @@ class IntradayPriceService:
                 "low_price": price_data["low"],
                 "close_price": price_data["close"],
                 "volume": price_data["volume"],
-                "source": PriceSource.REAL_TIME.value,
+                "source": PriceSource.DELAYED.value,
+                "timestamp": price_data["timestamp"],
             }
 
             if existing:

@@ -72,7 +72,7 @@ class BacktestService:
         current_price: float = float(params.price.close_price)
 
         # Add price to history
-        price_history = params.price_history.copy()
+        price_history: list[float] = params.price_history.copy()
         price_history.append(current_price)
 
         # If we don't have enough price history yet, just return updated values
@@ -85,7 +85,9 @@ class BacktestService:
             )
 
         # Get price analysis
-        price_analysis = TechnicalAnalysisService.get_price_analysis(price_history)
+        price_analysis: dict[str, any] = TechnicalAnalysisService.get_price_analysis(
+            price_history,
+        )
 
         transaction = None
 
@@ -111,7 +113,7 @@ class BacktestService:
                         params.current_balance -= cost
                         params.shares_held = shares_to_buy
                         params.last_buy_price = current_price
-                        transaction = {
+                        transaction: dict[str, any] = {
                             "type": "buy",
                             "date": params.price.price_date.isoformat(),
                             "price": current_price,
@@ -128,14 +130,14 @@ class BacktestService:
             if should_sell:
                 revenue: float = params.shares_held * current_price
                 params.current_balance += revenue
-                gain_loss = (
+                gain_loss: float = (
                     revenue - (params.shares_held * params.last_buy_price)
                     if params.last_buy_price
                     else 0
                 )
                 params.shares_held = 0
                 params.last_buy_price = None
-                transaction = {
+                transaction: dict[str, any] = {
                     "type": "sell",
                     "date": params.price.price_date.isoformat(),
                     "price": current_price,
@@ -178,51 +180,53 @@ class BacktestService:
             }
 
         # Calculate returns
-        final_value = portfolio_values[-1]
-        total_return = (final_value - initial_balance) / initial_balance
+        final_value: float = portfolio_values[-1]
+        total_return: float = (final_value - initial_balance) / initial_balance
 
         # Annualized return (assuming 252 trading days per year)
         if days > 0:
-            years = days / 252
-            annualized_return = (
+            years: float = days / 252
+            annualized_return: float = (
                 (1 + total_return) ** (1 / years) - 1 if years > 0 else 0
             )
         else:
-            annualized_return = 0
+            annualized_return: float = 0
 
         # Max drawdown calculation
-        max_value = portfolio_values[0]
-        max_drawdown = 0
+        max_value: float = portfolio_values[0]
+        max_drawdown: float = 0
 
         for value in portfolio_values:
             max_value = max(max_value, value)
-            drawdown = (max_value - value) / max_value if max_value > 0 else 0
+            drawdown: float = (max_value - value) / max_value if max_value > 0 else 0
             max_drawdown = max(max_drawdown, drawdown)
 
         # Volatility (standard deviation of daily returns)
-        daily_returns = [
+        daily_returns: list[float] = [
             (portfolio_values[i] / portfolio_values[i - 1]) - 1
             for i in range(1, len(portfolio_values))
         ]
 
         if daily_returns:
-            avg_return = sum(daily_returns) / len(daily_returns)
-            squared_diffs = [(r - avg_return) ** 2 for r in daily_returns]
-            variance = sum(squared_diffs) / len(squared_diffs) if squared_diffs else 0
-            volatility = variance**0.5
+            avg_return: float = sum(daily_returns) / len(daily_returns)
+            squared_diffs: list[float] = [(r - avg_return) ** 2 for r in daily_returns]
+            variance: float = (
+                sum(squared_diffs) / len(squared_diffs) if squared_diffs else 0
+            )
+            volatility: float = variance**0.5
 
             # Annualized volatility
-            volatility_annualized = volatility * (252**0.5)
+            volatility_annualized: float = volatility * (252**0.5)
 
             # Sharpe ratio (assuming 0% risk-free rate)
-            sharpe_ratio = (
+            sharpe_ratio: float = (
                 annualized_return / volatility_annualized
                 if volatility_annualized > 0
                 else 0
             )
         else:
-            volatility = 0
-            sharpe_ratio = 0
+            volatility: float = 0
+            sharpe_ratio: float = 0
 
         return {
             "total_return_pct": total_return * 100,
@@ -396,6 +400,7 @@ class BacktestService:
         price_history: list[float] = []
         portfolio_values: list[float] = []
         transactions: list[dict[str, any]] = []
+        transaction: dict[str, any] | None = None
 
         # Process each day
         for i, price in enumerate(price_data):

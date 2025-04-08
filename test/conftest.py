@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, ClassVar
+from unittest.mock import MagicMock
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -21,7 +22,7 @@ from app import create_app
 from app.services.session_manager import SessionManager
 
 # Set up logger
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(scope="session")
@@ -37,9 +38,9 @@ def app() -> Flask:
         JWT_HEADER_NAME: str = "Authorization"
         JWT_HEADER_TYPE: str = "Bearer"
         JWT_ACCESS_TOKEN_EXPIRES: bool = False  # Don't expire during tests
-        SERVER_NAME = "localhost"  # Set server name for URL generation
-        PREFERRED_URL_SCHEME = "http"
-        HTTP_REDIRECT_WITH_GET = False  # Prevent redirects changing POST to GET
+        SERVER_NAME: str = "localhost"  # Set server name for URL generation
+        PREFERRED_URL_SCHEME: str = "http"
+        HTTP_REDIRECT_WITH_GET: bool = False  # Prevent redirects changing POST to GET
 
     # Create app with test configuration
     test_app: Flask = create_app(TestConfig)
@@ -52,6 +53,11 @@ def app() -> Flask:
         logger.info("JWT Manager initialized: %s", jwt)
     except (RuntimeError, ValueError, ImportError):
         logger.exception("Error initializing JWT")
+
+    # Mock the SocketIO implementation to prevent errors during tests
+    test_app.socketio = MagicMock()
+    test_app.socketio.emit = MagicMock()
+    logger.info("Mocked SocketIO initialized")
 
     # Create all tables in the database
     with test_app.app_context():

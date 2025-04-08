@@ -1,25 +1,38 @@
 #!/usr/bin/env python
 
-"""Script to run integration tests for the Day Trader API.
+"""Script to run all integration tests for the Day Trader application.
 
-This script runs pytest with the necessary configuration to test the API.
+This script runs the integration tests and generates a report.
 """
 
-from __future__ import annotations
-
+import subprocess
 import sys
 from pathlib import Path
 
-import pytest
+# Define test modules to run
+TEST_MODULES: list[str] = [
+    "test_user_api.py",
+    "test_stock_api.py",
+    "test_daily_price_api.py",
+    "test_intraday_price_api.py",
+    "test_trading_service_api.py",
+    "test_transaction_api.py",
+    "test_yfinance_integration.py",
+]
 
+# Get the directory of this script
+script_dir: Path = Path(__file__).parent
+
+# Execute pytest with the test modules
 if __name__ == "__main__":
-    # Add the parent directory to the path so we can import the app
-    sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+    # Format command to run pytest
+    cmd: list[str] = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-v",
+    ] + [str(script_dir / module) for module in TEST_MODULES]
 
-    # Run pytest with the following arguments:
-    # -v: verbose output
-    # --tb=short: short traceback
-    # -xvs: exit on first failure, verbose, don't capture output
-    exit_code: int | pytest.ExitCode = pytest.main(["-v", "--tb=short", "-xvs", "test"])
-
-    sys.exit(exit_code)
+    # Run the tests
+    result: subprocess.CompletedProcess[bytes] = subprocess.run(cmd, check=False)  # noqa: S603
+    sys.exit(result.returncode)
