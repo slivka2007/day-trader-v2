@@ -12,6 +12,8 @@ methods for common operations.
 import logging
 from enum import Enum
 
+from app.utils.errors import EnumError
+
 # Set up logging
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -34,11 +36,6 @@ class ServiceState(str, Enum):
     INACTIVE = "INACTIVE"
     PAUSED = "PAUSED"
     ERROR = "ERROR"
-
-    #
-    # Error messages
-    #
-    INVALID_VALUE: str = "Invalid value '{value}' for {class_name}"
 
     #
     # Helper methods
@@ -74,7 +71,9 @@ class ServiceState(str, Enum):
         for member in cls:
             if member.value.upper() == value.upper():
                 return member
-        raise ValueError(cls.INVALID_VALUE.format(value=value, class_name=cls.__name__))
+        raise ValueError(
+            EnumError.INVALID_VALUE.format(value=value, class_name=cls.__name__),
+        )
 
     @classmethod
     def values(cls) -> list[str]:
@@ -107,11 +106,6 @@ class ServiceAction(str, Enum):
     CHECK_SELL = "CHECK_SELL"
 
     #
-    # Error messages
-    #
-    INVALID_VALUE: str = "Invalid value '{value}' for {class_name}"
-
-    #
     # Helper methods
     #
     @classmethod
@@ -130,7 +124,9 @@ class ServiceAction(str, Enum):
         for member in cls:
             if member.value.upper() == value.upper():
                 return member
-        raise ValueError(cls.INVALID_VALUE.format(value=value, class_name=cls.__name__))
+        raise ValueError(
+            EnumError.INVALID_VALUE.format(value=value, class_name=cls.__name__),
+        )
 
     @classmethod
     def values(cls) -> list[str]:
@@ -165,11 +161,6 @@ class TradingMode(str, Enum):
     HOLD = "HOLD"
 
     #
-    # Error messages
-    #
-    INVALID_VALUE: str = "Invalid value '{value}' for {class_name}"
-
-    #
     # Helper methods
     #
     @classmethod
@@ -199,7 +190,7 @@ class TradingMode(str, Enum):
             return cls.SELL.value
         if mode == cls.SELL.value:
             return cls.BUY.value
-        return mode
+        return cls.HOLD.value
 
     @classmethod
     def from_string(cls, value: str) -> "TradingMode":
@@ -207,7 +198,9 @@ class TradingMode(str, Enum):
         for member in cls:
             if member.value.upper() == value.upper():
                 return member
-        raise ValueError(cls.INVALID_VALUE.format(value=value, class_name=cls.__name__))
+        raise ValueError(
+            EnumError.INVALID_VALUE.format(value=value, class_name=cls.__name__),
+        )
 
     @classmethod
     def values(cls) -> list[str]:
@@ -242,41 +235,36 @@ class TransactionState(str, Enum):
     CANCELLED = "CANCELLED"  # Transaction cancelled
 
     #
-    # Error messages
-    #
-    INVALID_VALUE: str = "Invalid value '{value}' for {class_name}"
-
-    #
     # Helper methods
     #
     @classmethod
     def is_open(cls, state: str) -> bool:
-        """Check if the given state is an open transaction."""
+        """Check if the given state is open (transaction in progress)."""
         return state == cls.OPEN.value
 
     @classmethod
     def is_closed(cls, state: str) -> bool:
-        """Check if the given state is a closed transaction."""
+        """Check if the given state is closed (transaction completed)."""
         return state == cls.CLOSED.value
 
     @classmethod
     def is_cancelled(cls, state: str) -> bool:
-        """Check if the given state is a cancelled transaction."""
+        """Check if the given state is cancelled."""
         return state == cls.CANCELLED.value
 
     @classmethod
     def terminal_states(cls) -> set[str]:
-        """Get the set of states where the transaction is considered complete."""
+        """Get the set of states that are terminal (no further changes)."""
         return {cls.CLOSED.value, cls.CANCELLED.value}
 
     @classmethod
     def is_terminal(cls, state: str) -> bool:
-        """Check if the transaction is in a terminal state (cannot be changed)."""
+        """Check if the given state is terminal (no further state changes)."""
         return state in cls.terminal_states()
 
     @classmethod
     def can_be_cancelled(cls, state: str) -> bool:
-        """Check if a transaction in this state can be cancelled."""
+        """Check if a transaction in the given state can be cancelled."""
         return state == cls.OPEN.value
 
     @classmethod
@@ -285,7 +273,9 @@ class TransactionState(str, Enum):
         for member in cls:
             if member.value.upper() == value.upper():
                 return member
-        raise ValueError(cls.INVALID_VALUE.format(value=value, class_name=cls.__name__))
+        raise ValueError(
+            EnumError.INVALID_VALUE.format(value=value, class_name=cls.__name__),
+        )
 
     @classmethod
     def values(cls) -> list[str]:
@@ -324,49 +314,44 @@ class PriceSource(str, Enum):
     TEST = "TEST"
 
     #
-    # Error messages
-    #
-    INVALID_VALUE: str = "Invalid value '{value}' for {class_name}"
-
-    #
     # Helper methods
     #
     @classmethod
     def is_delayed(cls, source: str) -> bool:
-        """Check if the price source is delayed."""
+        """Check if the given source is delayed data."""
         return source == cls.DELAYED.value
 
     @classmethod
     def is_simulated(cls, source: str) -> bool:
-        """Check if the price source is simulated."""
+        """Check if the given source is simulated data."""
         return source == cls.SIMULATED.value
 
     @classmethod
     def is_historical(cls, source: str) -> bool:
-        """Check if the price source is historical."""
+        """Check if the given source is historical data."""
         return source == cls.HISTORICAL.value
 
     @classmethod
     def is_real_time(cls, source: str) -> bool:
-        """Check if the price source provides real-time market data."""
+        """Check if the given source is real-time data."""
         return source == cls.REAL_TIME.value
 
     @classmethod
     def is_test(cls, source: str) -> bool:
-        """Check if the price source is test data."""
+        """Check if the given source is test data."""
         return source == cls.TEST.value
 
     @classmethod
     def is_real(cls, source: str) -> bool:
-        """Check if the price source provides real market data (not simulated)."""
+        """Check if the given source is real data (not simulated or test)."""
         return source in {cls.REAL_TIME.value, cls.DELAYED.value, cls.HISTORICAL.value}
 
     @classmethod
     def for_display(cls) -> dict[str, str]:
-        """Get a dictionary of sources with display-friendly names."""
+        """Get a mapping of enum values to display-friendly names."""
         return {
-            cls.REAL_TIME.value: "Real-Time",
-            cls.DELAYED.value: "Delayed (15min)",
+            cls.REAL_TIME.value: "Real-time",
+            cls.DELAYED.value: "Delayed",
             cls.SIMULATED.value: "Simulated",
             cls.HISTORICAL.value: "Historical",
             cls.TEST.value: "Test",
@@ -378,7 +363,9 @@ class PriceSource(str, Enum):
         for member in cls:
             if member.value.upper() == value.upper():
                 return member
-        raise ValueError(cls.INVALID_VALUE.format(value=value, class_name=cls.__name__))
+        raise ValueError(
+            EnumError.INVALID_VALUE.format(value=value, class_name=cls.__name__),
+        )
 
     @classmethod
     def values(cls) -> list[str]:
@@ -416,65 +403,86 @@ class IntradayInterval(int, Enum):
     THIRTY_MINUTES: int = 30
     ONE_HOUR: int = 60
 
-    #
-    # Helper methods
-    #
     @classmethod
     def invalid_value_message(cls, value: int) -> str:
-        """Get the invalid value error message.
+        """Generate an error message for an invalid interval value.
 
         Args:
             value: The invalid value
 
         Returns:
-            Formatted error message
+            Formatted error message for the invalid value
 
         """
-        return f"Invalid value '{value}' for {cls.__name__}"
+        valid_intervals = ", ".join(map(str, cls.valid_values()))
+        return EnumError.INVALID_INTERVAL.format(
+            value=value,
+            valid_intervals=valid_intervals,
+        )
 
     @classmethod
     def valid_values(cls) -> list[int]:
-        """Get a list of all valid interval values.
+        """Get a list of valid interval values.
 
         Returns:
-            List of valid intervals in minutes
+            List of integer values that are valid intervals
 
         """
         return [
-            cls.ONE_MINUTE,
-            cls.FIVE_MINUTES,
-            cls.FIFTEEN_MINUTES,
-            cls.THIRTY_MINUTES,
-            cls.ONE_HOUR,
+            cls.ONE_MINUTE.value,
+            cls.FIVE_MINUTES.value,
+            cls.FIFTEEN_MINUTES.value,
+            cls.THIRTY_MINUTES.value,
+            cls.ONE_HOUR.value,
         ]
 
     @classmethod
     def is_valid_interval(cls, interval: int) -> bool:
-        """Check if the given interval is valid."""
+        """Check if an interval value is valid."""
         return interval in cls.valid_values()
 
     @classmethod
     def get_name(cls, interval: int) -> str:
-        """Get the human-readable name for an interval.
+        """Get a display-friendly name for an interval.
 
         Args:
-            interval: Interval value in minutes
+            interval: Interval value to get the name for
 
         Returns:
-            Human-readable name (e.g., "1 minute", "5 minutes")
+            Human-readable name for the interval
 
         """
-        if interval == cls.ONE_MINUTE:
-            return "1 minute"
-        return f"{interval} minutes"
+        if interval == cls.ONE_MINUTE.value:
+            return "1 Minute"
+        if interval == cls.FIVE_MINUTES.value:
+            return "5 Minutes"
+        if interval == cls.FIFTEEN_MINUTES.value:
+            return "15 Minutes"
+        if interval == cls.THIRTY_MINUTES.value:
+            return "30 Minutes"
+        if interval == cls.ONE_HOUR.value:
+            return "1 Hour"
+        raise ValueError(
+            EnumError.INVALID_VALUE.format(value=interval, class_name=cls.__name__),
+        )
 
     @classmethod
     def from_int(cls, value: int) -> "IntradayInterval":
-        """Convert an integer to the corresponding enum value."""
+        """Convert an integer to the corresponding enum value.
+
+        Args:
+            value: Integer value to convert
+
+        Returns:
+            Enum member corresponding to the integer value
+
+        """
         for member in cls:
             if member.value == value:
                 return member
-        raise ValueError(cls.invalid_value_message(value))
+        raise ValueError(
+            EnumError.INVALID_VALUE.format(value=value, class_name=cls.__name__),
+        )
 
     @classmethod
     def values(cls) -> list[int]:
@@ -515,63 +523,64 @@ class AnalysisTimeframe(str, Enum):
     YEARLY = "YEARLY"
 
     #
-    # Error messages
-    #
-    INVALID_VALUE: str = "Invalid value '{value}' for {class_name}"
-
-    #
     # Helper methods
     #
     @classmethod
     def is_intraday(cls, timeframe: str) -> bool:
-        """Check if the timeframe is intraday."""
+        """Check if the given timeframe is intraday."""
         return timeframe == cls.INTRADAY.value
 
     @classmethod
     def is_daily(cls, timeframe: str) -> bool:
-        """Check if the timeframe is daily."""
+        """Check if the given timeframe is daily."""
         return timeframe == cls.DAILY.value
 
     @classmethod
     def is_weekly(cls, timeframe: str) -> bool:
-        """Check if the timeframe is weekly."""
+        """Check if the given timeframe is weekly."""
         return timeframe == cls.WEEKLY.value
 
     @classmethod
     def is_monthly(cls, timeframe: str) -> bool:
-        """Check if the timeframe is monthly."""
+        """Check if the given timeframe is monthly."""
         return timeframe == cls.MONTHLY.value
 
     @classmethod
     def is_quarterly(cls, timeframe: str) -> bool:
-        """Check if the timeframe is quarterly."""
+        """Check if the given timeframe is quarterly."""
         return timeframe == cls.QUARTERLY.value
 
     @classmethod
     def is_yearly(cls, timeframe: str) -> bool:
-        """Check if the timeframe is yearly."""
+        """Check if the given timeframe is yearly."""
         return timeframe == cls.YEARLY.value
 
     @classmethod
     def get_days(cls, timeframe: str) -> int:
-        """Get the approximate number of days in the timeframe.
+        """Get the approximate number of calendar days for the timeframe.
 
         Args:
-            timeframe: Timeframe value
+            timeframe: The timeframe to get days for
 
         Returns:
-            Number of days
+            Number of calendar days
 
         """
-        days_map: dict[str, int] = {
-            cls.INTRADAY.value: 1,
-            cls.DAILY.value: 1,
-            cls.WEEKLY.value: 7,
-            cls.MONTHLY.value: 30,
-            cls.QUARTERLY.value: 90,
-            cls.YEARLY.value: 365,
-        }
-        return days_map.get(timeframe, 1)
+        if timeframe == cls.INTRADAY.value:
+            return 1  # Same day
+        if timeframe == cls.DAILY.value:
+            return 1  # 1 day
+        if timeframe == cls.WEEKLY.value:
+            return 7  # 7 days
+        if timeframe == cls.MONTHLY.value:
+            return 30  # 30 days (average)
+        if timeframe == cls.QUARTERLY.value:
+            return 90  # 90 days (3 months)
+        if timeframe == cls.YEARLY.value:
+            return 365  # 365 days
+        raise ValueError(
+            EnumError.INVALID_VALUE.format(value=timeframe, class_name=cls.__name__),
+        )
 
     @classmethod
     def from_string(cls, value: str) -> "AnalysisTimeframe":
@@ -579,7 +588,9 @@ class AnalysisTimeframe(str, Enum):
         for member in cls:
             if member.value.upper() == value.upper():
                 return member
-        raise ValueError(cls.INVALID_VALUE.format(value=value, class_name=cls.__name__))
+        raise ValueError(
+            EnumError.INVALID_VALUE.format(value=value, class_name=cls.__name__),
+        )
 
     @classmethod
     def values(cls) -> list[str]:

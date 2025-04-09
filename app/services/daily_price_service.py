@@ -334,8 +334,7 @@ class DailyPriceService:
             )
             if existing:
                 DailyPriceService._raise_validation_error(
-                    f"Price record already exists for stock ID {stock_id} on "
-                    f"{price_date}",
+                    StockPriceError.PRICE_EXISTS.format(stock_id, price_date),
                 )
 
             # Validate price data
@@ -345,7 +344,10 @@ class DailyPriceService:
                 and data["high_price"] < data["low_price"]
             ):
                 DailyPriceService._raise_validation_error(
-                    "High price cannot be less than low price",
+                    StockPriceError.HIGH_LOW_PRICE.format(
+                        key="high_price",
+                        value=f"{data['high_price']} < {data['low_price']}",
+                    ),
                 )
 
             # Create the data dict including date and stock_id
@@ -378,7 +380,7 @@ class DailyPriceService:
             if isinstance(e, (ValidationError, ResourceNotFoundError)):
                 raise
             DailyPriceService._raise_business_error(
-                f"Could not create daily price record: {e!s}",
+                StockPriceError.PROCESS_DAILY_DATA_ERROR,
                 e,
             )
         return price_record
@@ -442,7 +444,10 @@ class DailyPriceService:
                 and data["high_price"] < data["low_price"]
             ):
                 DailyPriceService._raise_validation_error(
-                    "High price cannot be less than low price",
+                    StockPriceError.HIGH_LOW_PRICE.format(
+                        key="high_price",
+                        value=f"{data['high_price']} < {data['low_price']}",
+                    ),
                 )
 
             # Use the update_from_dict method
@@ -474,7 +479,8 @@ class DailyPriceService:
             if isinstance(e, (ResourceNotFoundError, ValidationError)):
                 raise
             DailyPriceService._raise_business_error(
-                f"Could not update daily price record: {e!s}",
+                StockPriceError.PROCESS_DAILY_DATA_ERROR,
+                e,
             )
         return price_record
 
@@ -520,7 +526,9 @@ class DailyPriceService:
             # Emit WebSocket event
             EventService.emit_price_update(
                 action="deleted",
-                price_data=price_data,
+                price_data=(
+                    price_data if isinstance(price_data, dict) else price_data[0]
+                ),
                 stock_symbol=stock_symbol,
             )
 
@@ -530,7 +538,8 @@ class DailyPriceService:
             if isinstance(e, ResourceNotFoundError):
                 raise
             DailyPriceService._raise_business_error(
-                f"Could not delete daily price record: {e!s}",
+                StockPriceError.PROCESS_DAILY_DATA_ERROR,
+                e,
             )
         return True
 
@@ -563,8 +572,10 @@ class DailyPriceService:
             # Validate period
             if period not in DailyPriceService.VALID_DAILY_PERIODS:
                 DailyPriceService._raise_validation_error(
-                    f"Invalid period: {period}. Valid options are: "
-                    f"{', '.join(DailyPriceService.VALID_DAILY_PERIODS)}",
+                    StockPriceError.INVALID_PERIOD.format(
+                        period,
+                        ", ".join(DailyPriceService.VALID_DAILY_PERIODS),
+                    ),
                 )
 
             # Verify stock exists and get symbol
@@ -613,7 +624,7 @@ class DailyPriceService:
             logger.exception("Error updating daily prices for stock %s", stock_id)
             session.rollback()
             DailyPriceService._raise_business_error(
-                f"Could not update daily prices: {e!s}",
+                StockPriceError.PROCESS_DAILY_DATA_ERROR,
                 e,
             )
 
@@ -653,7 +664,7 @@ class DailyPriceService:
             price_data: dict[str, any] = get_latest_daily_price(stock.symbol)
             if not price_data:
                 DailyPriceService._raise_business_error(
-                    APIError.NO_DAILY_PRICE_DATA_ERROR + f" for {stock.symbol}",
+                    StockPriceError.NO_DAILY_PRICE_DATA_ERROR,
                 )
 
             # Check if price already exists for this date
@@ -698,7 +709,7 @@ class DailyPriceService:
             logger.exception("Error updating latest daily price for stock %s", stock_id)
             session.rollback()
             DailyPriceService._raise_business_error(
-                APIError.LATEST_DAILY_PRICE_ERROR + f": {e!s}",
+                StockPriceError.LATEST_DAILY_PRICE_ERROR,
                 e,
             )
 
@@ -708,7 +719,7 @@ class DailyPriceService:
         """Validate a single daily price data item."""
         if "price_date" not in item:
             DailyPriceService._raise_validation_error(
-                "Each price data item must include a 'price_date'",
+                StockPriceError.MISSING_PRICE_DATE,
             )
 
         if (
@@ -718,7 +729,10 @@ class DailyPriceService:
         ):
             date_str: str = item["price_date"]
             DailyPriceService._raise_validation_error(
-                f"High price cannot be less than low price for date {date_str}",
+                StockPriceError.HIGH_LOW_PRICE.format(
+                    key="high_price",
+                    value=f"{item['high_price']} < {item['low_price']} on {date_str}",
+                ),
             )
 
     @staticmethod
@@ -740,7 +754,7 @@ class DailyPriceService:
                 ).date()
             except ValueError:
                 DailyPriceService._raise_validation_error(
-                    f"Invalid date format: {price_date}. Expected YYYY-MM-DD",
+                    StockPriceError.INVALID_DATE_FORMAT.format(price_date),
                 )
 
         # Check if price already exists for this date
@@ -834,7 +848,7 @@ class DailyPriceService:
             if isinstance(e, (ValidationError, ResourceNotFoundError)):
                 raise
             DailyPriceService._raise_business_error(
-                f"Could not bulk import daily prices: {e!s}",
+                StockPriceError.PROCESS_DAILY_DATA_ERROR,
                 e,
             )
         return created_records

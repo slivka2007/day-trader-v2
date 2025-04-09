@@ -19,7 +19,12 @@ from app.models.stock import Stock
 from app.models.stock_daily_price import StockDailyPrice
 from app.services.events import EventService
 from app.utils.current_datetime import get_current_datetime
-from app.utils.errors import BusinessLogicError, ResourceNotFoundError, ValidationError
+from app.utils.errors import (
+    BusinessLogicError,
+    ResourceNotFoundError,
+    StockError,
+    ValidationError,
+)
 
 # Set up logging
 logger: logging.Logger = logging.getLogger(__name__)
@@ -260,8 +265,7 @@ class StockService:
         try:
             # Validate required fields
             if "symbol" not in data or not data["symbol"]:
-                error_msg = "Stock symbol is required"
-                StockService._raise_validation_error(error_msg)
+                StockService._raise_validation_error(StockError.SYMBOL_REQUIRED)
 
             # Check if symbol already exists
             existing: Stock | None = StockService.find_by_symbol(
@@ -269,8 +273,9 @@ class StockService:
                 data["symbol"],
             )
             if existing:
-                error_msg = (
-                    f"Stock with symbol '{data['symbol'].upper()}' already exists"
+                error_msg = StockError.SYMBOL_EXISTS.format(
+                    key="symbol",
+                    value=data["symbol"].upper(),
                 )
                 StockService._raise_validation_error(error_msg)
 
@@ -300,7 +305,7 @@ class StockService:
             session.rollback()
             if isinstance(e, ValidationError):
                 raise
-            error_msg: str = f"Could not create stock: {e!s}"
+            error_msg: str = StockError.CREATE_ERROR.format(str(e))
             StockService._raise_validation_error(error_msg, e)
         return stock
 
@@ -362,7 +367,7 @@ class StockService:
             session.rollback()
             if isinstance(e, ValidationError):
                 raise
-            error_msg: str = f"Could not update stock: {e!s}"
+            error_msg: str = StockError.UPDATE_ERROR.format(str(e))
             StockService._raise_validation_error(error_msg, e)
         return stock
 
@@ -425,7 +430,7 @@ class StockService:
         except Exception as e:
             logger.exception("Error changing stock status")
             session.rollback()
-            error_msg: str = f"Could not change stock status: {e!s}"
+            error_msg: str = StockError.CHANGE_STATUS_ERROR.format(str(e))
             StockService._raise_validation_error(error_msg, e)
         return stock
 
@@ -475,10 +480,7 @@ class StockService:
 
             # Check for dependencies
             if stock.has_dependencies:
-                error_msg = (
-                    f"Cannot delete stock '{stock.symbol}' because it has associated "
-                    f"trading services or transactions"
-                )
+                error_msg = StockError.HAS_DEPENDENCIES.format(stock.symbol)
                 StockService._raise_business_error(error_msg)
 
             # Store symbol for event
@@ -500,7 +502,7 @@ class StockService:
             session.rollback()
             if isinstance(e, BusinessLogicError):
                 raise
-            error_msg: str = f"Could not delete stock: {e!s}"
+            error_msg: str = StockError.DELETE_ERROR.format(str(e))
             StockService._raise_validation_error(error_msg, e)
         return True
 

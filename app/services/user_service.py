@@ -18,7 +18,12 @@ from app.api.schemas.user import user_schema
 from app.models.user import User
 from app.services.events import EventService
 from app.utils.current_datetime import get_current_datetime
-from app.utils.errors import AuthorizationError, ResourceNotFoundError, ValidationError
+from app.utils.errors import (
+    AuthorizationError,
+    ResourceNotFoundError,
+    UserError,
+    ValidationError,
+)
 
 # Set up logging
 logger: logging.Logger = logging.getLogger(__name__)
@@ -28,22 +33,36 @@ class UserService:
     """Service for User model operations."""
 
     @staticmethod
-    def _raise_error(error_class: type[Exception], message: str, *args: any) -> None:
+    def _raise_error(
+        error_class: type[Exception],
+        message: str,
+        *args: any,
+        **kwargs: any,
+    ) -> None:
         """Raise an error with a formatted message.
 
         Args:
             error_class: The error class to raise
             message: The error message or message template
             *args: Format arguments for the message
+            **kwargs: Keyword arguments for advanced formatting
 
         """
-        error_msg: str = message.format(*args) if args else message
-
         # Special handling for ResourceNotFoundError
         if error_class == ResourceNotFoundError and args:
-            resource_type = message
-            resource_id = args[0]
+            resource_type: str = message
+            resource_id: int = args[0]
             raise ResourceNotFoundError(resource_type, resource_id)
+
+        # Handle messages with key-value formatting
+        if kwargs and "{key}" in message and "{value}" in message:
+            error_msg: str = message.format(**kwargs)
+        # Handle traditional formatting
+        elif args:
+            error_msg: str = message.format(*args)
+        else:
+            error_msg: str = message
+
         raise error_class(error_msg)
 
     @staticmethod
@@ -284,8 +303,13 @@ class UserService:
                 if field not in data_dict or not data_dict.get(field):
                     UserService._raise_error(
                         ValidationError,
-                        ValidationError.FIELD_REQUIRED,
-                        field,
+                        UserError.USERNAME_REQUIRED
+                        if field == "username"
+                        else UserError.EMAIL_REQUIRED
+                        if field == "email"
+                        else UserError.PASSWORD_REQUIRED,
+                        key=field,
+                        value=data_dict.get(field, ""),
                     )
 
             # Check for duplicate username or email
@@ -301,12 +325,12 @@ class UserService:
                 if existing_user.username == data_dict.get("username"):
                     UserService._raise_error(
                         ValidationError,
-                        ValidationError.USERNAME_EXISTS,
+                        UserError.USERNAME_EXISTS,
                         data_dict.get("username"),
                     )
                 UserService._raise_error(
                     ValidationError,
-                    ValidationError.EMAIL_EXISTS,
+                    UserError.EMAIL_EXISTS,
                     data_dict.get("email"),
                 )
 
@@ -343,7 +367,7 @@ class UserService:
                 raise
             UserService._raise_error(
                 ValidationError,
-                ValidationError.CREATE_USER_ERROR,
+                UserError.CREATE_USER_ERROR,
                 str(e),
             )
         return user
@@ -370,7 +394,7 @@ class UserService:
             if existing:
                 UserService._raise_error(
                     ValidationError,
-                    ValidationError.USERNAME_EXISTS,
+                    UserError.USERNAME_EXISTS,
                     data_dict.get("username"),
                 )
 
@@ -382,7 +406,7 @@ class UserService:
             if existing:
                 UserService._raise_error(
                     ValidationError,
-                    ValidationError.EMAIL_EXISTS,
+                    UserError.EMAIL_EXISTS,
                     data_dict.get("email"),
                 )
 
@@ -457,7 +481,7 @@ class UserService:
                 raise
             UserService._raise_error(
                 ValidationError,
-                ValidationError.UPDATE_USER_ERROR,
+                UserError.UPDATE_USER_ERROR,
                 str(e),
             )
         return user
@@ -499,7 +523,7 @@ class UserService:
             session.rollback()
             UserService._raise_error(
                 ValidationError,
-                ValidationError.TOGGLE_STATUS_ERROR,
+                UserError.TOGGLE_STATUS_ERROR,
                 str(e),
             )
         return user
@@ -571,7 +595,7 @@ class UserService:
                 raise
             UserService._raise_error(
                 ValidationError,
-                ValidationError.GRANT_ADMIN_ERROR,
+                UserError.GRANT_ADMIN_ERROR,
                 str(e),
             )
         return user
@@ -605,7 +629,7 @@ class UserService:
             session.rollback()
             UserService._raise_error(
                 ValidationError,
-                ValidationError.DELETE_USER_ERROR,
+                UserError.DELETE_USER_ERROR,
                 str(e),
             )
         return True
@@ -637,7 +661,7 @@ class UserService:
             if not user.verify_password(current_password):
                 UserService._raise_error(
                     ValidationError,
-                    ValidationError.INVALID_PASSWORD,
+                    UserError.INVALID_PASSWORD,
                 )
 
             # Set new password (triggers validation)
@@ -652,7 +676,7 @@ class UserService:
                 raise
             UserService._raise_error(
                 ValidationError,
-                ValidationError.CHANGE_PASSWORD_ERROR,
+                UserError.CHANGE_PASSWORD_ERROR,
                 str(e),
             )
         return user

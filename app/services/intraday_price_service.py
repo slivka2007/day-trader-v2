@@ -82,6 +82,12 @@ class IntradayPriceService:
         price_type: str = "Intraday price record",
     ) -> None:
         """Raise a ResourceNotFoundError for a price record."""
+        if price_type == "Intraday price record":
+            raise ResourceNotFoundError(
+                resource_type=price_type,
+                resource_id=price_id,
+            )
+        # For other resource types
         raise ResourceNotFoundError(
             resource_type=price_type,
             resource_id=price_id,
@@ -322,7 +328,7 @@ class IntradayPriceService:
             if isinstance(e, (ValidationError, ResourceNotFoundError)):
                 raise
             IntradayPriceService._raise_business_error(
-                f"Could not create intraday price: {e!s}",
+                StockPriceError.PROCESS_INTRADAY_DATA_ERROR,
                 e,
             )
         return intraday_price
@@ -405,7 +411,7 @@ class IntradayPriceService:
             if isinstance(e, (ValidationError, ResourceNotFoundError)):
                 raise
             IntradayPriceService._raise_business_error(
-                f"Could not update intraday price: {e!s}",
+                StockPriceError.PROCESS_INTRADAY_DATA_ERROR,
                 e,
             )
         return price
@@ -506,8 +512,10 @@ class IntradayPriceService:
             # Validate interval
             if interval not in IntradayPriceService.VALID_INTRADAY_INTERVALS:
                 IntradayPriceService._raise_validation_error(
-                    f"Invalid interval: {interval}. Valid options are: "
-                    f"{', '.join(IntradayPriceService.VALID_INTRADAY_INTERVALS)}",
+                    StockPriceError.INVALID_INTERVAL.format(
+                        key="interval",
+                        value=interval,
+                    ),
                 )
 
             # Validate period
@@ -570,7 +578,7 @@ class IntradayPriceService:
             logger.exception("Error updating intraday prices for stock %s", stock_id)
             session.rollback()
             IntradayPriceService._raise_business_error(
-                f"Could not update intraday prices: {e!s}",
+                StockPriceError.PROCESS_INTRADAY_DATA_ERROR,
                 e,
             )
 
@@ -610,7 +618,7 @@ class IntradayPriceService:
             price_data: dict[str, any] = get_latest_price(stock.symbol)
             if not price_data:
                 IntradayPriceService._raise_business_error(
-                    APIError.NO_PRICE_DATA_ERROR + f" for {stock.symbol}",
+                    StockPriceError.NO_PRICE_DATA_ERROR,
                 )
 
             # Check if price already exists for this timestamp
@@ -662,7 +670,7 @@ class IntradayPriceService:
             )
             session.rollback()
             IntradayPriceService._raise_business_error(
-                APIError.LATEST_PRICE_ERROR + f": {e!s}",
+                StockPriceError.LATEST_PRICE_ERROR,
                 e,
             )
 

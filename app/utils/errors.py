@@ -179,6 +179,27 @@ class ValidationError(APIError):
         super().__init__(message, status_code, {"validation_errors": errors or {}})
 
 
+class BaseModelError(ValidationError):
+    """Errors specific to base model operations."""
+
+    # Base model error message constants
+    UNKNOWN_COLUMN_ERROR: str = "Unknown column '{}' for {}"
+    CREATE_FROM_DICT_ERROR: str = "Could not create {} from data: {}"
+    UPDATE_FIELD_ERROR: str = "Cannot update field '{}': not allowed"
+    MULTIPLE_FIELDS_ERROR: str = "Cannot update restricted fields"
+    SERIALIZATION_ERROR: str = "Error serializing {} to JSON"
+
+
+class EnumError(ValidationError):
+    """Errors specific to enum validations."""
+
+    # Common enum error messages
+    INVALID_VALUE: str = "Invalid value '{value}' for {class_name}"
+    INVALID_INTERVAL: str = (
+        "Invalid interval value: {value}. Valid intervals are: {valid_intervals}"
+    )
+
+
 class UserError(ValidationError):
     """Errors specific to user model and operations."""
 
@@ -248,6 +269,15 @@ class StockError(ValidationError):
         "Cannot delete stock '{}' because it has {} associated transaction(s): "
         "key={}, value={}"
     )
+    # Operation errors
+    CREATE_ERROR: str = "Could not create stock: {}"
+    UPDATE_ERROR: str = "Could not update stock: {}"
+    CHANGE_STATUS_ERROR: str = "Could not change stock status: {}"
+    DELETE_ERROR: str = "Could not delete stock: {}"
+    HAS_DEPENDENCIES: str = (
+        "Cannot delete stock '{}' because it has associated trading services or "
+        "transactions"
+    )
 
 
 class StockPriceError(ValidationError):
@@ -260,6 +290,9 @@ class StockPriceError(ValidationError):
     INVALID_INTERVAL: str = (
         "Invalid interval key={}, value={}. Must be one of: 1, 5, 15, 30, 60"
     )
+    INVALID_PERIOD: str = "Invalid period: {}. Valid options are: {}"
+    PRICE_EXISTS: str = "Price record already exists for stock ID {} on {}"
+    INVALID_DATE_FORMAT: str = "Invalid date format: {}. Expected YYYY-MM-DD"
     NEGATIVE_PRICE: str = CommonErrorMessages.NEGATIVE_PRICE
     HIGH_LOW_PRICE: str = "High price cannot be less than low price: key={}, value={}"
     LOW_HIGH_PRICE: str = (
@@ -295,6 +328,18 @@ class StockPriceError(ValidationError):
     DAILY_PRICE_NOT_FOUND: str = "Daily price record not found"
     INTRADAY_PRICE_NOT_FOUND: str = "Intraday price record not found"
 
+    # Data provider error messages
+    FETCH_STOCK_INFO_ERROR: str = "Failed to fetch stock info"
+    FETCH_INTRADAY_DATA_ERROR: str = "Failed to fetch intraday data"
+    FETCH_DAILY_DATA_ERROR: str = "Failed to fetch daily data"
+    PROCESS_STOCK_DATA_ERROR: str = "Failed to process stock data"
+    PROCESS_INTRADAY_DATA_ERROR: str = "Failed to process intraday data"
+    PROCESS_DAILY_DATA_ERROR: str = "Failed to process daily data"
+    NO_PRICE_DATA_ERROR: str = "No price data available"
+    NO_DAILY_PRICE_DATA_ERROR: str = "No daily price data available"
+    LATEST_PRICE_ERROR: str = "Failed to get latest price"
+    LATEST_DAILY_PRICE_ERROR: str = "Failed to get latest daily price"
+
     # Recent data protection
     RECENT_DAILY_DATA: str = (
         "Cannot delete recent price data (less than 30 days old). "
@@ -313,6 +358,28 @@ class TransactionError(ValidationError):
     SYMBOL_REQUIRED: str = CommonErrorMessages.SYMBOL_REQUIRED
     INVALID_STATE: str = "Invalid transaction state: {}"
     SHARES_POSITIVE: str = "Shares must be greater than zero"
+    PRICE_POSITIVE: str = CommonErrorMessages.PRICE_POSITIVE
+    INSUFFICIENT_FUNDS: str = (
+        "Insufficient funds. Required: ${:.2f}, Available: ${:.2f}"
+    )
+    SERVICE_NOT_BUYING: str = (
+        "Service is not in a state that allows buying (current state: {}, mode: {})"
+    )
+    SERVICE_NOT_FOUND: str = "Trading service with ID {} not found"
+    TRANSACTION_NOT_FOUND: str = "Transaction with ID {} not found"
+    TRANSACTION_NOT_OPEN: str = (
+        "Transaction cannot be completed because it is not open (current state: {})"
+    )
+    CANNOT_DELETE_OPEN: str = "Cannot delete an open transaction. Cancel it first."
+    TRANSACTION_NOT_CANCELLABLE: str = (
+        "Transaction cannot be cancelled because it is in state: {}"
+    )
+    USER_NOT_OWNER: str = "User {} does not own the service for transaction {}"
+    CREATE_BUY_ERROR: str = "Could not create buy transaction: {}"
+    COMPLETE_ERROR: str = "Could not complete transaction: {}"
+    CANCEL_ERROR: str = "Could not cancel transaction: {}"
+    DELETE_ERROR: str = "Could not delete transaction: {}"
+    UPDATE_NOTES_ERROR: str = "Could not update transaction notes: {}"
     CONFIRM_DELETION: str = CommonErrorMessages.CONFIRM_DELETION
 
 
@@ -327,6 +394,8 @@ class TradingServiceError(ValidationError):
     INSUFFICIENT_PRICE_DATA: str = "Not enough price data for stock {} to backtest"
     CREATE_SERVICE: str = "Could not create trading service: {}"
     UPDATE_SERVICE: str = "Could not update trading service: {}"
+    DELETE_SERVICE: str = "Could not delete trading service: {}"
+    TOGGLE_ERROR: str = "Could not toggle trading service: {}"
     BACKTEST_FAILED: str = "Backtest failed: {}"
     NO_SELL_NO_SHARES: str = "Cannot set mode to SELL when no shares are held"
     NO_BUY_MIN_BALANCE: str = (
@@ -335,6 +404,9 @@ class TradingServiceError(ValidationError):
     DELETE_WITH_TRANSACTIONS: str = (
         "Cannot delete trading service with active transactions. Cancel or complete "
         "them first."
+    )
+    CANT_CHANGE_SYMBOL_WITH_SHARES: str = (
+        "Cannot change stock symbol while holding shares"
     )
     SYMBOL_REQUIRED: str = CommonErrorMessages.SYMBOL_REQUIRED
     SYMBOL_LENGTH: str = (
@@ -370,6 +442,7 @@ class AuthorizationError(APIError):
     NOT_AUTHORIZED: str = "Not authorized to access this resource"
     NOT_AUTHENTICATED: str = "Not authenticated"
     ACCOUNT_INACTIVE: str = "Account is inactive"
+    NOT_OWNER: str = "Not authorized to access {resource_type} with ID {resource_id}"
 
     def __init__(
         self,

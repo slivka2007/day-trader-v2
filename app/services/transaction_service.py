@@ -28,6 +28,7 @@ from app.utils.errors import (
     AuthorizationError,
     BusinessLogicError,
     ResourceNotFoundError,
+    TransactionError,
     ValidationError,
 )
 
@@ -75,10 +76,7 @@ class TransactionService:
             transaction_id,
         )
         if not transaction:
-            TransactionService._raise_resource_not_found(
-                transaction_id,
-                ValidationError.TRANSACTION_NOT_FOUND.format(transaction_id),
-            )
+            TransactionService._raise_resource_not_found(transaction_id)
         return transaction
 
     @staticmethod
@@ -114,7 +112,7 @@ class TransactionService:
 
             if state and not TransactionState.is_valid(state):
                 TransactionService._raise_validation_error(
-                    ValidationError.INVALID_STATE.format(state),
+                    TransactionError.INVALID_STATE.format(state),
                 )
 
             if state:
@@ -314,23 +312,21 @@ class TransactionService:
             ),
             "stock_symbol": transaction.stock_symbol,
             "shares": (
-                float(str(transaction.shares))
-                if transaction.shares is not None
-                else None
+                float(transaction.shares) if transaction.shares is not None else None
             ),
             "state": transaction.state,
             "purchase_price": (
-                float(str(transaction.purchase_price))
+                float(transaction.purchase_price)
                 if transaction.purchase_price is not None
                 else None
             ),
             "sale_price": (
-                float(str(transaction.sale_price))
+                float(transaction.sale_price)
                 if transaction.sale_price is not None
                 else None
             ),
             "gain_loss": (
-                float(str(transaction.gain_loss))
+                float(transaction.gain_loss)
                 if transaction.gain_loss is not None
                 else None
             ),
@@ -367,12 +363,12 @@ class TransactionService:
             ),
             "duration_days": TransactionService.duration_days(transaction),
             "total_cost": (
-                float(str(TransactionService.total_cost(transaction)))
+                float(TransactionService.total_cost(transaction))
                 if TransactionService.total_cost(transaction) is not None
                 else 0.0
             ),
             "total_revenue": (
-                float(str(TransactionService.total_revenue(transaction)))
+                float(TransactionService.total_revenue(transaction))
                 if TransactionService.total_revenue(transaction) is not None
                 else 0.0
             ),
@@ -483,12 +479,12 @@ class TransactionService:
             # Validate input
             if shares <= 0:
                 TransactionService._raise_validation_error(
-                    ValidationError.SHARES_POSITIVE,
+                    TransactionError.SHARES_POSITIVE,
                 )
 
             if purchase_price <= 0:
                 TransactionService._raise_validation_error(
-                    ValidationError.PRICE_POSITIVE,
+                    TransactionError.PRICE_POSITIVE,
                 )
 
             # Get the service
@@ -496,17 +492,14 @@ class TransactionService:
                 select(TradingService).where(TradingService.id == service_id),
             ).scalar_one_or_none()
             if not service:
-                TransactionService._raise_resource_not_found(
-                    service_id,
-                    ValidationError.SERVICE_NOT_FOUND.format(service_id),
-                )
+                TransactionService._raise_resource_not_found(service_id)
 
             # Check if service can buy
             total_cost: float = shares * purchase_price
             current_balance: float = service.current_balance
             if total_cost > current_balance:
                 TransactionService._raise_business_error(
-                    ValidationError.INSUFFICIENT_FUNDS.format(
+                    TransactionError.INSUFFICIENT_FUNDS.format(
                         total_cost,
                         current_balance,
                     ),
@@ -515,7 +508,7 @@ class TransactionService:
             # Check if service is in buy mode
             if not service.can_buy:
                 TransactionService._raise_business_error(
-                    ValidationError.SERVICE_NOT_BUYING.format(
+                    TransactionError.SERVICE_NOT_BUYING.format(
                         service.state,
                         service.mode,
                     ),
@@ -613,7 +606,7 @@ class TransactionService:
             # Validate sale price
             if sale_price <= 0:
                 TransactionService._raise_validation_error(
-                    ValidationError.PRICE_POSITIVE,
+                    TransactionError.PRICE_POSITIVE,
                 )
 
             # Get transaction
@@ -625,7 +618,7 @@ class TransactionService:
             # Check if transaction can be completed
             if transaction.state != TransactionState.OPEN.value:
                 TransactionService._raise_business_error(
-                    ValidationError.TRANSACTION_NOT_OPEN.format(transaction.state),
+                    TransactionError.TRANSACTION_NOT_OPEN.format(transaction.state),
                 )
 
             # Get associated service
@@ -635,10 +628,7 @@ class TransactionService:
                 ),
             ).scalar_one_or_none()
             if not service:
-                TransactionService._raise_resource_not_found(
-                    transaction.service_id,
-                    ValidationError.SERVICE_NOT_FOUND.format(transaction.service_id),
-                )
+                TransactionService._raise_resource_not_found(transaction.service_id)
 
             # Update transaction
             transaction.sale_price = sale_price
@@ -743,10 +733,7 @@ class TransactionService:
                 ),
             ).scalar_one_or_none()
             if not service:
-                TransactionService._raise_resource_not_found(
-                    transaction.service_id,
-                    ValidationError.SERVICE_NOT_FOUND.format(transaction.service_id),
-                )
+                TransactionService._raise_resource_not_found(transaction.service_id)
 
             # Update transaction
             transaction.state = TransactionState.CANCELLED.value
@@ -1028,7 +1015,7 @@ class TransactionService:
 
         Args:
             resource_id: The ID of the resource that was not found
-            message: The error message
+            message: Optional error message
 
         Raises:
             ResourceNotFoundError: Always raised
@@ -1148,30 +1135,38 @@ class TransactionService:
         # If filtering by specific service
         if "service_id" in filters and filters["service_id"] in service_ids:
             if "state" in filters:
-                transactions = TransactionService.get_by_service(
-                    session,
-                    filters["service_id"],
-                    filters["state"],
+                transactions: list[TradingTransaction] = (
+                    TransactionService.get_by_service(
+                        session,
+                        filters["service_id"],
+                        filters["state"],
+                    )
                 )
             else:
-                transactions = TransactionService.get_by_service(
-                    session,
-                    filters["service_id"],
+                transactions: list[TradingTransaction] = (
+                    TransactionService.get_by_service(
+                        session,
+                        filters["service_id"],
+                    )
                 )
             all_transactions.extend(transactions)
         else:
             # Get transactions for all user's services
             for service_id in service_ids:
                 if "state" in filters:
-                    transactions = TransactionService.get_by_service(
-                        session,
-                        service_id,
-                        filters["state"],
+                    transactions: list[TradingTransaction] = (
+                        TransactionService.get_by_service(
+                            session,
+                            service_id,
+                            filters["state"],
+                        )
                     )
                 else:
-                    transactions = TransactionService.get_by_service(
-                        session,
-                        service_id,
+                    transactions: list[TradingTransaction] = (
+                        TransactionService.get_by_service(
+                            session,
+                            service_id,
+                        )
                     )
                 all_transactions.extend(transactions)
 

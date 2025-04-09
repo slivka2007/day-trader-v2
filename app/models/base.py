@@ -17,7 +17,7 @@ from sqlalchemy import Column, DateTime, Integer
 from sqlalchemy.orm import ColumnProperty, class_mapper, declarative_base
 
 from app.utils.current_datetime import get_current_datetime
-from app.utils.errors import ValidationError
+from app.utils.errors import BaseModelError, ValidationError
 
 # Set up logging
 logger: logging.Logger = logging.getLogger(__name__)
@@ -39,17 +39,6 @@ class Base(DeclarativeBase):
         updated_at: Timestamp when the record was last updated
 
     """
-
-    #
-    # Class constants
-    #
-
-    # Error message constants for base model operations
-    UNKNOWN_COLUMN_ERROR: str = "Unknown column '{}' for {}"
-    CREATE_FROM_DICT_ERROR: str = "Could not create {} from data: {}"
-    UPDATE_FIELD_ERROR: str = "Cannot update field '{}': not allowed"
-    MULTIPLE_FIELDS_ERROR: str = "Cannot update restricted fields"
-    SERIALIZATION_ERROR: str = "Error serializing {} to JSON"
 
     #
     # SQLAlchemy configuration
@@ -178,7 +167,7 @@ class Base(DeclarativeBase):
             )
         except (TypeError, ValueError, OverflowError):
             logger.exception(
-                self.SERIALIZATION_ERROR,
+                BaseModelError.SERIALIZATION_ERROR,
                 self.__class__.__name__,
             )
             return json.dumps({"error": "Serialization error", "id": self.id})
@@ -258,7 +247,7 @@ class Base(DeclarativeBase):
 
             # Check if field is allowed
             if key not in allowed_fields:
-                error_msg = self.UPDATE_FIELD_ERROR.format(key)
+                error_msg = BaseModelError.UPDATE_FIELD_ERROR.format(key)
                 validation_errors[key] = error_msg
                 continue
 
@@ -271,7 +260,7 @@ class Base(DeclarativeBase):
         # Raise exception if there were validation errors
         if validation_errors:
             raise ValidationError(
-                self.MULTIPLE_FIELDS_ERROR,
+                BaseModelError.MULTIPLE_FIELDS_ERROR,
                 errors=validation_errors,
             )
 
@@ -306,7 +295,10 @@ class Base(DeclarativeBase):
             if key in columns:
                 valid_data[key] = value
             elif not ignore_unknown:
-                error_msg: str = cls.UNKNOWN_COLUMN_ERROR.format(key, cls.__name__)
+                error_msg: str = BaseModelError.UNKNOWN_COLUMN_ERROR.format(
+                    key,
+                    cls.__name__,
+                )
                 errors: dict[str, str] = {key: error_msg}
                 raise ValidationError(error_msg, errors=errors)
 
@@ -314,7 +306,10 @@ class Base(DeclarativeBase):
             return cls(**valid_data)
         except Exception as e:
             logger.exception("Error creating %s from dict", cls.__name__)
-            error_msg = cls.CREATE_FROM_DICT_ERROR.format(cls.__name__, str(e))
+            error_msg = BaseModelError.CREATE_FROM_DICT_ERROR.format(
+                cls.__name__,
+                str(e),
+            )
             errors: dict[str, str] = {"data": error_msg}
             raise ValidationError(error_msg, errors=errors) from e
 

@@ -476,7 +476,10 @@ class TradingServiceService:
 
             if initial_balance <= 0:
                 TradingServiceService._raise_validation_error(
-                    TradingServiceError.INITIAL_BALANCE,
+                    TradingServiceError.INITIAL_BALANCE.format(
+                        key="initial_balance",
+                        value=initial_balance,
+                    ),
                 )
 
             # Set up service data
@@ -646,7 +649,7 @@ class TradingServiceService:
             logger.exception("Error toggling trading service")
             session.rollback()
             TradingServiceService._raise_validation_error(
-                TradingServiceError.UPDATE_SERVICE.format(e),
+                TradingServiceError.TOGGLE_ERROR.format(e),
             )
 
         return service
@@ -806,7 +809,7 @@ class TradingServiceService:
             logger.exception("Error deleting trading service")
             session.rollback()
             TradingServiceService._raise_validation_error(
-                TradingServiceError.UPDATE_SERVICE.format(e),
+                TradingServiceError.DELETE_SERVICE.format(e),
             )
         return True
 

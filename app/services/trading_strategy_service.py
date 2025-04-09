@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from app.models.stock import Stock
     from app.models.trading_service import TradingService
 
-from app.models.enums import TradingMode
+from app.models.enums import TradingMode, TransactionState
 from app.services.stock_service import StockService
 from app.services.technical_analysis_service import TechnicalAnalysisService
 from app.services.trading_service import TradingServiceService
@@ -213,9 +213,9 @@ class TradingStrategyService:
             return False
 
         # Get signals from technical analysis
-        signals = price_analysis.get("signals", {})
-        rsi_signal = signals.get("rsi", "neutral")
-        bollinger_signal = signals.get("bollinger", "neutral")
+        signals: dict[str, any] = price_analysis.get("signals", {})
+        rsi_signal: str = signals.get("rsi", "neutral")
+        bollinger_signal: str = signals.get("bollinger", "neutral")
 
         # Sell conditions:
         # 1. RSI indicates overbought
@@ -223,13 +223,13 @@ class TradingStrategyService:
         # 3. MA crossover is bearish
 
         # Condition 1: RSI overbought condition
-        rsi_sell_signal = rsi_signal == "overbought"
+        rsi_sell_signal: bool = rsi_signal == "overbought"
 
         # Condition 2: Bollinger overbought condition
-        bollinger_sell_signal = bollinger_signal == "overbought"
+        bollinger_sell_signal: bool = bollinger_signal == "overbought"
 
         # Condition 3: MA crossover is bearish
-        ma_crossover_sell_signal = signals.get("ma_crossover") == "bearish"
+        ma_crossover_sell_signal: bool = signals.get("ma_crossover") == "bearish"
 
         # Final decision: Any of the sell signals is True
         return rsi_sell_signal or bollinger_sell_signal or ma_crossover_sell_signal
@@ -353,18 +353,24 @@ class TradingStrategyService:
 
         try:
             # Execute sell transaction
-            transaction: TradingTransaction = (
-                TransactionService.create_sell_transaction(
-                    session=session,
-                    service_id=service.id,
-                    stock_symbol=service.stock_symbol,
-                    shares=service.current_shares,
-                    sale_price=current_price,
-                )
+            for t in service.transactions:
+                if t.state == TransactionState.OPEN.value:
+                    transaction: TradingTransaction = t
+                    break
+
+            if not transaction:
+                result["action"] = "none"
+                result["message"] = "No open transaction found"
+                return result
+
+            TransactionService.complete_transaction(
+                session=session,
+                transaction_id=transaction.id,
+                sale_price=current_price,
             )
 
             # Calculate total revenue
-            total_revenue = service.current_shares * current_price
+            total_revenue: float = service.current_shares * current_price
 
             result["action"] = "sell"
             result["shares_sold"] = service.current_shares
@@ -402,9 +408,9 @@ class TradingStrategyService:
             - Current price if validation passed
 
         """
-        result = {"success": False, "action": "none"}
-        close_prices = None
-        current_price = None
+        result: dict[str, any] = {"success": False, "action": "none"}
+        close_prices: list[float] | None = None
+        current_price: float | None = None
 
         # Service state validation
         if not bool(service.is_active) or not bool(service.state == "ACTIVE"):
@@ -423,17 +429,23 @@ class TradingStrategyService:
             result["message"] = "Insufficient price data for analysis"
         else:
             # Convert price history to list of float values
-            close_prices = [float(price.close_price) for price in price_history]
+            close_prices: list[float] = [
+                float(price.close_price) for price in price_history
+            ]
 
             # Get price analysis
-            price_analysis = TechnicalAnalysisService.get_price_analysis(close_prices)
+            price_analysis: dict[str, any] = (
+                TechnicalAnalysisService.get_price_analysis(
+                    close_prices,
+                )
+            )
 
             if not bool(price_analysis.get("has_data", False)):
                 result["message"] = "Insufficient price data for analysis"
                 return False, result, None, None
 
             # Get current price
-            current_price = price_analysis.get("latest_price")
+            current_price: float | None = price_analysis.get("latest_price")
             if not current_price:
                 result["message"] = "Could not determine current price"
                 return False, result, None, None
