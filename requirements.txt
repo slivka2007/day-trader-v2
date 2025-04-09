@@ -13,3 +13,5 @@ flask_jwt_extended>=4.0.0
 pytz>=2024.1
 types-pytz>=2024.1
 pytest>=7.0.0
+pandas>=2.0.0
+yfinance>=0.2.0

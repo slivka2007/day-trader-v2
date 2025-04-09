@@ -64,8 +64,6 @@ Key features include user authentication with role-based access control, real-ti
     - `errors.py` - Error handling utilities
     - `query_utils.py` - Database query utilities
     - `validators.py` - Input validation utilities
-  - `/deprecated` - Legacy code kept for reference
-    - Contains older implementations and experimental features
   - `/instance` - Instance-specific data
     - `database.sql` - Database schema SQL
     - `daytrader.db` - SQLite database file
