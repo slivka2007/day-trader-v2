@@ -116,6 +116,7 @@ class TradingTransaction(Base):
     service: Mapped[TradingService] = relationship(
         "TradingService",
         back_populates="transactions",
+        foreign_keys="TradingTransaction.service_id",
     )
     stock: Mapped[Stock | None] = relationship("Stock", back_populates="transactions")
 
@@ -232,6 +233,16 @@ class TradingTransaction(Base):
 
         """
         return self.state == TransactionState.CLOSED.value
+
+    @property
+    def is_open(self) -> bool:
+        """Check if the transaction is open.
+
+        Returns:
+            True if the transaction is open, False otherwise
+
+        """
+        return self.state == TransactionState.OPEN.value
 
     @property
     def is_profitable(self) -> bool:

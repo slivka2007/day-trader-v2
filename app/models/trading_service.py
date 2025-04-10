@@ -39,6 +39,7 @@ class TradingService(Base):
         id: Unique identifier for the service
         user_id: Foreign key to the user who owns this service
         stock_id: Foreign key to the stock being traded (nullable)
+        active_transaction_id: Foreign key to the currently active transaction
         name: Name for the service (max 100 chars)
         description: Optional description of the service
         stock_symbol: Symbol of the stock being traded (max 10 chars)
@@ -62,12 +63,14 @@ class TradingService(Base):
         user: Relationship to the user who owns this service
         stock: Relationship to the stock being traded (optional)
         transactions: Relationship to trading transactions (cascade delete)
+        active_transaction: Relationship to the currently active transaction
 
     Properties:
         can_buy: Whether the service can currently buy stocks
         can_sell: Whether the service can currently sell stocks
         is_profitable: Whether the service has a positive total gain/loss
         has_dependencies: Whether the service has any associated transactions
+        has_active_transaction: Whether the service has an active transaction
 
     """
 
@@ -86,6 +89,11 @@ class TradingService(Base):
     stock_id: Mapped[int | None] = Column(
         Integer,
         ForeignKey("stocks.id"),
+        nullable=True,
+    )
+    active_transaction_id: Mapped[int | None] = Column(
+        Integer,
+        ForeignKey("trading_transactions.id"),
         nullable=True,
     )
 
@@ -176,10 +184,16 @@ class TradingService(Base):
     #
     user: Mapped[User] = relationship("User", back_populates="services")
     stock: Mapped[Stock | None] = relationship("Stock", back_populates="services")
+    active_transaction: Mapped[TradingTransaction | None] = relationship(
+        "TradingTransaction",
+        back_populates="service",
+        foreign_keys="TradingService.active_transaction_id",
+    )
     transactions: Mapped[list[TradingTransaction]] = relationship(
         "TradingTransaction",
         back_populates="service",
         cascade="all, delete-orphan",
+        foreign_keys="TradingTransaction.service_id",
     )
 
     #
@@ -415,3 +429,13 @@ class TradingService(Base):
 
         """
         return self.transactions and len(self.transactions) > 0
+
+    @property
+    def has_active_transaction(self) -> bool:
+        """Check if the service has an active transaction.
+
+        Returns:
+            True if there is an active transaction, False otherwise
+
+        """
+        return self.active_transaction_id is not None

@@ -28,6 +28,7 @@ from app.utils.errors import (
     AuthorizationError,
     BusinessLogicError,
     ResourceNotFoundError,
+    TradingServiceError,
     TransactionError,
     ValidationError,
 )
@@ -514,6 +515,14 @@ class TransactionService:
                     ),
                 )
 
+            # Check if service already has an active transaction
+            if service.has_active_transaction:
+                TransactionService._raise_business_error(
+                    TradingServiceError.SERVICE_ALREADY_HAS_ACTIVE_TRANSACTION.format(
+                        service.active_transaction_id,
+                    ),
+                )
+
             # Find stock if it exists
             stock: Stock | None = session.execute(
                 select(Stock).where(Stock.symbol == stock_symbol.upper()),
@@ -537,8 +546,9 @@ class TransactionService:
             session.add(transaction)
 
             # Update service balance
-            service.current_balance = float(current_balance) - total_cost
+            service.current_balance = float(current_balance) - float(total_cost)
             service.updated_at = get_current_datetime()
+            service.active_transaction_id = transaction.id
 
             session.commit()
 
@@ -647,6 +657,9 @@ class TransactionService:
             gain_loss_amount = float(transaction.calculated_gain_loss)
             service.total_gain_loss = float(service.total_gain_loss) + gain_loss_amount
 
+            # Set active transaction to None
+            service.active_transaction_id = None
+
             session.commit()
 
             # Prepare response data
@@ -748,6 +761,10 @@ class TransactionService:
                 refund_amount,
             )
             service.updated_at = get_current_datetime()
+
+            # Set active transaction to None if this is the active transaction
+            if service.active_transaction_id == transaction.id:
+                service.active_transaction_id = None
 
             session.commit()
 

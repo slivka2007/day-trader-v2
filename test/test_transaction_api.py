@@ -171,34 +171,6 @@ class TestTransactionAPI:
         # Verify response indicates unauthorized
         assert response.status_code == ApiConstants.HTTP_UNAUTHORIZED
 
-    def test_create_transaction_authorized(self) -> None:
-        """Test creating a transaction with authentication."""
-        # Prepare test data
-        new_transaction_data: dict[str, object] = {
-            "service_id": self.test_service["id"],
-            "stock_symbol": self.test_stock["symbol"],
-            "shares": 5.0,
-            "purchase_price": 110.0,
-        }
-
-        # Make request to create transaction with authentication
-        response: Response = authenticated_request(
-            self.client,
-            "post",
-            self.base_url,
-            admin=False,
-            json=new_transaction_data,
-        )
-        data: dict[str, object] = response.get_json()
-
-        # Verify response
-        assert response.status_code == ApiConstants.HTTP_CREATED
-        assert data["service_id"] == new_transaction_data["service_id"]
-        assert data["stock_symbol"] == new_transaction_data["stock_symbol"]
-        assert data["shares"] == new_transaction_data["shares"]
-        assert data["purchase_price"] == new_transaction_data["purchase_price"]
-        assert data["state"] == TransactionState.OPEN.value
-
     def test_complete_transaction(self) -> None:
         """Test completing (selling) a transaction."""
         # Prepare complete (sell) data
@@ -231,6 +203,34 @@ class TestTransactionAPI:
         assert (
             abs(data["gain_loss"] - expected_profit) < FLOAT_COMPARISON_TOLERANCE
         )  # Allow for small floating point differences
+
+    def test_create_transaction_authorized(self) -> None:
+        """Test creating a transaction with authentication."""
+        # Prepare test data
+        new_transaction_data: dict[str, object] = {
+            "service_id": self.test_service["id"],
+            "stock_symbol": self.test_stock["symbol"],
+            "shares": 5.0,
+            "purchase_price": 110.0,
+        }
+
+        # Make request to create transaction with authentication
+        response: Response = authenticated_request(
+            self.client,
+            "post",
+            self.base_url,
+            admin=False,
+            json=new_transaction_data,
+        )
+        data: dict[str, object] = response.get_json()
+
+        # Verify response
+        assert response.status_code == ApiConstants.HTTP_CREATED
+        assert data["service_id"] == new_transaction_data["service_id"]
+        assert data["stock_symbol"] == new_transaction_data["stock_symbol"]
+        assert data["shares"] == new_transaction_data["shares"]
+        assert data["purchase_price"] == new_transaction_data["purchase_price"]
+        assert data["state"] == TransactionState.OPEN.value
 
     def test_cancel_transaction(self) -> None:
         """Test cancelling a transaction."""

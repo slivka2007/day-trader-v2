@@ -405,6 +405,9 @@ class TradingServiceError(ValidationError):
         "Cannot delete trading service with active transactions. Cancel or complete "
         "them first."
     )
+    SERVICE_ALREADY_HAS_ACTIVE_TRANSACTION: str = (
+        "Service already has an active transaction: {}"
+    )
     CANT_CHANGE_SYMBOL_WITH_SHARES: str = (
         "Cannot change stock symbol while holding shares"
     )
