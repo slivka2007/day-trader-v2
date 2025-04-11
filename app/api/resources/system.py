@@ -7,14 +7,10 @@ WebSocket documentation.
 
 from __future__ import annotations
 
-import platform
-import sys
-
-from flask import current_app, request
+from flask import request
 from flask_restx import Model, Namespace, OrderedModel, Resource, fields
 
-from app.services.events import EventService
-from app.utils.current_datetime import get_current_datetime
+from app.services.system_service import SystemService
 
 # Create namespace
 api: Namespace = Namespace("system", description="System information and operations")
@@ -97,23 +93,18 @@ class Health(Resource):
     @api.marshal_with(health_model)
     def get(self) -> dict[str, any]:
         """Get the current system health status."""
-        return {"status": "ok", "timestamp": get_current_datetime()}
+        return SystemService.get_health_status()
 
 
 @api.route("/info")
-class SystemInfo(Resource):
+class Info(Resource):
     """Resource for system information."""
 
-    @api.doc("get_system_info")
+    @api.doc("get_info")
     @api.marshal_with(info_model)
     def get(self) -> dict[str, any]:
-        """Get system information."""
-        return {
-            "python_version": sys.version.split()[0],
-            "platform": platform.system(),
-            "app_name": current_app.config.get("APP_NAME", "Day Trader API"),
-            "environment": current_app.config.get("ENVIRONMENT", "development"),
-        }
+        """Get information about the system environment."""
+        return SystemService.get_system_info()
 
 
 @api.route("/websocket-test")
@@ -125,19 +116,7 @@ class WebSocketTest(Resource):
     def post(self) -> dict[str, any]:
         """Test WebSocket functionality by emitting an event."""
         message: str = (request.json or {}).get("message", "Test WebSocket message")
-        timestamp: str = get_current_datetime().isoformat()
-
-        # Use EventService to emit the test event
-        EventService.emit_test(
-            message=message,
-            room="test",  # Use a dedicated test room
-        )
-
-        return {
-            "status": "ok",
-            "message": "WebSocket test event emitted",
-            "timestamp": timestamp,
-        }
+        return SystemService.test_websocket(message)
 
 
 @api.route("/websocket-docs")

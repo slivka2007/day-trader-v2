@@ -247,7 +247,7 @@ class Base(DeclarativeBase):
 
             # Check if field is allowed
             if key not in allowed_fields:
-                error_msg = BaseModelError.UPDATE_FIELD_ERROR.format(key)
+                error_msg: str = BaseModelError.UPDATE_FIELD_ERROR.format(key)
                 validation_errors[key] = error_msg
                 continue
 

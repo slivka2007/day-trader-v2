@@ -252,6 +252,14 @@ def register_stock_handlers(socketio: SocketIO) -> None:
         logger.debug("Client joined price updates room")
         emit("joined", {"room": room}, to=room)
 
+    @socketio.on("join_stocks")
+    @socketio_handler("join_stocks")
+    def join_stocks() -> None:
+        room: str = "stocks"
+        join_room(room)
+        logger.debug("Client joined stocks room")
+        emit("joined", {"room": room}, to=room)
+
 
 def register_user_handlers(socketio: SocketIO) -> None:
     """Register user-related event handlers."""
@@ -314,6 +322,102 @@ def register_system_handlers(socketio: SocketIO) -> None:
         emit("joined", {"room": room}, to=room)
 
 
+def register_transaction_handlers(socketio: SocketIO) -> None:
+    """Register transaction-related event handlers."""
+
+    @socketio.on("join_transactions")
+    @socketio_handler("join_transactions")
+    def join_transactions() -> None:
+        room: str = "transactions"
+        join_room(room)
+        logger.debug("Client joined transactions room")
+        emit("joined", {"room": room}, to=room)
+
+
+def register_metrics_handlers(socketio: SocketIO) -> None:
+    """Register metrics-related event handlers."""
+
+    @socketio.on("join_metrics")
+    @socketio_handler("join_metrics")
+    def join_metrics() -> None:
+        room: str = "metrics"
+        join_room(room)
+        logger.debug("Client joined metrics room")
+        emit("joined", {"room": room}, to=room)
+
+    @socketio.on("join_resource_metrics")
+    @socketio_handler("join_resource_metrics")
+    def join_resource_metrics(data: dict) -> None:
+        if (
+            not isinstance(data, dict)
+            or "resource_type" not in data
+            or "resource_id" not in data
+        ):
+            emit(
+                "error",
+                create_error_response(
+                    "Invalid resource metrics request",
+                    details={"required_fields": ["resource_type", "resource_id"]},
+                ),
+            )
+            return
+
+        resource_type: str = data["resource_type"]
+        resource_id: str = data["resource_id"]
+        room: str = f"{resource_type}_{resource_id}_metrics"
+        logger.info("Client joined resource metrics room: %s", room)
+        join_room(room)
+        emit("joined", {"room": room}, to=room)
+
+
+def register_database_handlers(socketio: SocketIO) -> None:
+    """Register database-related event handlers."""
+
+    @socketio.on("join_database_admin")
+    @socketio_handler("join_database_admin")
+    def join_database_admin() -> None:
+        room: str = "database_admin"
+        join_room(room)
+        logger.debug("Client joined database admin room")
+        emit("joined", {"room": room}, to=room)
+
+
+def register_error_handlers(socketio: SocketIO) -> None:
+    """Register error-related event handlers."""
+
+    @socketio.on("join_errors")
+    @socketio_handler("join_errors")
+    def join_errors() -> None:
+        room: str = "errors"
+        join_room(room)
+        logger.debug("Client joined errors room")
+        emit("joined", {"room": room}, to=room)
+
+
+def register_data_feed_handlers(socketio: SocketIO) -> None:
+    """Register data feed event handlers."""
+
+    @socketio.on("join_data_feeds")
+    @socketio_handler("join_data_feeds")
+    def join_data_feeds() -> None:
+        room: str = "data_feeds"
+        join_room(room)
+        logger.debug("Client joined data feeds room")
+        emit("joined", {"room": room}, to=room)
+
+
+def register_test_handlers(socketio: SocketIO) -> None:
+    """Register test event handlers."""
+
+    @socketio.on("join_test")
+    @socketio_handler("join_test")
+    def join_test() -> None:
+        room: str = "test"
+        join_room(room)
+        logger.debug("Client joined test room")
+        emit("joined", {"room": room}, to=room)
+
+
 def register_handlers(socketio: SocketIO) -> SocketIO:
     """Register all WebSocket event handlers."""
     register_connection_handlers(socketio)
@@ -322,6 +426,12 @@ def register_handlers(socketio: SocketIO) -> SocketIO:
     register_stock_handlers(socketio)
     register_user_handlers(socketio)
     register_system_handlers(socketio)
+    register_transaction_handlers(socketio)
+    register_metrics_handlers(socketio)
+    register_database_handlers(socketio)
+    register_error_handlers(socketio)
+    register_data_feed_handlers(socketio)
+    register_test_handlers(socketio)
 
     logger.info("WebSocket event handlers registered")
     return socketio

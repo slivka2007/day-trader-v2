@@ -10,6 +10,7 @@ from app.services.events import EventService
 from app.services.intraday_price_service import IntradayPriceService
 from app.services.session_manager import SessionManager
 from app.services.stock_service import StockService
+from app.services.system_service import SystemService
 from app.services.technical_analysis_service import TechnicalAnalysisService
 from app.services.trading_service import TradingServiceService
 from app.services.trading_strategy_service import TradingStrategyService
@@ -23,6 +24,7 @@ __all__: list[str] = [
     "IntradayPriceService",
     "SessionManager",
     "StockService",
+    "SystemService",
     "TechnicalAnalysisService",
     "TradingServiceService",
     "TradingStrategyService",

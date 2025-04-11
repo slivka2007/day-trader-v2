@@ -16,7 +16,8 @@ Key features include user authentication with role-based access control, real-ti
       - `__init__.py` - Resource registration and namespace initialization
       - `auth.py` - Authentication and authorization endpoints
       - `stocks.py` - Stock data management endpoints
-      - `stock_prices.py` - Price data management endpoints
+      - `daily_prices.py` - Daily price data management endpoints
+      - `intraday_prices.py` - Intraday price data management endpoints
       - `system.py` - System status and operations endpoints
       - `trading_services.py` - Trading service management endpoints
       - `trading_transactions.py` - Transaction tracking endpoints
@@ -24,12 +25,13 @@ Key features include user authentication with role-based access control, real-ti
     - `/schemas` - Marshmallow schemas for serialization/validation
       - `__init__.py` - Schema registration and common schema utilities
       - `stock.py` - Stock data serialization schemas
-      - `stock_price.py` - Price data serialization schemas
+      - `daily_price.py` - Daily price serialization schemas
+      - `intraday_price.py` - Intraday price serialization schemas
       - `trading_service.py` - Trading service serialization schemas
       - `trading_transaction.py` - Transaction serialization schemas
       - `user.py` - User data serialization schemas
-    - `/parsers` - Request parsers for API parameters
     - `__init__.py` - API initialization, pagination, filtering
+    - `error_handlers.py` - API error handling and responses
     - `sockets.py` - WebSocket handlers and event definitions
   - `/models` - SQLAlchemy ORM models
     - `__init__.py` - Model registration and imports
@@ -43,11 +45,14 @@ Key features include user authentication with role-based access control, real-ti
     - `user.py` - User account model
   - `/services` - Application services
     - `/data_providers` - External data source integrations
+      - `__init__.py` - Provider registration and imports
+      - `yfinance_provider.py` - Yahoo Finance data provider
     - `__init__.py` - Service registration and imports
+    - `backtest_service.py` - Strategy backtesting capabilities
     - `daily_price_service.py` - Daily price data operations
     - `intraday_price_service.py` - Intraday price data operations
-    - `price_service.py` - Combined price service interface
     - `technical_analysis_service.py` - Market analysis algorithms
+    - `trading_strategy_service.py` - Trading strategy implementations
     - `database.py` - Database connection management
     - `events.py` - Event emission service
     - `session_manager.py` - Database session management
@@ -55,7 +60,6 @@ Key features include user authentication with role-based access control, real-ti
     - `trading_service.py` - Trading service business logic
     - `transaction_service.py` - Transaction business logic
     - `user_service.py` - User account business logic
-  - `/tests` - Application tests directory
   - `/utils` - Utility modules
     - `__init__.py` - Utility registration and imports
     - `auth.py` - Authentication utilities
@@ -203,6 +207,7 @@ The application uses a relational database with the following core tables:
   - `id` (Integer, primary key)
   - `user_id` (Integer, ForeignKey to User, nullable=False)
   - `stock_id` (Integer, ForeignKey to Stock, nullable=True)
+  - `active_transaction_id` (Integer, ForeignKey to TradingTransaction, nullable=True)
   - `name` (String(100), nullable=False)
   - `description` (Text, nullable=True)
   - `stock_symbol` (String(10), nullable=False)
@@ -227,11 +232,13 @@ The application uses a relational database with the following core tables:
     - `user` (Many-to-One relationship to User)
     - `stock` (Many-to-One relationship to Stock, optional)
     - `transactions` (One-to-Many relationship to TradingTransaction, cascade="all, delete-orphan")
+    - `active_transaction` (Many-to-One relationship to TradingTransaction, optional)
   - Properties:
     - `can_buy` (Boolean, whether service can buy stocks)
     - `can_sell` (Boolean, whether service can sell stocks)
     - `is_profitable` (Boolean, whether service has positive gain/loss)
     - `has_dependencies` (Boolean, whether service has associated transactions)
+    - `has_active_transaction` (Boolean, whether service has an active transaction)
   - Validation methods:
     - `validate_stock_symbol()`: Validates stock symbol format
     - `validate_state()`: Validates service state enum value
@@ -262,6 +269,7 @@ The application uses a relational database with the following core tables:
     - `stock` (Many-to-One relationship to Stock, optional)
   - Properties:
     - `is_complete` (Boolean, whether transaction is completed)
+    - `is_open` (Boolean, whether transaction is open/active)
     - `is_profitable` (Boolean, whether transaction resulted in profit)
     - `can_be_cancelled` (Boolean, whether transaction can be cancelled)
     - `calculated_gain_loss` (Float, calculated gain/loss from prices)
@@ -303,6 +311,7 @@ The application uses the following Enumeration types to constrain field values:
   - `DELAYED`: Delayed price data (typically 15-20 minutes)
   - `SIMULATED`: Simulated or generated price data for testing
   - `HISTORICAL`: Historical price data from past periods
+  - `TEST`: Test data for development and testing purposes
 
 - **IntradayInterval**: Valid intervals for intraday price data
 
@@ -354,6 +363,7 @@ The service layer provides core infrastructure and cross-cutting concerns that b
   - Account creation, updates, and management
   - Password handling and security
   - Admin privilege management
+  - User search and filtering capabilities
 
 - **Stock Service**: Handles stock data operations
 
@@ -361,28 +371,69 @@ The service layer provides core infrastructure and cross-cutting concerns that b
   - Symbol-based lookups and validation
   - Stock status management and toggling
   - Stock search functionality
+  - Tracks stock dependencies (services and transactions)
 
-- **Price Service**: Manages price data for stocks
+- **Daily Price Service**: Manages daily stock price data
 
-  - Daily and intraday price record management
-  - Price history retrieval and date-range filtering
-  - Technical analysis calculations (moving averages, RSI, Bollinger Bands)
-  - Price trend analysis and forecasting
-  - Bulk import capabilities for historical data
+  - Daily price record management (CRUD operations)
+  - Historical price data retrieval with date-range filtering
+  - Data import from external providers
+  - Price trend analysis and basic forecasting
+  - Integration with Yahoo Finance for historical data
+
+- **Intraday Price Service**: Manages intraday stock price data
+
+  - Minute-by-minute price data management
+  - Real-time and delayed price updates
+  - Support for multiple time intervals (1m, 5m, 15m, 30m, 60m)
+  - Integration with Yahoo Finance for intraday data
+
+- **Technical Analysis Service**: Performs market data analysis
+
+  - Calculation of technical indicators (RSI, Bollinger Bands)
+  - Moving average calculations (short/medium/long-term)
+  - Market trend identification and pattern recognition
+  - Signal generation for trading decisions
+  - Support for custom analysis timeframes
 
 - **Trading Service**: Core service for trading operations
 
   - Trading service lifecycle management
-  - Trading strategy execution and decision making
-  - Buy/sell signal generation based on technical analysis
+  - Service state management (active, inactive, paused, error)
   - Performance tracking and metrics calculation
-  - Backtesting capabilities for strategy evaluation
+  - Account balance and allocation management
+  - Integration with stock and transaction services
+
+- **Trading Strategy Service**: Implements trading decision logic
+
+  - Configurable buy/sell condition evaluation
+  - Technical indicator-based decision making
+  - Strategy execution and trade signal generation
+  - Integration with technical analysis service
+  - Support for custom decision parameters (thresholds, allocation)
 
 - **Transaction Service**: Tracks trading transactions
+
   - Buy/sell transaction creation and management
   - Transaction completion and cancellation handling
   - Profit/loss calculation and reporting
-  - Transaction metrics and analytics
+  - Transaction search and filtering
+  - Historical transaction analysis
+
+- **Backtest Service**: Enables trading strategy evaluation
+
+  - Historical strategy performance simulation
+  - Performance metrics calculation (returns, drawdowns)
+  - Parameter optimization capabilities
+  - Trade simulation without affecting real balances
+  - Comparative strategy analysis
+
+- **Data Providers**: Integration with external market data sources
+  - Yahoo Finance integration for real-time and historical data
+  - Configurable data fetching parameters
+  - Error handling and retry logic
+  - Data transformation to internal model formats
+  - Support for multiple data granularities
 
 ### Service Layer Architecture
 
@@ -404,6 +455,7 @@ The application's backend API follows RESTful principles with a well-structured 
 - **REST API** (`/api/v1`): Built with Flask-RESTX, providing self-documenting endpoints with Swagger UI (`/api/v1/docs`)
 - **WebSockets**: Real-time notifications for data changes using Flask-SocketIO
 - **Authentication**: JWT-based authentication with protected endpoints requiring valid tokens
+- **Error Handling**: Standardized error handling and responses via error_handlers.py
 
 ### Resources (Endpoints)
 
@@ -427,11 +479,19 @@ The API organizes resources into logical namespaces:
   - Stock search and filtering capabilities
   - Stock status management
 
-- **Stock Prices** (`/api/v1/prices`):
+- **Daily Prices** (`/api/v1/daily_prices`):
 
-  - Daily and intraday price data retrieval
-  - Historical price data management
-  - Price data import and export
+  - End-of-day price data management
+  - Historical daily price retrieval and filtering
+  - Bulk import for daily price data
+  - Price trend and analysis
+
+- **Intraday Prices** (`/api/v1/intraday_prices`):
+
+  - Minute-by-minute price data management
+  - Real-time and delayed price updates
+  - Multi-interval price data (1m, 5m, 15m, 30m, 60m)
+  - Intraday price history and filtering
 
 - **Trading Services** (`/api/v1/services`):
 
@@ -508,7 +568,8 @@ The API emits events for model changes through rooms:
   - `join_services`: Watch all service events
   - `join_price_updates`: Watch all price updates
   - `join_transactions`: Watch all transaction events
-  - `join_system`: Watch system events
+  - `join_system`: Watch system events (optionally filtered by severity)
+  - `join_users`: Watch user account events (admin only)
 - **Data Events**:
   - `service:update`: Trading service update
   - `service:state_change`: Service state change
@@ -516,71 +577,7 @@ The API emits events for model changes through rooms:
   - `transaction:update`: Transaction updated
   - `transaction:complete`: Transaction completed
   - `price:update`: Price data update
-
-### Security
-
-- **Authentication**: JWT tokens for authentication
-  - Access tokens with short expiration
-  - Refresh tokens for extended sessions
-  - Token revocation capabilities
-- **Authorization**: Role-based access control
-  - User vs. Admin permissions
-  - Resource ownership validation
-  - Operation-specific permission checks
-- **Input Validation**: Prevents injection attacks
-- **Protected Endpoints**: Admin-only endpoints
-- **Error Handling**: Standardized security error responses
-
-### Integration Points
-
-- **Database-Service Integration**:
-
-  - Services interact with database models through SessionManager
-  - Database Service maintains schema definition, migrations, and connection pooling
-  - Service methods validate and enforce data integrity constraints before model operations
-  - Transaction-level consistency ensured by automatic commit/rollback mechanisms
-  - Each model has a dedicated service (`UserService`, `StockService`, etc.) implementing its business logic
-
-- **Service-API Integration**:
-
-  - API resources call appropriate service methods based on endpoint requirements
-  - Services return model instances that API schemas transform into JSON responses
-  - API layer handles HTTP-specific concerns while services remain transport-agnostic
-  - Service exceptions are mapped to appropriate HTTP status codes
-  - API authentication/authorization verified before delegating to service methods
-  - Marshmallow schemas validate input data before it reaches service methods
-
-- **Event-Driven Communication**:
-
-  - Service operations trigger WebSocket events via EventService after successful database updates
-  - EventService standardizes event formats and handles room-based targeting
-  - API layer establishes WebSocket connections and manages client subscriptions
-  - Model changes propagate to connected clients in real-time without polling
-  - Room-based event delivery ensures efficient notifications (e.g., `service_{id}`, `stock_{symbol}`)
-
-- **Cross-Cutting Concerns**:
-
-  - Error handling follows a consistent pattern across layers
-  - Authentication and authorization enforced at both API and service layers
-  - Date/time operations use centralized utilities for consistency
-  - Logging implemented across all layers with appropriate context
-
-- **Data Flow**:
-  1. Client sends request to API endpoint
-  2. API resource validates request data via schema
-  3. API resource calls appropriate service method(s)
-  4. Service executes business logic using database models
-  5. Service returns result to API resource
-  6. API resource serializes result via schema
-  7. API returns response to client
-  8. Service emits events for real-time updates
-  9. Connected clients receive updates via WebSocket
-
-This integration architecture provides:
-
-- **Clean Separation of Concerns**: Each layer has distinct responsibilities
-- **Consistent Transaction Handling**: All database operations use managed sessions
-- **Real-Time Reactivity**: Model changes propagate immediately via WebSocket events
-- **API Independence**: Services can be used by different interfaces
-- **Testability**: Each layer can be tested in isolation
-- **Scalability**: Clear boundaries between layers enable independent scaling
+  - `stock:update`: Stock data update
+  - `user:update`: User data update (restricted fields)
+  - `system:notification`: System-wide notification
+  - `error`: Error event with standardized format
